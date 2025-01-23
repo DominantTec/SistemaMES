@@ -134,7 +134,7 @@ def main():
     conn_ihm = None
 
     try:
-        config = carregar_configuracao('../Json/ihm_piloto.json')
+        config = carregar_configuracao('Json/ihm_piloto.json')
 
         conn_db = get_connection_db(config['banco']['conn_driver'], config['banco']['conn_server'], config['banco']['conn_database'])
         conn_ihm = get_connection_ihm(f"{config['ihm']['ip']}", config['ihm']['port'])
