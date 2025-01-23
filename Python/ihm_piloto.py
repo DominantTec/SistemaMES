@@ -71,12 +71,29 @@ def read_registers(config, conn_ihm):
         datetime_log_str = datetime.datetime.now().isoformat()
         print(f"{datetime_log_str} | falha ao capturar os dados da IHM: ", e)
 
-
 # Função para inserir os dados dos registradores no banco
 def insert_registers_values(conn_db, tabela, colunas, valores):
     if conn_db:
         try:
             cursor = conn_db.cursor()
+            
+            # Verificar se a tabela está vazia
+            query_count = f"SELECT COUNT(*) FROM {tabela}"
+            cursor.execute(query_count)
+            count = cursor.fetchone()
+
+            # Se a tabela estiver vazia, não há nada para comparar
+            if count[0] == 0:
+                datetime_log_str = datetime.datetime.now().isoformat()
+                print(f"{datetime_log_str} | A tabela {tabela} está vazia. Inserindo novo registro...")
+                
+                insert_string = f"INSERT INTO {tabela} ({colunas}) VALUES ({valores})"
+                cursor.execute(insert_string)
+                conn_db.commit()  # Salva a transação
+                
+                datetime_log_str = datetime.datetime.now().isoformat()
+                print(f"{datetime_log_str} | Dados inseridos com sucesso!")
+                return
 
             # Executar SELECT para obter os últimos valores
             query = f"SELECT TOP 1 {colunas} FROM {tabela} ORDER BY Id DESC"
@@ -86,10 +103,10 @@ def insert_registers_values(conn_db, tabela, colunas, valores):
             # Converter os valores do SELECT em uma string formatada
             if row:
                 valores_atuais = ', '.join(map(str, row))
+
                 datetime_log_str = datetime.datetime.now().isoformat()
                 print(f"{datetime_log_str} | Valores atuais no banco: {valores_atuais}")
-                datetime_log_str = datetime.datetime.now().isoformat()
-                print(f"{datetime_log_str} | Valores obtidos da IHM:  {valores}")
+                print(f"{datetime_log_str} | Valores obtidos da IHM: {valores}")
 
                 # Comparar com os valores desejados
                 if valores_atuais == valores:
@@ -98,27 +115,26 @@ def insert_registers_values(conn_db, tabela, colunas, valores):
                     return
                 else:
                     datetime_log_str = datetime.datetime.now().isoformat()
-                    print(f"{datetime_log_str} | Nenhum registro encontrado. Inserindo novo registro...")
+                    print(f"{datetime_log_str} | Alteração detectada. Inserindo novo registro...")
 
                     # Realizar o INSERT
-                    insert_string = f"""INSERT INTO {tabela} ({colunas}) 
-                        VALUES ({valores})"""
-                    cursor = conn_db.cursor()
-                    # Comando SQL para inserir dados
+                    insert_string = f"INSERT INTO {tabela} ({colunas}) VALUES ({valores})"
                     cursor.execute(insert_string)
                     conn_db.commit()  # Salva a transação
+
                     datetime_log_str = datetime.datetime.now().isoformat()
                     print(f"{datetime_log_str} | Dados inseridos com sucesso!")
         except Exception as e:
             datetime_log_str = datetime.datetime.now().isoformat()
             print(f"{datetime_log_str} | Erro ao executar a operação:", e)
 
+
 def main():
     conn_db = None
     conn_ihm = None
 
     try:
-        config = carregar_configuracao('Json/ihm_piloto.json')
+        config = carregar_configuracao('../Json/ihm_piloto.json')
 
         conn_db = get_connection_db(config['banco']['conn_driver'], config['banco']['conn_server'], config['banco']['conn_database'])
         conn_ihm = get_connection_ihm(f"{config['ihm']['ip']}", config['ihm']['port'])
