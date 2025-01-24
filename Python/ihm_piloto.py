@@ -48,16 +48,17 @@ def read_registers(config, conn_ihm):
 
         for registrador in registradores:
             colunas += f"{registrador['coluna_banco']}, "
-
             try:
                 resultado = conn_ihm.read_holding_registers(address=registrador['endereco'], count=1)
-                if not resultado.isError():
-                    valor_registrador = resultado.registers[0]
-                    valores += f"{str(valor_registrador)}, "
-                else:
-                    valores += "NULL, "
+                valor_registrador = resultado.registers[0]
+                valores += f"{str(valor_registrador)}, "
             except Exception as e:
-                valores += "NULL, "
+                if "[WinError 10054]" in str(e):
+                    datetime_log_str = datetime.datetime.now().isoformat()
+                    print(f"{datetime_log_str} | Conexão com a IHM perdida: {e}")
+                    raise ConnectionError("Conexão perdida com a IHM, identificado pelo erro [WinError 10054]")
+
+                valores += "None, "
                 datetime_log_str = datetime.datetime.now().isoformat()
                 print(f"{datetime_log_str} | Erro ao ler o registrador no endereço {registrador['endereco']}: {e}")
 
@@ -67,6 +68,8 @@ def read_registers(config, conn_ihm):
         datetime_log_str = datetime.datetime.now().isoformat()
         print(f"{datetime_log_str} | dados capturados da IHM com sucesso")
         return colunas, valores
+    except ConnectionError as ce:
+        raise ce
     except Exception as e:
         datetime_log_str = datetime.datetime.now().isoformat()
         print(f"{datetime_log_str} | falha ao capturar os dados da IHM: ", e)
@@ -87,7 +90,9 @@ def insert_registers_values(conn_db, tabela, colunas, valores):
                 datetime_log_str = datetime.datetime.now().isoformat()
                 print(f"{datetime_log_str} | A tabela {tabela} está vazia. Inserindo novo registro...")
                 
+                valores = valores.replace("None", "NULL")
                 insert_string = f"INSERT INTO {tabela} ({colunas}) VALUES ({valores})"
+                print(insert_string)
                 cursor.execute(insert_string)
                 conn_db.commit()  # Salva a transação
                 
@@ -118,7 +123,9 @@ def insert_registers_values(conn_db, tabela, colunas, valores):
                     print(f"{datetime_log_str} | Alteração detectada. Inserindo novo registro...")
 
                     # Realizar o INSERT
+                    valores = valores.replace("None", "NULL")
                     insert_string = f"INSERT INTO {tabela} ({colunas}) VALUES ({valores})"
+                    print(insert_string)
                     cursor.execute(insert_string)
                     conn_db.commit()  # Salva a transação
 
@@ -140,21 +147,37 @@ def main():
         conn_ihm = get_connection_ihm(f"{config['ihm']['ip']}", config['ihm']['port'])
 
         while True:
-            print("=====================================================================================")
+            try:
+                print("=====================================================================================")
 
-            hora_atual = datetime.datetime.now()
-            if hora_atual.hour == 13 and hora_atual.minute >= 5:
-                datetime_log_str = datetime.datetime.now().isoformat()
-                print(f"{datetime_log_str} | Horário limite alcançado, interrompendo o loop")
-                break
+                hora_atual = datetime.datetime.now()
+                if hora_atual.hour == 13 and hora_atual.minute >= 5:
+                    datetime_log_str = datetime.datetime.now().isoformat()
+                    print(f"{datetime_log_str} | Horário limite alcançado, interrompendo o loop")
+                    break
 
-            colunas, valores = read_registers(config, conn_ihm)
+                colunas, valores = read_registers(config, conn_ihm)
 
-            insert_registers_values(conn_db, config['ihm']['tabela'], colunas, valores)
+                insert_registers_values(conn_db, config['ihm']['tabela'], colunas, valores)
 
-            time.sleep(0.2)
+                time.sleep(0.2)
+            except ConnectionError as ce:
+                while True:
+                    datetime_log_str = datetime.datetime.now().isoformat()
+                    print(f"{datetime_log_str} | {ce}")
+                    print(f"{datetime_log_str} | Tentando reestabelecer conexão com a IHM...")
+                    conn_ihm = get_connection_ihm(f"{config['ihm']['ip']}", config['ihm']['port'])
+                    if str(conn_ihm) == f"ModbusTcpClient {config['ihm']['ip']}:{config['ihm']['port']}":
+                        print("conexão reestabelecida com sucesso")
+                        break
+                    else:
+                        print("Falha ao tentar reestabelecer a conexão")
+                        time.sleep(10)
+            except Exception as e:
+                raise e
+
     except Exception as e:
-        print(f"Erro na função principal: {e}")
+        print(f"EXECUÇÃO IMTERROMPIDA: Erro na função principal: {e}")
     finally:
         if conn_db:
             conn_db.close()
