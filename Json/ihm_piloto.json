@@ -1,13 +1,11 @@
 {
     "ihm": {
-      "ip": "192.168.10.123",
-      "port": 502,
-      "tabela": "piloto"
+      "id": 1
     },
     "banco": {
       "conn_driver": "{ODBC Driver 17 for SQL Server}",
       "conn_server": "DESKTOP-MFK5NBR\\SQLEXPRESS",
-      "conn_database": "IHM_Testes"
+      "conn_database": "IHM_Testes_2"
     },
     "registradores": [
       {
