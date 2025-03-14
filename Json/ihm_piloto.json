@@ -6,47 +6,5 @@
       "conn_driver": "{ODBC Driver 17 for SQL Server}",
       "conn_server": "DESKTOP-MFK5NBR\\SQLEXPRESS",
       "conn_database": "IHM_Testes_2"
-    },
-    "registradores": [
-      {
-        "endereco": 0,
-        "coluna_banco": "reg00"
-      },
-      {
-        "endereco": 1,
-        "coluna_banco": "reg01"
-      },
-      {
-        "endereco": 2,
-        "coluna_banco": "reg02"
-      },
-      {
-        "endereco": 3,
-        "coluna_banco": "reg03"
-      },
-      {
-        "endereco": 4,
-        "coluna_banco": "reg04"
-      },
-      {
-        "endereco": 5,
-        "coluna_banco": "reg05"
-      },
-      {
-        "endereco": 6,
-        "coluna_banco": "reg06"
-      },
-      {
-        "endereco": 7,
-        "coluna_banco": "reg07"
-      },
-      {
-        "endereco": 8,
-        "coluna_banco": "reg08"
-      },
-      {
-        "endereco": 9,
-        "coluna_banco": "reg09"
-      }
-    ]
+    }
   }
