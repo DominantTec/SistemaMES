@@ -7,21 +7,6 @@ from src.data_processor import insert_registers_values
 import datetime
 import time
 
-def test():
-    args = get_args()
-    logger.info("Iniciando monitoramento da IHM...")
-
-    config = load_config(args.config_path)
-
-    id_ihm = config['ihm']['id']
-    
-    conn_db = get_connection_db(config['banco']['conn_driver'], config['banco']['conn_server'], config['banco']['conn_database'])
-    conn_ihm = get_connection_ihm(id_ihm, conn_db)
-
-    values, insert_values = read_registers(id_ihm, conn_ihm, conn_db)
-
-    insert_registers_values(conn_db, values, insert_values)
-
 def main():
     conn_ihm = None
     conn_db = None
@@ -47,18 +32,22 @@ def main():
 
                 insert_registers_values(conn_db, values, insert_values)
 
-                time.sleep(0.2)
+                time.sleep(0.1)
             except ConnectionError as ce:
                 while True:
                     logger.info(f"{ce}")
                     logger.info("Tentando reestabelecer conexão com a IHM...")
-                    conn_ihm = get_connection_ihm(f"{config['ihm']['ip']}", config['ihm']['port'])
-                    if str(conn_ihm) == f"ModbusTcpClient {config['ihm']['ip']}:{config['ihm']['port']}":
-                        logger.info("conexão reestabelecida com sucesso")
-                        break
-                    else:
+                    conn_ihm = get_connection_ihm(id_ihm, conn_db)
+                    if conn_ihm == None:
                         logger.info("Falha ao tentar reestabelecer a conexão")
                         time.sleep(10)
+                    else:
+                        if str(conn_ihm) == f"ModbusTcpClient {config['ihm']['ip']}:{config['ihm']['port']}":
+                            logger.info("conexão reestabelecida com sucesso")
+                            break
+                        else:
+                            logger.info("Falha ao tentar reestabelecer a conexão")
+                            time.sleep(10)
             except Exception as e:
                 raise e
 
