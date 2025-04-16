@@ -19,6 +19,11 @@ def main():
         conn_db = get_connection_db(config['banco']['conn_driver'], config['banco']['conn_server'], config['banco']['conn_database'])
         conn_ihm = get_connection_ihm(id_ihm, conn_db)
 
+        while conn_ihm is None:
+            logger.info("Falha ao conectar com a IHM. Tentando novamente...")
+            time.sleep(10)
+            conn_ihm = get_connection_ihm(id_ihm, conn_db)
+
         while True:
             try:
                 logger.info("=====================================================================================")
@@ -38,16 +43,24 @@ def main():
                     logger.info(f"{ce}")
                     logger.info("Tentando reestabelecer conexão com a IHM...")
                     conn_ihm = get_connection_ihm(id_ihm, conn_db)
-                    if conn_ihm == None:
+
+                    if conn_ihm is None:
                         logger.info("Falha ao tentar reestabelecer a conexão")
                         time.sleep(10)
                     else:
-                        if str(conn_ihm) == f"ModbusTcpClient {config['ihm']['ip']}:{config['ihm']['port']}":
-                            logger.info("conexão reestabelecida com sucesso")
-                            break
-                        else:
-                            logger.info("Falha ao tentar reestabelecer a conexão")
-                            time.sleep(10)
+                        logger.info("Conexão reestabelecida com sucesso")
+                        break
+
+                    # if conn_ihm == None:
+                    #     logger.info("Falha ao tentar reestabelecer a conexão")
+                    #     time.sleep(10)
+                    # else:
+                    #     if str(conn_ihm) == f"ModbusTcpClient {ip_ihm}:{port_ihm}":
+                    #         logger.info("conexão reestabelecida com sucesso")
+                    #         break
+                    #     else:
+                    #         logger.info("Falha ao tentar reestabelecer a conexão")
+                    #         time.sleep(10)
             except Exception as e:
                 raise e
 

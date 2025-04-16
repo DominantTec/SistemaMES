@@ -25,7 +25,7 @@ def read_registers(id_ihm, conn_ihm, conn_db):
                 
                 insert_values += f"(@BatchID, {id_ihm}, {register.id}, NULL),"
                 values.append('None')
-                logger.info(f"Erro ao ler o registrador no endereço {register['endereco']}: {e}")
+                logger.info(f"Erro ao ler o registrador no endereço {register.endereco}: {e}")
 
         insert_values = insert_values[:-1]
 
@@ -56,6 +56,10 @@ def insert_registers_values(conn_db, values, insert_values):
 
                                     -- Obtém o próximo valor da SEQUENCE
                                     SET @BatchID = NEXT VALUE FOR LogBatchSequence;
+
+                                    -- Insere o batch_id na fila de processamento com status 0 (pendente)
+                                    INSERT INTO fila_batch_ids (batch_id, status)
+                                    VALUES (@BatchID, 0)
 
                                     -- Exemplo de inserção de dados nos logs
                                     INSERT INTO Logs_Registradores (batch_id, id_ihm, id_registrador, valor_bruto)
@@ -90,6 +94,13 @@ def insert_registers_values(conn_db, values, insert_values):
 
                                     -- Obtém o próximo valor da SEQUENCE
                                     SET @BatchID = NEXT VALUE FOR LogBatchSequence;
+
+                                    -- Insere o batch_id na fila de processamento com status 0 (pendente)
+                                    INSERT INTO fila_batch_ids (batch_id, status)
+                                    VALUES (@BatchID, 0)
+
+                                    INSERT INTO fila_paradas (batch_id, status)
+                                    VALUES (@BatchID, 0)
 
                                     -- Exemplo de inserção de dados nos logs
                                     INSERT INTO Logs_Registradores (batch_id, id_ihm, id_registrador, valor_bruto)

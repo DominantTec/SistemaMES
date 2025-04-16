@@ -18,6 +18,9 @@ def get_connection_ihm(id_ihm, conn_db):
         if client.connect():
             logger.info("Conexão com a ihm bem-sucedida!")
             return client
+        else:
+            logger.info(f"Falha ao conectar com a IHM {ip}:{port}")
+            return None
         
     except Exception as e:
         logger.info("Erro ao conectar ao IHM:", e)
