@@ -29,7 +29,7 @@ def main():
                 logger.info("=====================================================================================")
 
                 hora_atual = datetime.datetime.now()
-                if hora_atual.hour == 00 and hora_atual.minute >= 5:
+                if hora_atual.hour == 4 and hora_atual.minute >= 5:
                     logger.info("Horário limite alcançado, interrompendo o loop")
                     break
 
