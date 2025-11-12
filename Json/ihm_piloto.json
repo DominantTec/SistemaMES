@@ -4,7 +4,7 @@
     },
     "banco": {
       "conn_driver": "{ODBC Driver 17 for SQL Server}",
-      "conn_server": "DESKTOP-MFK5NBR\\SQLEXPRESS",
+      "conn_server": "tcp:127.0.0.1,1433",
       "conn_database": "IHM_Testes_2"
     }
   }
