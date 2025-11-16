@@ -133,8 +133,9 @@ for linha in linhas:
             detalhes_html = ""
 
         # Link da máquina (se quiser usar pra navegar depois)
-        params = urlencode({"maq": maq_id, "nome": nome_maquina})
-        link = f"?{params}"
+        params = urlencode({"maq_id": maq_id})
+        link = f"/machine?{params}"
+
 
         # Card branco com faixa colorida mais grossa
         cards_html += (
