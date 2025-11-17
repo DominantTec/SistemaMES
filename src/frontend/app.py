@@ -1,9 +1,17 @@
 import streamlit as st
-from services.db import run_query
 from urllib.parse import urlencode
 
-st.set_page_config(page_title="Visão Geral MES", layout="wide")
+from services.queries import (
+    get_active_lines,
+    get_active_machines,
+    get_metrics_machine
+)
 
+
+# ======================================================
+#  CONFIG STREAMLIT
+# ======================================================
+st.set_page_config(page_title="Visão Geral MES", layout="wide")
 st.title("🏭 Visão Geral da Produção")
 
 # Paleta de cores dos status
@@ -15,27 +23,28 @@ STATUS_COLORS = {
     "sem status": "#3d3d3d",
 }
 
+
 def normalizar_status(status):
     if not status:
         return "sem status"
     return status.strip().lower()
 
+
 # ======================================================
-#  Controle de expansão (session_state)
+#  CONTROLE DE EXPANSÃO VIA session_state
 # ======================================================
 if "linha_expandida" not in st.session_state:
     st.session_state["linha_expandida"] = None  # vamos guardar como string
 
 
 # ======================================================
-# 1️⃣ PROCESSAR CLIQUE (antes de renderizar a página)
+#  PROCESSA CLIQUE DO USUÁRIO ANTES DE RENDERIZAR
 # ======================================================
 query = st.query_params
 
 if "toggle_linha" in query:
-    clicked = str(query["toggle_linha"])  # garante string
+    clicked = str(query["toggle_linha"])
 
-    # alterna expandir / retrair
     if st.session_state["linha_expandida"] == clicked:
         st.session_state["linha_expandida"] = None
     else:
@@ -46,9 +55,9 @@ if "toggle_linha" in query:
 
 
 # ======================================================
-# 2️⃣ RENDERIZAR LISTA DE LINHAS
+#  RENDERIZAR LISTA DE LINHAS DE PRODUÇÃO
 # ======================================================
-linhas = run_query("SELECT id, nome FROM linhas_producao ORDER BY id")
+linhas = get_active_lines()
 
 for linha in linhas:
     linha_id_raw = linha["id"]
@@ -62,74 +71,41 @@ for linha in linhas:
     # Cabeçalho clicável
     st.markdown(
         f"""<a href="?{toggle_params}" target="_self" style="text-decoration:none;">
-<h3 style="cursor:pointer; color:white; margin-bottom:5px;">
-  {'🔽' if expandida else '▶️'} {linha_nome}
-</h3>
-</a>""",
+        <h3 style="cursor:pointer; color:white; margin-bottom:5px;">
+          {'🔽' if expandida else '▶️'} {linha_nome}
+        </h3>
+        </a>""",
         unsafe_allow_html=True,
     )
 
+    # ======================================================
+    #  CARREGAR MÁQUINAS ATIVAS
+    # ======================================================
+    maquinas = get_active_machines(linha_id_raw)
 
-    # ======================================================
-    #  Carregar máquinas desta linha
-    # ======================================================
-    maquinas = run_query(
-        "SELECT id, nome_maquina FROM ihms WHERE id_linha_producao = ? ORDER BY id",
-        [linha_id_raw],
+    cards_html = (
+        '<div style="display:block; overflow-x:auto; white-space:nowrap; '
+        'padding-bottom:10px;">'
     )
-
-    cards_html = '<div style="display:block; overflow-x:auto; white-space:nowrap; padding-bottom:10px;">'
 
     for maq in maquinas:
         maq_id_raw = maq["id"]
-        maq_id = str(maq_id_raw)
         nome_maquina = maq["nome_maquina"]
 
-        # ================================
-        # 🔍 ÚLTIMO REGISTRO DA MÁQUINA
-        # ================================
-        ultimo = run_query(
-            """
-            SELECT TOP 1
-                status_maquina,
-                meta,
-                produzido,
-                reprovado,
-                total_produzido,
-                operador,
-                manutentor
-            FROM maqteste_status_geral
-            WHERE id_ihm = ?
-            ORDER BY datahora DESC
-            """,
-            [maq_id_raw],
-        )
-
-        if ultimo:
-            ultimo = ultimo[0]
-        else:
-            ultimo = {
-                "status_maquina": "sem status",
-                "meta": "--",
-                "produzido": 0,
-                "reprovado": 0,
-                "total_produzido": 0,
-                "operador": "--",
-                "manutentor": "--",
-            }
+        # Carregar métricas da máquina
+        ultimo = get_metrics_machine(maq_id_raw)
 
         # Normalizar status
         status = normalizar_status(ultimo["status_maquina"])
         meta = ultimo["meta"]
-        acumulado = ultimo["total_produzido"]  # acumulado real
         operador = ultimo["operador"]
         manutentor = ultimo["manutentor"]
 
         color = STATUS_COLORS.get(status, "#d9d9d9")
 
-        # ================================
-        # 🔽 DETALHES EXIBIDOS NA EXPANSÃO
-        # ================================
+        # ======================================================
+        #  DETALHES MOSTRADOS SOMENTE QUANDO EXPANDIDO
+        # ======================================================
         if expandida:
             detalhes_html = f"""
                 <div style="margin-top:10px; text-align:left; color:black; font-size:12px;">
@@ -148,15 +124,14 @@ for linha in linhas:
         else:
             detalhes_html = ""
 
-        # ================================
-        # 👉 LINK PARA A PÁGINA /machine
-        # ================================
-        params = urlencode({"maq_id": maq_id})
-        link = f"/machine?{params}"
+        # ======================================================
+        #  LINK PARA A PÁGINA /machine
+        # ======================================================
+        link = f"/machine?{urlencode({'maq_id': str(maq_id_raw)})}"
 
-        # ================================
-        # 🎨 CARD DA MÁQUINA
-        # ================================
+        # ======================================================
+        #  CARD DA MÁQUINA
+        # ======================================================
         cards_html += (
             f'<a href="{link}" target="_self" '
             'style="text-decoration:none; display:inline-block; margin-right:15px;">'
