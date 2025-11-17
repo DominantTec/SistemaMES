@@ -116,3 +116,32 @@ def insert_registers_values(conn_db, values, insert_values):
             logger.info(f"Erro ao executar a operação:", e)
     else:
         raise ConnectionError("Conexão com o banco inválida passada por parametro na função insert_registers_values.")
+    
+    def get_metrics_machine(df_timeline, machine='MAQ1', time_window=None):
+    # Return Mock data
+        if machine == 'MAQ1':
+            qualidade = 0.5
+            eficiencia = 0.6
+            meta = 200
+            acumulado = 98
+            operador = 'fulano'
+            manutentor = 'siclano'
+            status = 'parada'
+        elif machine == 'MAQ2':
+            qualidade = 0.7
+            eficiencia = 0.8
+            meta = 200
+            acumulado = 135
+            operador = 'fulano'
+            manutentor = 'siclano'
+            status = 'parada'
+
+    # OEE, Qualidade, Eficiencia, Meta, Acumulado, Operador, Manutentor, Status
+    return {"OEE": qualidade*eficiencia
+            ,"qualidade": qualidade
+            ,"eficiencia": eficiencia
+            ,"meta": meta
+            ,"acumulado": acumulado
+            ,"operador": operador
+            ,"manutentor": manutentor
+            ,"status": status}
