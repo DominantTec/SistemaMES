@@ -38,14 +38,14 @@ pip install -r requirements.txt
 
 # 2. Suba a base de dados
 
-Faça uma cópia do arquivo `.env.example` e troque o nome da cópia para `.env`.
+No repositório `/src`, faça uma cópia do arquivo `.env.example` e troque o nome da cópia para `.env`.
 Nesse arquivo insira uma senha para seu usuário administrador, lembre-se que a senha tem que seguir os critérios do SQL Server.
 Exemplo de senha `Str0ng!Passw0rd2025`.
 
 Entre na pasta `/src` e rode o seguinte comando para subir a base de dados com o docker:
 
 ```bash
-docker compose --env-file ../.env up --build
+docker compose up --build
 ```
 
 # 3. Abrir o tunelamento para IHM's
@@ -62,8 +62,8 @@ Na lista de conexões, verifique se os `Status` estão `Online`.
 
 # 4. Rodando o monitoramento
 
-Para rodar o monitoramento execute o seguinte comando:
+Para rodar o monitoramento, garanta que você está com o `venv` ativo e na raiz do projeto execute o seguinte comando:
 
 ```bash
-python -m src.main "caminho_do_seu_json_config_file"
+python -m src.monitoramento.main
 ```
