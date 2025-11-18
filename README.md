@@ -21,7 +21,7 @@ virtualenv .\venv -p python312
 Ative o ambiente:
 
 ```bash
-source venv\Scripts\activate
+venv\Scripts\activate
 ```
 
 Atualize a versão do pip:
@@ -45,7 +45,7 @@ Exemplo de senha `Str0ng!Passw0rd2025`.
 Rode o seguinte comando para subir a base de dados com o docker:
 
 ```bash
-docker compose up
+docker compose up --env-file ../.env --build
 ```
 
 # 3. Abrir o tunelamento para IHM's
