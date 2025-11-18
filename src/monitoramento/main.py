@@ -1,11 +1,12 @@
 from src.monitoramento.logger import logger
-from src.monitoramento.config import load_config, get_args
 from src.monitoramento.database import get_connection_db
 from src.monitoramento.ihm_client import get_connection_ihm
 from src.monitoramento.data_processor import read_registers
 from src.monitoramento.data_processor import insert_registers_values
 import datetime
 import time
+from dotenv import load_dotenv
+import os
 
 
 def main():
@@ -13,12 +14,16 @@ def main():
     conn_db = None
 
     try:
-
-        args = get_args()
-        config = load_config(args.config_path)
-        id_ihm = config['ihm']['id']
-        conn_db = get_connection_db(
-            config['banco']['conn_driver'], config['banco']['conn_server'], config['banco']['conn_database'])
+        if load_dotenv():
+            logger.info("Variáveis carregadas com sucesso! (main)")
+        else:
+            logger.error("Variáveis não carregadas! (main)")
+        # args = get_args()
+        # config = load_config(args.config_path)
+        # id_ihm = config['ihm']['id']
+        ids_ihm = str(os.environ['IHMS']).split(',')
+        id_ihm = ids_ihm[0]
+        conn_db = get_connection_db()
         conn_ihm = get_connection_ihm(id_ihm, conn_db)
 
         while conn_ihm is None:
