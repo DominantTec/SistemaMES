@@ -42,10 +42,10 @@ Faça uma cópia do arquivo `.env.example` e troque o nome da cópia para `.env`
 Nesse arquivo insira uma senha para seu usuário administrador, lembre-se que a senha tem que seguir os critérios do SQL Server.
 Exemplo de senha `Str0ng!Passw0rd2025`.
 
-Rode o seguinte comando para subir a base de dados com o docker:
+Entre na pasta `/src` e rode o seguinte comando para subir a base de dados com o docker:
 
 ```bash
-docker compose up --env-file ../.env --build
+docker compose --env-file ../.env up --build
 ```
 
 # 3. Abrir o tunelamento para IHM's
