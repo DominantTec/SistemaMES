@@ -1,5 +1,5 @@
 from pymodbus.client import ModbusTcpClient
-from src.logger import logger
+from src.monitoramento.logger import logger
 
 
 def get_connection_ihm(id_ihm, conn_db):

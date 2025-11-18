@@ -1,11 +1,12 @@
-from src.logger import logger
-from src.config import load_config, get_args
-from src.database import get_connection_db
-from src.ihm_client import get_connection_ihm
-from src.data_processor import read_registers
-from src.data_processor import insert_registers_values
+from src.monitoramento.logger import logger
+from src.monitoramento.config import load_config, get_args
+from src.monitoramento.database import get_connection_db
+from src.monitoramento.ihm_client import get_connection_ihm
+from src.monitoramento.data_processor import read_registers
+from src.monitoramento.data_processor import insert_registers_values
 import datetime
 import time
+
 
 def main():
     conn_ihm = None
@@ -16,7 +17,8 @@ def main():
         args = get_args()
         config = load_config(args.config_path)
         id_ihm = config['ihm']['id']
-        conn_db = get_connection_db(config['banco']['conn_driver'], config['banco']['conn_server'], config['banco']['conn_database'])
+        conn_db = get_connection_db(
+            config['banco']['conn_driver'], config['banco']['conn_server'], config['banco']['conn_database'])
         conn_ihm = get_connection_ihm(id_ihm, conn_db)
 
         while conn_ihm is None:
@@ -26,14 +28,17 @@ def main():
 
         while True:
             try:
-                logger.info("=====================================================================================")
+                logger.info(
+                    "=====================================================================================")
 
                 hora_atual = datetime.datetime.now()
                 if hora_atual.hour == 4 and hora_atual.minute >= 5:
-                    logger.info("Horário limite alcançado, interrompendo o loop")
+                    logger.info(
+                        "Horário limite alcançado, interrompendo o loop")
                     break
 
-                values, insert_values = read_registers(id_ihm, conn_ihm, conn_db)
+                values, insert_values = read_registers(
+                    id_ihm, conn_ihm, conn_db)
 
                 insert_registers_values(conn_db, values, insert_values)
 
@@ -64,7 +69,6 @@ def main():
             except Exception as e:
                 raise e
 
-
     except Exception as e:
         logger.info(f"EXECUÇÃO IMTERROMPIDA: Erro na função principal: {e}")
     finally:
@@ -72,6 +76,7 @@ def main():
             conn_db.close()
         if conn_ihm:
             conn_ihm.close()
+
 
 if __name__ == "__main__":
     main()

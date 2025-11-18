@@ -1,6 +1,8 @@
-from src.logger import logger
+from src.monitoramento.logger import logger
 
 # Função para ler os registradores e montar a string de insert no banco de dados
+
+
 def read_registers(id_ihm, conn_ihm, conn_db):
     try:
         insert_values = ""
@@ -21,17 +23,20 @@ def read_registers(id_ihm, conn_ihm, conn_db):
                 insert_values += f"(@BatchID, {id_ihm}, {register.id}, {valor_registrador}),"
                 values.append(valor_registrador)
 
-                logger.info(f"{register.endereco}   |   {valor_registrador}   |   {register.descricao}")
+                logger.info(
+                    f"{register.endereco}   |   {valor_registrador}   |   {register.descricao}")
 
             except Exception as e:
                 # Perda de conexão Modbus (erro 10054)
                 if "[WinError 10054]" in str(e):
                     logger.info(f"Conexão com a IHM perdida: {e}")
-                    raise ConnectionError("Conexão perdida com a IHM, identificado pelo erro [WinError 10054]")
+                    raise ConnectionError(
+                        "Conexão perdida com a IHM, identificado pelo erro [WinError 10054]")
 
                 insert_values += f"(@BatchID, {id_ihm}, {register.id}, NULL),"
                 values.append(None)
-                logger.info(f"Erro ao ler o registrador no endereço {register.endereco}: {e}")
+                logger.info(
+                    f"Erro ao ler o registrador no endereço {register.endereco}: {e}")
 
         insert_values = insert_values[:-1]  # remove última vírgula
         return values, insert_values
@@ -45,7 +50,8 @@ def read_registers(id_ihm, conn_ihm, conn_db):
 # Função para inserir os dados no banco de dados
 def insert_registers_values(conn_db, values, insert_values):
     if not conn_db:
-        raise ConnectionError("Conexão com o banco inválida passada por parâmetro na função insert_registers_values.")
+        raise ConnectionError(
+            "Conexão com o banco inválida passada por parâmetro na função insert_registers_values.")
 
     try:
         cursor = conn_db.cursor()
@@ -57,7 +63,8 @@ def insert_registers_values(conn_db, values, insert_values):
 
         # Tabela vazia → inserir primeiro registro sem comparação
         if count[0] == 0:
-            logger.info("A tabela logs_registradores está vazia. Inserindo novo registro...")
+            logger.info(
+                "A tabela logs_registradores está vazia. Inserindo novo registro...")
 
             insert_log_string = f"""
                 DECLARE @BatchID BIGINT;
