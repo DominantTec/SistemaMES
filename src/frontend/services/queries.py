@@ -6,6 +6,7 @@ import streamlit as st
 #  CACHED QUERIES (muito importante p/ Streamlit)
 # -----------------------------------------------------------
 
+
 @st.cache_data(ttl=10)
 def get_active_lines() -> List[Dict[str, Any]]:
     return run_query("""

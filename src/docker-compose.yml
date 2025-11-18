@@ -1,0 +1,43 @@
+services:
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: mssql-server
+    ports:
+      - 1433:1433
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=${MSSQL_SA_PASSWORD}
+    volumes:
+      - mssql-data:/var/opt/mssql
+      - ../init.sql:/scripts/init.sql:ro
+      - ../entrypoint.sh:/usr/src/entrypoint.sh:ro
+    env_file:
+      - ../.env
+    entrypoint: ["/bin/bash", "/usr/src/entrypoint.sh"]
+    # restart: always
+    networks:
+      - network1
+
+  frontend:
+    build:
+      network: host
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "8501:8501"
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    command: streamlit run app.py --server.port=8501 --server.address=0.0.0.0
+    volumes:
+      - ./frontend:/app
+    networks:
+      - network1
+
+networks:
+  network1:
+    external: true
+    name: docker-host-bridge
+
+volumes:
+  mssql-data:
