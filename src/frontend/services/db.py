@@ -1,17 +1,11 @@
 import os
 import pyodbc
-from pathlib import Path
-from dotenv import load_dotenv
 
-# === Carregar .env na raiz do projeto ===
-ROOT_DIR = Path(__file__).resolve().parents[3]
-ENV_PATH = ROOT_DIR / ".env"
-load_dotenv(ENV_PATH)
 
 def get_connection():
     """Retorna conexão com SQL Server usando variáveis do .env."""
     try:
-        driver = "{ODBC Driver 17 for SQL Server}"
+        driver = "{FreeTDS}"
         server = f"{os.getenv('DB_HOST')},{os.getenv('DB_PORT')}"
         database = os.getenv("DB_NAME")
         user = os.getenv("DB_USER")
@@ -32,7 +26,9 @@ def get_connection():
         return conn
 
     except Exception as e:
-        raise Exception(f"Erro ao conectar ao banco: {e}\nConnection string: {connection_string}")
+        raise Exception(
+            f"Erro ao conectar ao banco: {e}\nConnection string: {connection_string}")
+
 
 def run_query(sql, params=None):
     """Executa um SELECT e retorna lista de dicts."""
