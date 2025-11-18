@@ -18,9 +18,6 @@ def main():
             logger.info("Variáveis carregadas com sucesso! (main)")
         else:
             logger.error("Variáveis não carregadas! (main)")
-        # args = get_args()
-        # config = load_config(args.config_path)
-        # id_ihm = config['ihm']['id']
         ids_ihm = str(os.environ['IHMS']).split(',')
         id_ihm = ids_ihm[0]
         conn_db = get_connection_db()
