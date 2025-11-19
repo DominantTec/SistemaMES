@@ -1,5 +1,7 @@
 import os
-import pyodbc
+import pandas as pd
+from sqlalchemy import create_engine, text
+from urllib.parse import quote_plus
 
 
 def get_connection():
@@ -21,9 +23,11 @@ def get_connection():
             "Encrypt=no;"
         )
 
-        # Teste de conexão
-        conn = pyodbc.connect(connection_string, timeout=3)
-        return conn
+        connection_url = f"mssql+pyodbc:///?odbc_connect={quote_plus(connection_string)}"
+
+        engine = create_engine(connection_url)
+
+        return engine
 
     except Exception as e:
         raise Exception(
@@ -31,19 +35,10 @@ def get_connection():
 
 
 def run_query(sql, params=None):
-    """Executa um SELECT e retorna lista de dicts."""
-    conn = get_connection()
-    cursor = conn.cursor()
-
+    """Executa um SELECT e retorna um dataframe."""
     try:
-        cursor.execute(sql, params or [])
-        columns = [col[0] for col in cursor.description]
-        rows = cursor.fetchall()
-        return [dict(zip(columns, row)) for row in rows]
-
+        engine = get_connection()
+        df = pd.read_sql(text(sql), engine, params=params)
+        return df
     except Exception as e:
         raise Exception(f"Erro ao executar query: {e}\nSQL: {sql}")
-
-    finally:
-        cursor.close()
-        conn.close()

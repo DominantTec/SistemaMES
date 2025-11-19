@@ -59,8 +59,8 @@ if "toggle_linha" in query:
 # ======================================================
 linhas = get_active_lines()
 
-for linha in linhas:
-    linha_id_raw = linha["id"]
+for i, linha in linhas.iterrows():
+    linha_id_raw = linha['id']
     linha_id = str(linha_id_raw)
     linha_nome = linha["nome"]
 
@@ -88,7 +88,7 @@ for linha in linhas:
         'padding-bottom:10px;">'
     )
 
-    for maq in maquinas:
+    for m, maq in maquinas.iterrows():
         maq_id_raw = maq["id"]
         nome_maquina = maq["nome_maquina"]
 

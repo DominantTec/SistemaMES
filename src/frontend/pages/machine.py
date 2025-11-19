@@ -22,14 +22,14 @@ maq_id = int(maq_id)
 info_ihm = run_query("""
     SELECT nome_maquina
     FROM ihms
-    WHERE id = ?
-""", [maq_id])
+    WHERE id = :id
+""", {"id": maq_id})
 
-if not info_ihm:
+if len(info_ihm) == 0:
     st.error("Máquina não encontrada.")
     st.stop()
 
-nome_maquina = info_ihm[0]["nome_maquina"]
+nome_maquina = info_ihm["nome_maquina"][0]
 
 st.title(f"🖥️{nome_maquina}")
 
@@ -39,7 +39,8 @@ st.title(f"🖥️{nome_maquina}")
 agora = datetime.now()
 
 if agora.time() < time(8, 0):
-    turno_inicio_default = (agora - timedelta(days=1)).replace(hour=8, minute=0, second=0)
+    turno_inicio_default = (agora - timedelta(days=1)
+                            ).replace(hour=8, minute=0, second=0)
 else:
     turno_inicio_default = agora.replace(hour=8, minute=0, second=0)
 
@@ -115,20 +116,20 @@ st.write("## 🥧 Distribuição de Status da Máquina")
 registros = run_query("""
     SELECT datahora, status_maquina
     FROM maqteste_status_geral
-    WHERE id_ihm = ?
-      AND datahora BETWEEN ? AND ?
+    WHERE id_ihm = :maq_id
+      AND datahora BETWEEN :data_inicio AND :data_fim
     ORDER BY datahora
-""", [maq_id, data_inicio, data_fim])
+""", {"maq_id": maq_id, "data_inicio": data_inicio, "data_fim": data_fim})
 
-if not registros or len(registros) < 2:
+if len(registros) < 2:
     st.warning("⚠ Não há registros suficientes no período para montar o gráfico.")
 else:
     # dict status -> minutos
     tempos = {}
 
     for i in range(len(registros) - 1):
-        atual = registros[i]
-        proximo = registros[i + 1]
+        atual = registros.loc[i]
+        proximo = registros.loc[i + 1]
 
         status = atual["status_maquina"]
         t1 = atual["datahora"]
@@ -138,8 +139,9 @@ else:
         tempos[status] = tempos.get(status, 0) + duracao_min
 
     # Último registro
-    ultimo_status = registros[-1]["status_maquina"]
-    duracao_ultimo = (data_fim - registros[-1]["datahora"]).total_seconds() / 60
+    ultimo_status = registros["status_maquina"][-1]
+    duracao_ultimo = (
+        data_fim - registros["datahora"][-1]).total_seconds() / 60
     tempos[ultimo_status] = tempos.get(ultimo_status, 0) + duracao_ultimo
 
     # converter em DataFrame
@@ -161,18 +163,18 @@ else:
     }
 
     st.vega_lite_chart(df, pie_chart_spec, use_container_width=True)
-    
+
     st.write("## 🟦 Timeline de Status da Máquina")
 
-if not registros or len(registros) < 2:
+if len(registros) < 2:
     st.warning("⚠ Não há registros suficientes para gerar timeline.")
 else:
     # Construir intervalos
     timeline_rows = []
 
     for i in range(len(registros) - 1):
-        atual = registros[i]
-        proximo = registros[i + 1]
+        atual = registros.loc[i]
+        proximo = registros.loc[i + 1]
 
         timeline_rows.append({
             "status": atual["status_maquina"],
@@ -182,8 +184,8 @@ else:
 
     # último registro dura até o final do período
     timeline_rows.append({
-        "status": registros[-1]["status_maquina"],
-        "inicio": registros[-1]["datahora"],
+        "status": registros["status_maquina"][-1],
+        "inicio": registros["datahora"][-1],
         "fim": data_fim
     })
 
@@ -219,15 +221,15 @@ META = 110
 registro_final = run_query("""
     SELECT TOP 1 total_produzido
     FROM maqteste_status_geral
-    WHERE id_ihm = ?
-      AND datahora BETWEEN ? AND ?
+    WHERE id_ihm = :maq_id
+      AND datahora BETWEEN :data_inicio AND :data_fim
     ORDER BY datahora DESC
-""", [maq_id, data_inicio, data_fim])
+""", {"maq_id": maq_id, "data_inicio": data_inicio, "data_fim": data_fim})
 
-if not registro_final:
+if len(registro_final) == 0:
     st.warning("Não há dados suficientes no período para gerar o gráfico.")
 else:
-    total_realizado = registro_final[0]["total_produzido"]
+    total_realizado = registro_final["total_produzido"][0]
 
     # Calcular percentual (0 a 100)
     percentual = min((total_realizado / META) * 100, 100)

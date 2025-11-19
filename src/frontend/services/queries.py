@@ -2,10 +2,6 @@ from services.db import run_query
 from typing import List, Dict, Any
 import streamlit as st
 
-# -----------------------------------------------------------
-#  CACHED QUERIES (muito importante p/ Streamlit)
-# -----------------------------------------------------------
-
 
 @st.cache_data(ttl=10)
 def get_active_lines() -> List[Dict[str, Any]]:
@@ -21,9 +17,9 @@ def get_active_machines(line_id: int) -> List[Dict[str, Any]]:
     return run_query("""
         SELECT id, nome_maquina
         FROM ihms
-        WHERE id_linha_producao = ?
+        WHERE id_linha_producao = :id
         ORDER BY id
-    """, [line_id])
+    """, {"id": line_id})
 
 
 @st.cache_data(ttl=2)
@@ -39,11 +35,11 @@ def get_metrics_machine(machine_id: int) -> Dict[str, Any]:
             manutentor,
             datahora
         FROM maqteste_status_geral
-        WHERE id_ihm = ?
+        WHERE id_ihm = :id
         ORDER BY datahora DESC
-    """, [machine_id])
+    """, {"id": machine_id})
 
-    if not rows:
+    if len(rows) == 0:
         return {
             "status_maquina": "sem status",
             "meta": "--",
@@ -54,4 +50,4 @@ def get_metrics_machine(machine_id: int) -> Dict[str, Any]:
             "manutentor": "--",
         }
 
-    return rows[0]
+    return rows.loc[0].to_dict()
