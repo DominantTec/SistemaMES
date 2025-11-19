@@ -38,6 +38,16 @@ pip install -r requirements.txt
 
 # 2. Suba a base de dados
 
+## 2.1 Bridge
+
+Na primeira vez é necessário construir uma bridge do docker, para isso use o comando:
+
+```bash
+docker network create docker-host-bridge
+```
+
+## 2.2 Container
+
 No repositório `/src`, faça uma cópia do arquivo `.env.example` e troque o nome da cópia para `.env`.
 Nesse arquivo insira uma senha para seu usuário administrador, lembre-se que a senha tem que seguir os critérios do SQL Server.
 Exemplo de senha `Str0ng!Passw0rd2025`.
