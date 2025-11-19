@@ -26,7 +26,7 @@ if [ ! -f "${MARKER}" ]; then
   touch "${MARKER}"
   echo "Init concluído."
 else
-  echo "Init já executado anteriormente. Pulando."
+  echo "Init já executado anteriormente. Pulando!"
 fi
 
 wait
