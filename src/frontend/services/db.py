@@ -8,7 +8,8 @@ def get_connection():
     """Retorna conexão com SQL Server usando variáveis do .env."""
     try:
         driver = "{FreeTDS}"
-        server = f"{os.getenv('DB_HOST')},{os.getenv('DB_PORT')}"
+        server = os.getenv('DB_HOST')
+        port = os.getenv('DB_PORT')
         database = os.getenv("DB_NAME")
         user = os.getenv("DB_USER")
         password = os.getenv("DB_PASSWORD")
@@ -16,6 +17,7 @@ def get_connection():
         connection_string = (
             f"DRIVER={driver};"
             f"SERVER={server};"
+            f"PORT={port};"
             f"DATABASE={database};"
             f"UID={user};"
             f"PWD={password};"
