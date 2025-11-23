@@ -24,10 +24,22 @@ def get_active_machines(line_id: int) -> List[Dict[str, Any]]:
 
 @st.cache_data(ttl=2)
 def get_machine_timeline(machine_id: int, data_inicio=None, data_fim=None) -> Dict[str, Any]:
-    df_registradores = run_query("""
-        SELECT * FROM logs_registradores
-        WHERE id_ihm = :id
-    """, {'id': machine_id})
+    if not data_inicio or not data_fim:
+        df_registradores = run_query("""
+            SELECT * FROM logs_registradores
+            WHERE id_ihm = :id
+        """, {'id': machine_id})
+    else:
+        print("data_inicio")
+        print(data_inicio)
+        print("data_fim")
+        print(data_fim)
+        df_registradores = run_query("""
+            SELECT * FROM logs_registradores
+            WHERE id_ihm = :id 
+            AND datahora >= :data_inicio 
+            AND datahora <= :data_fim
+        """, {'id': machine_id, 'data_inicio': data_inicio, 'data_fim': data_fim})
     df_ihms = run_query("""
         SELECT
             id as id_ihm,
@@ -40,24 +52,26 @@ def get_machine_timeline(machine_id: int, data_inicio=None, data_fim=None) -> Di
             descricao 
         FROM registradores
     """)
-    df_registradores = df_registradores.merge(df_ihms, how='left', on='id_ihm')
-    df_registradores = df_registradores.merge(
-        df_depara_registradores, how='left', on='id_registrador')
-    df_registradores = df_registradores[[
-        'nome_maquina', 'descricao', 'datahora', 'valor_bruto']]
-    del df_ihms, df_depara_registradores
-    df_registradores = df_registradores.pivot_table(
-        index=['nome_maquina', 'datahora'], columns='descricao', values='valor_bruto', aggfunc='first').reset_index()
-    df_registradores = df_registradores.sort_values('datahora')
-    df_registradores.reset_index(drop=True, inplace=True)
-    depara_status_maquina = {
-        '0': 'Parada',
-        '1': 'Passar Padrão',
-        '49': 'Produzindo',
-        '4': 'Limpeza'
-    }
-    df_registradores['status_maquina'] = df_registradores['status_maquina'].map(
-        depara_status_maquina)
+    if len(df_registradores) > 0:
+        df_registradores = df_registradores.merge(
+            df_ihms, how='left', on='id_ihm')
+        df_registradores = df_registradores.merge(
+            df_depara_registradores, how='left', on='id_registrador')
+        df_registradores = df_registradores[[
+            'nome_maquina', 'descricao', 'datahora', 'valor_bruto']]
+        del df_ihms, df_depara_registradores
+        df_registradores = df_registradores.pivot_table(
+            index=['nome_maquina', 'datahora'], columns='descricao', values='valor_bruto', aggfunc='first').reset_index()
+        df_registradores = df_registradores.sort_values('datahora')
+        df_registradores.reset_index(drop=True, inplace=True)
+        depara_status_maquina = {
+            '0': 'Parada',
+            '1': 'Passar Padrão',
+            '49': 'Produzindo',
+            '4': 'Limpeza'
+        }
+        df_registradores['status_maquina'] = df_registradores['status_maquina'].map(
+            depara_status_maquina)
 
     return df_registradores
 
