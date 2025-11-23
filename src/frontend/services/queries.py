@@ -68,7 +68,11 @@ def get_machine_timeline(machine_id: int, data_inicio=None, data_fim=None) -> Di
             '0': 'Parada',
             '1': 'Passar Padrão',
             '49': 'Produzindo',
-            '4': 'Limpeza'
+            '4': 'Limpeza',
+            '51': 'Aguardando Manutentor',
+            '52': 'Maquina em manutenção',
+            '50': 'Maquina Liberada',
+            '53': 'Alteração de Parâmetros',
         }
         df_registradores['status_maquina'] = df_registradores['status_maquina'].map(
             depara_status_maquina)
