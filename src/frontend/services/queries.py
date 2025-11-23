@@ -23,10 +23,11 @@ def get_active_machines(line_id: int) -> List[Dict[str, Any]]:
 
 
 @st.cache_data(ttl=2)
-def get_metrics_machine(machine_id: int) -> Dict[str, Any]:
+def get_machine_timeline(machine_id: int, data_inicio=None, data_fim=None) -> Dict[str, Any]:
     df_registradores = run_query("""
         SELECT * FROM logs_registradores
-    """)
+        WHERE id_ihm = :id
+    """, {'id': machine_id})
     df_ihms = run_query("""
         SELECT
             id as id_ihm,
@@ -57,6 +58,13 @@ def get_metrics_machine(machine_id: int) -> Dict[str, Any]:
     }
     df_registradores['status_maquina'] = df_registradores['status_maquina'].map(
         depara_status_maquina)
+
+    return df_registradores
+
+
+@st.cache_data(ttl=2)
+def get_metrics_machine(machine_id: int) -> Dict[str, Any]:
+    df_registradores = get_machine_timeline(machine_id)
 
     first_register = df_registradores[df_registradores['datahora']
                                       == df_registradores['datahora'].min()]

@@ -1,5 +1,6 @@
 import streamlit as st
 from services.db import run_query
+from services.queries import get_machine_timeline
 from datetime import datetime, time, timedelta
 import pandas as pd
 
@@ -113,13 +114,7 @@ if data_fim <= data_inicio:
 # =====================================================
 st.write("## 🥧 Distribuição de Status da Máquina")
 
-registros = run_query("""
-    SELECT datahora, status_maquina
-    FROM maqteste_status_geral
-    WHERE id_ihm = :maq_id
-      AND datahora BETWEEN :data_inicio AND :data_fim
-    ORDER BY datahora
-""", {"maq_id": maq_id, "data_inicio": data_inicio, "data_fim": data_fim})
+registros = get_machine_timeline(maq_id, data_inicio, data_fim)
 
 if len(registros) < 2:
     st.warning("⚠ Não há registros suficientes no período para montar o gráfico.")
@@ -139,9 +134,9 @@ else:
         tempos[status] = tempos.get(status, 0) + duracao_min
 
     # Último registro
-    ultimo_status = registros["status_maquina"][-1]
+    ultimo_status = registros["status_maquina"].to_list()[-1]
     duracao_ultimo = (
-        data_fim - registros["datahora"][-1]).total_seconds() / 60
+        data_fim - registros["datahora"].to_list()[-1]).total_seconds() / 60
     tempos[ultimo_status] = tempos.get(ultimo_status, 0) + duracao_ultimo
 
     # converter em DataFrame
@@ -184,8 +179,8 @@ else:
 
     # último registro dura até o final do período
     timeline_rows.append({
-        "status": registros["status_maquina"][-1],
-        "inicio": registros["datahora"][-1],
+        "status": registros["status_maquina"].to_list()[-1],
+        "inicio": registros["datahora"].to_list()[-1],
         "fim": data_fim
     })
 
@@ -218,18 +213,13 @@ st.write("## 🎯 Meta x Realizado (Radial)")
 META = 110
 
 # Buscar último registro dentro do período
-registro_final = run_query("""
-    SELECT TOP 1 total_produzido
-    FROM maqteste_status_geral
-    WHERE id_ihm = :maq_id
-      AND datahora BETWEEN :data_inicio AND :data_fim
-    ORDER BY datahora DESC
-""", {"maq_id": maq_id, "data_inicio": data_inicio, "data_fim": data_fim})
+registro_final = registros[registros['datahora']
+                           == registros['datahora'].max()]
 
 if len(registro_final) == 0:
     st.warning("Não há dados suficientes no período para gerar o gráfico.")
 else:
-    total_realizado = registro_final["total_produzido"][0]
+    total_realizado = int(registro_final["total_produzido"].to_list()[0])
 
     # Calcular percentual (0 a 100)
     percentual = min((total_realizado / META) * 100, 100)
