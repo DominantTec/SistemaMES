@@ -16,19 +16,11 @@ st.title("🏭 Visão Geral da Produção")
 
 # Paleta de cores dos status
 STATUS_COLORS = {
-    "máquina produzindo": "#96d779",
-    "máquina em manutenção": "#f7c76c",
-    "máquina sem produção": "#e57373",
-    "desligada": "#3d3d3d",
-    "sem status": "#3d3d3d",
+    "Produzindo": "#96d779",
+    "Limpeza": "#f7c76c",
+    "Parada": "#e57373",
+    "Passar Padrão": "#3d3d3d"
 }
-
-
-def normalizar_status(status):
-    if not status:
-        return "sem status"
-    return status.strip().lower()
-
 
 # ======================================================
 #  CONTROLE DE EXPANSÃO VIA session_state
@@ -95,13 +87,7 @@ for i, linha in linhas.iterrows():
         # Carregar métricas da máquina
         ultimo = get_metrics_machine(maq_id_raw)
 
-        # Normalizar status
-        status = normalizar_status(ultimo["status_maquina"])
-        meta = ultimo["meta"]
-        operador = ultimo["operador"]
-        manutentor = ultimo["manutentor"]
-
-        color = STATUS_COLORS.get(status, "#d9d9d9")
+        color = STATUS_COLORS.get(ultimo["status_maquina"], "#d9d9d9")
 
         # ======================================================
         #  DETALHES MOSTRADOS SOMENTE QUANDO EXPANDIDO
@@ -109,16 +95,16 @@ for i, linha in linhas.iterrows():
         if expandida:
             detalhes_html = f"""
                 <div style="margin-top:10px; text-align:left; color:black; font-size:12px;">
-                    <b>Status:</b> {status.capitalize()}<br>
-                    <b>OEE:</b> -- %<br>
-                    <b>Eficiência:</b> -- %<br>
-                    <b>Qualidade:</b> -- %<br>
-                    <b>Meta:</b> {meta}<br>
+                    <b>Status:</b> {ultimo["status_maquina"].capitalize()}<br>
+                    <b>OEE:</b> {ultimo['oee']} %<br>
+                    <b>Eficiência:</b> {ultimo['eficiencia']} %<br>
+                    <b>Qualidade:</b> {ultimo['qualidade']} %<br>
+                    <b>Meta:</b> {ultimo["meta"]}<br>
                     <b>Produzido:</b> {ultimo['produzido']}<br>
                     <b>Reprovado:</b> {ultimo['reprovado']}<br>
                     <b>Total Produzido:</b> {ultimo['total_produzido']}<br>
-                    <b>Operador:</b> {operador}<br>
-                    <b>Manutentor:</b> {manutentor}<br>
+                    <b>Operador:</b> {ultimo["operador"]}<br>
+                    <b>Manutentor:</b> {ultimo["manutentor"]}<br>
                 </div>
             """
         else:
@@ -152,7 +138,7 @@ for i, linha in linhas.iterrows():
             'border-radius:10px 10px 0 0;"></div>'
             '<div style="padding:12px;">'
             f'<b style="font-size:16px;">{nome_maquina}</b><br>'
-            f'<span style="font-size:13px;">{status.capitalize()}</span>'
+            f'<span style="font-size:13px;">{ultimo["status_maquina"].capitalize()}</span>'
             f'{detalhes_html}'
             '</div>'
             '</div>'
