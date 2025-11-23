@@ -70,7 +70,7 @@ def get_machine_timeline(machine_id: int, data_inicio=None, data_fim=None) -> Di
             '49': 'Produzindo',
             '4': 'Limpeza',
             '51': 'Aguardando Manutentor',
-            '52': 'Maquina em manutenção',
+            '52': 'Máquina em manutenção',
             '50': 'Maquina Liberada',
             '53': 'Alteração de Parâmetros',
         }
