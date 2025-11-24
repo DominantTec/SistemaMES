@@ -8,7 +8,7 @@ def read_registers(id_ihm, conn_ihm, conn_db):
         insert_values = ""
         values = []
         cursor = conn_db.cursor()
-        select_registers = f"SELECT id, endereco, descricao FROM registradores WHERE id_ihm = {id_ihm} ORDER BY id ASC"
+        select_registers = f"SELECT id_registrador, endereco, descricao FROM registradores WHERE id_ihm = {id_ihm} ORDER BY id_registrador ASC"
         cursor.execute(select_registers)
         registers = cursor.fetchall()
 
@@ -20,7 +20,7 @@ def read_registers(id_ihm, conn_ihm, conn_db):
                     count=1
                 ).registers[0]
 
-                insert_values += f"(@BatchID, {id_ihm}, {register.id}, {valor_registrador}),"
+                insert_values += f"(@BatchID, {id_ihm}, {register.id_registrador}, {valor_registrador}),"
                 values.append(valor_registrador)
 
                 logger.info(
@@ -33,7 +33,7 @@ def read_registers(id_ihm, conn_ihm, conn_db):
                     raise ConnectionError(
                         "Conexão perdida com a IHM, identificado pelo erro [WinError 10054]")
 
-                insert_values += f"(@BatchID, {id_ihm}, {register.id}, NULL),"
+                insert_values += f"(@BatchID, {id_ihm}, {register.id_registrador}, NULL),"
                 values.append(None)
                 logger.info(
                     f"Erro ao ler o registrador no endereço {register.endereco}: {e}")
@@ -98,7 +98,7 @@ def insert_registers_values(conn_db, values, insert_values):
             SELECT valor_bruto
             FROM [IHM_Testes_2].[dbo].[logs_registradores]
             WHERE batch_id = {batch_id[0]}
-            ORDER BY id ASC
+            ORDER BY id_log_registradores ASC
         """
         cursor.execute(select_last_values)
         last_values = [int(row[0]) for row in cursor.fetchall()]
