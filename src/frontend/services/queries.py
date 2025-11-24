@@ -8,7 +8,7 @@ def get_active_lines() -> List[Dict[str, Any]]:
     return run_query("""
         SELECT id_linha_producao, nome
         FROM linhas_producao
-        ORDER BY id
+        ORDER BY id_linha_producao
     """)
 
 
@@ -18,7 +18,7 @@ def get_active_machines(line_id: int) -> List[Dict[str, Any]]:
         SELECT id_ihm, nome_maquina
         FROM ihms
         WHERE id_linha_producao = :id
-        ORDER BY id
+        ORDER BY id_ihm
     """, {"id": line_id})
 
 
@@ -52,7 +52,7 @@ def get_machine_timeline(machine_id: int, data_inicio=None, data_fim=None) -> Di
             descricao 
         FROM registradores
     """)
-    if len(df_registradores) > 0:
+    if len(df_registradores) > 2:
         df_registradores = df_registradores.merge(
             df_ihms, how='left', on='id_ihm')
         df_registradores = df_registradores.merge(
@@ -82,62 +82,76 @@ def get_machine_timeline(machine_id: int, data_inicio=None, data_fim=None) -> Di
 
 @st.cache_data(ttl=2)
 def get_metrics_machine(machine_id: int) -> Dict[str, Any]:
-    df_registradores = get_machine_timeline(machine_id)
+    try:
+        df_registradores = get_machine_timeline(machine_id)
 
-    first_register = df_registradores[df_registradores['datahora']
-                                      == df_registradores['datahora'].min()]
-    last_register = df_registradores[df_registradores['datahora']
-                                     == df_registradores['datahora'].max()]
-    status = last_register['status_maquina'].to_list()[0]
-    operador = last_register['operador'].to_list()[0]
-    manutentor = last_register['manutentor'].to_list()[0]
-    produzido = last_register['produzido'].to_list()[0]
-    reprovado = last_register['reprovado'].to_list()[0]
-    total = last_register['total_produzido'].to_list()[0]
+        first_register = df_registradores[df_registradores['datahora']
+                                          == df_registradores['datahora'].min()]
+        last_register = df_registradores[df_registradores['datahora']
+                                         == df_registradores['datahora'].max()]
+        status = last_register['status_maquina'].to_list()[0]
+        operador = last_register['operador'].to_list()[0]
+        manutentor = last_register['manutentor'].to_list()[0]
+        produzido = last_register['produzido'].to_list()[0]
+        reprovado = last_register['reprovado'].to_list()[0]
+        total = last_register['total_produzido'].to_list()[0]
 
-    # OEE = Disponibilidade * Performance * Qualidade
+        # OEE = Disponibilidade * Performance * Qualidade
 
-    # Disponibilidade = Tempo produzido / Tempo programado para produzir
-    lista_produzido = []
-    status_antigo = ""
-    inicio = None
-    fim = None
-    for i, row in df_registradores.iterrows():
-        if status_antigo != 'Produzindo' and row['status_maquina'] == 'Produzindo':
-            inicio = row['datahora']
-        elif (status_antigo == 'Produzindo' and row['status_maquina'] != 'Produzindo') or (status_antigo == 'Produzindo' and row['status_maquina'] == 'Produzindo' and row['datahora'] == last_register['datahora'].to_list()[0]):
-            fim = row['datahora']
-        if inicio and fim:
-            lista_produzido.append((inicio, fim))
-            inicio = None
-            fim = None
-        status_antigo = row['status_maquina']
-    tempo_produzido = sum([y.total_seconds()
-                          for y in [x[1] - x[0] for x in lista_produzido]])
-    tempo_programado = (last_register['datahora'].to_list()[
-                        0] - first_register['datahora'].to_list()[0]).total_seconds()
-    disponibilidade = tempo_produzido / tempo_programado
+        # Disponibilidade = Tempo produzido / Tempo programado para produzir
+        lista_produzido = []
+        status_antigo = ""
+        inicio = None
+        fim = None
+        for i, row in df_registradores.iterrows():
+            if status_antigo != 'Produzindo' and row['status_maquina'] == 'Produzindo':
+                inicio = row['datahora']
+            elif (status_antigo == 'Produzindo' and row['status_maquina'] != 'Produzindo') or (status_antigo == 'Produzindo' and row['status_maquina'] == 'Produzindo' and row['datahora'] == last_register['datahora'].to_list()[0]):
+                fim = row['datahora']
+            if inicio and fim:
+                lista_produzido.append((inicio, fim))
+                inicio = None
+                fim = None
+            status_antigo = row['status_maquina']
+        tempo_produzido = sum([y.total_seconds()
+                               for y in [x[1] - x[0] for x in lista_produzido]])
+        tempo_programado = (last_register['datahora'].to_list()[
+                            0] - first_register['datahora'].to_list()[0]).total_seconds()
+        disponibilidade = tempo_produzido / tempo_programado
 
-    # Performance = Produção Real / Produção Teórica
-    # Considerando que a cada 1 s é feito uma peça
-    meta = (tempo_programado // 1)
-    performance = int(total) / meta
+        # Performance = Produção Real / Produção Teórica
+        # Considerando que a cada 1 s é feito uma peça
+        meta = (tempo_programado // 1)
+        performance = int(total) / meta
 
-    # Qualidade = Peça Boas / Total de peças
-    qualidade = int(produzido) / int(total)
+        # Qualidade = Peça Boas / Total de peças
+        qualidade = int(produzido) / int(total)
 
-    oee = disponibilidade * performance * qualidade
-    # OEE, Qualidade, Eficiencia, Meta, Acumulado, Operador, Manutentor, Status
+        oee = disponibilidade * performance * qualidade
+        # OEE, Qualidade, Eficiencia, Meta, Acumulado, Operador, Manutentor, Status
 
-    return {
-        'status_maquina': status,
-        'oee': round(100 * oee, 2),
-        'eficiencia': round(100 * performance, 2),
-        'qualidade': round(100 * qualidade, 2),
-        'meta': meta,
-        'produzido': produzido,
-        'reprovado': reprovado,
-        'total_produzido': total,
-        'operador': operador,
-        'manutentor': manutentor
-    }
+        return {
+            'status_maquina': status,
+            'oee': round(100 * oee, 2),
+            'eficiencia': round(100 * performance, 2),
+            'qualidade': round(100 * qualidade, 2),
+            'meta': meta,
+            'produzido': produzido,
+            'reprovado': reprovado,
+            'total_produzido': total,
+            'operador': operador,
+            'manutentor': manutentor
+        }
+    except:
+        return {
+            'status_maquina': "-",
+            'oee': "-",
+            'eficiencia': "-",
+            'qualidade': "-",
+            'meta': "-",
+            'produzido': "-",
+            'reprovado': "-",
+            'total_produzido': "-",
+            'operador': "-",
+            'manutentor': "-"
+        }

@@ -23,7 +23,7 @@ maq_id = int(maq_id)
 info_ihm = run_query("""
     SELECT nome_maquina
     FROM ihms
-    WHERE id = :id
+    WHERE id_ihm = :id
 """, {"id": maq_id})
 
 if len(info_ihm) == 0:
