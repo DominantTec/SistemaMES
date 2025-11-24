@@ -52,7 +52,7 @@ if "toggle_linha" in query:
 linhas = get_active_lines()
 
 for i, linha in linhas.iterrows():
-    linha_id_raw = linha['id']
+    linha_id_raw = linha['id_linha_producao']
     linha_id = str(linha_id_raw)
     linha_nome = linha["nome"]
 
@@ -81,7 +81,7 @@ for i, linha in linhas.iterrows():
     )
 
     for m, maq in maquinas.iterrows():
-        maq_id_raw = maq["id"]
+        maq_id_raw = maq["id_ihm"]
         nome_maquina = maq["nome_maquina"]
 
         # Carregar métricas da máquina

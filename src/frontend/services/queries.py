@@ -6,7 +6,7 @@ import streamlit as st
 @st.cache_data(ttl=10)
 def get_active_lines() -> List[Dict[str, Any]]:
     return run_query("""
-        SELECT id, nome
+        SELECT id_linha_producao, nome
         FROM linhas_producao
         ORDER BY id
     """)
@@ -15,7 +15,7 @@ def get_active_lines() -> List[Dict[str, Any]]:
 @st.cache_data(ttl=10)
 def get_active_machines(line_id: int) -> List[Dict[str, Any]]:
     return run_query("""
-        SELECT id, nome_maquina
+        SELECT id_ihm, nome_maquina
         FROM ihms
         WHERE id_linha_producao = :id
         ORDER BY id
@@ -42,13 +42,13 @@ def get_machine_timeline(machine_id: int, data_inicio=None, data_fim=None) -> Di
         """, {'id': machine_id, 'data_inicio': data_inicio, 'data_fim': data_fim})
     df_ihms = run_query("""
         SELECT
-            id as id_ihm,
+            id_ihm,
             nome_maquina
         FROM ihms
     """)
     df_depara_registradores = run_query("""
         SELECT
-            id as id_registrador,
+            id_registrador,
             descricao 
         FROM registradores
     """)
