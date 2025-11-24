@@ -19,65 +19,67 @@ def main():
         else:
             logger.error("Variáveis não carregadas! (main)")
         ids_ihm = str(os.environ['IHMS']).split(',')
-        id_ihm = ids_ihm[0]
+        # id_ihm = ids_ihm[0]
         conn_db = get_connection_db()
-        conn_ihm = get_connection_ihm(id_ihm, conn_db)
+        conn_ihm = []
+        for id_ihm in ids_ihm:
+            connection = get_connection_ihm(id_ihm, conn_db)
 
-        while conn_ihm is None:
-            logger.info("Falha ao conectar com a IHM. Tentando novamente...")
-            time.sleep(10)
-            conn_ihm = get_connection_ihm(id_ihm, conn_db)
-
-        while True:
-            try:
+            while connection is None:
                 logger.info(
-                    "=====================================================================================")
+                    "Falha ao conectar com a IHM. Tentando novamente...")
+                time.sleep(10)
+                connection = get_connection_ihm(id_ihm, conn_db)
 
-                hora_atual = datetime.datetime.now()
-                if hora_atual.hour == 4 and hora_atual.minute >= 5:
+            conn_ihm.append(connection)
+
+        erros_maximo = 10
+        erros = 0
+        while erros <= erros_maximo:
+            for k, id_ihm in enumerate(ids_ihm):
+                try:
                     logger.info(
-                        "Horário limite alcançado, interrompendo o loop")
-                    break
+                        f"========================================== {id_ihm} ==========================================")
 
-                values, insert_values = read_registers(
-                    id_ihm, conn_ihm, conn_db)
+                    # hora_atual = datetime.datetime.now()
+                    # if hora_atual.hour == 4 and hora_atual.minute >= 5:
+                    #     logger.info(
+                    #         "Horário limite alcançado, interrompendo o loop")
+                    #     break
 
-                insert_registers_values(conn_db, values, insert_values)
+                    values, insert_values = read_registers(
+                        id_ihm, conn_ihm[k], conn_db)
 
-                time.sleep(0.1)
-            except ConnectionError as ce:
-                while True:
-                    logger.info(f"{ce}")
-                    logger.info("Tentando reestabelecer conexão com a IHM...")
-                    conn_ihm = get_connection_ihm(id_ihm, conn_db)
+                    insert_registers_values(conn_db, values, insert_values)
 
-                    if conn_ihm is None:
-                        logger.info("Falha ao tentar reestabelecer a conexão")
-                        time.sleep(10)
-                    else:
-                        logger.info("Conexão reestabelecida com sucesso")
-                        break
+                    time.sleep(0.1)
+                except ConnectionError as ce:
+                    while True:
+                        erros += 1
+                        logger.info(f"{ce}")
+                        logger.info(
+                            "Tentando reestabelecer conexão com a IHM...")
+                        conn_ihm[k] = get_connection_ihm(id_ihm, conn_db)
 
-                    # if conn_ihm == None:
-                    #     logger.info("Falha ao tentar reestabelecer a conexão")
-                    #     time.sleep(10)
-                    # else:
-                    #     if str(conn_ihm) == f"ModbusTcpClient {ip_ihm}:{port_ihm}":
-                    #         logger.info("conexão reestabelecida com sucesso")
-                    #         break
-                    #     else:
-                    #         logger.info("Falha ao tentar reestabelecer a conexão")
-                    #         time.sleep(10)
-            except Exception as e:
-                raise e
+                        if conn_ihm[k] is None:
+                            logger.info(
+                                "Falha ao tentar reestabelecer a conexão")
+                            time.sleep(10)
+                        else:
+                            logger.info("Conexão reestabelecida com sucesso")
+                            break
+
+                except Exception as e:
+                    raise e
 
     except Exception as e:
         logger.info(f"EXECUÇÃO IMTERROMPIDA: Erro na função principal: {e}")
     finally:
         if conn_db:
             conn_db.close()
-        if conn_ihm:
-            conn_ihm.close()
+        for conn in conn_ihm:
+            if conn:
+                conn.close()
 
 
 if __name__ == "__main__":
