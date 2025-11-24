@@ -232,7 +232,7 @@ GO
 SET QUOTED_IDENTIFIER ON
 GO
 CREATE TABLE [dbo].[logs_registradores](
-	[id_log_regisradores] [bigint] IDENTITY(1,1) NOT NULL,
+	[id_log_registradores] [bigint] IDENTITY(1,1) NOT NULL,
 	[id_ihm] [int] NOT NULL,
 	[id_registrador] [int] NOT NULL,
 	[batch_id] [bigint] NOT NULL,
@@ -240,7 +240,7 @@ CREATE TABLE [dbo].[logs_registradores](
 	[datahora] [datetime] NOT NULL,
 PRIMARY KEY CLUSTERED 
 (
-	[id_log_regisradores] ASC
+	[id_log_registradores] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
