@@ -442,15 +442,13 @@ SET IDENTITY_INSERT [dbo].[sistemas] OFF
 GO
 SET IDENTITY_INSERT [dbo].[linhas_producao] ON 
 
-INSERT [dbo].[linhas_producao] ([id_linha_producao], [nome], [id_sistema]) VALUES (1, N'Linha Produção 1', 1)
-INSERT [dbo].[linhas_producao] ([id_linha_producao], [nome], [id_sistema]) VALUES (2, N'Linha Produção 2', 1)
-INSERT [dbo].[linhas_producao] ([id_linha_producao], [nome], [id_sistema]) VALUES (3, N'Linha Produção 3', 1)
-INSERT [dbo].[linhas_producao] ([id_linha_producao], [nome], [id_sistema]) VALUES (4, N'Linha Produção 4', 1)
+INSERT [dbo].[linhas_producao] ([id_linha_producao], [nome], [id_sistema]) VALUES (1, N'Linha Produção Principal', 1)
 SET IDENTITY_INSERT [dbo].[linhas_producao] OFF
 GO
 SET IDENTITY_INSERT [dbo].[ihms] ON 
 
 INSERT [dbo].[ihms] ([id_ihm], [ip_address], [port_number], [id_linha_producao], [nome_maquina], [acumulado], [operador], [manutentor], [status_maquina]) VALUES (1, N'192.168.11.89', N'502', 1, N'MAQ1', NULL, NULL, NULL, NULL)
+INSERT [dbo].[ihms] ([id_ihm], [ip_address], [port_number], [id_linha_producao], [nome_maquina], [acumulado], [operador], [manutentor], [status_maquina]) VALUES (2, N'192.168.11.90', N'502', 1, N'MAQ2', NULL, NULL, NULL, NULL)
 SET IDENTITY_INSERT [dbo].[ihms] OFF
 GO
 SET IDENTITY_INSERT [dbo].[receitas] ON 
@@ -473,6 +471,14 @@ INSERT [dbo].[registradores] ([id_registrador], [id_receita], [endereco], [descr
 INSERT [dbo].[registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (1004, 3, 1500, N'engenheiro', 1)
 INSERT [dbo].[registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (1005, 6, 2000, N'status_maquina', 1)
 INSERT [dbo].[registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (1006, 4, 2000, N'motivo_parada', 1)
+INSERT [dbo].[registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (1, 1, 0, N'operador', 2)
+INSERT [dbo].[registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (2, NULL, 7024, N'produzido', 2)
+INSERT [dbo].[registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (3, NULL, 7025, N'reprovado', 2)
+INSERT [dbo].[registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (1002, NULL, 7056, N'total_produzido', 2)
+INSERT [dbo].[registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (1003, 2, 1000, N'manutentor', 2)
+INSERT [dbo].[registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (1004, 3, 1500, N'engenheiro', 2)
+INSERT [dbo].[registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (1005, 6, 2000, N'status_maquina', 2)
+INSERT [dbo].[registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (1006, 4, 2000, N'motivo_parada', 2)
 SET IDENTITY_INSERT [dbo].[registradores] OFF
 GO
 SET IDENTITY_INSERT [dbo].[dados_receitas] ON 
