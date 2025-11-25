@@ -48,7 +48,7 @@ def read_registers(id_ihm, conn_ihm, conn_db):
 
 
 # Função para inserir os dados no banco de dados
-def insert_registers_values(conn_db, values, insert_values):
+def insert_registers_values(id_ihm, conn_db, values, insert_values):
     if not conn_db:
         raise ConnectionError(
             "Conexão com o banco inválida passada por parâmetro na função insert_registers_values.")
@@ -57,7 +57,7 @@ def insert_registers_values(conn_db, values, insert_values):
         cursor = conn_db.cursor()
 
         # Verificar se a tabela está vazia
-        query_count = "SELECT COUNT(*) FROM [MES_Core].[dbo].[logs_registradores]"
+        query_count = f"SELECT COUNT(*) FROM [MES_Core].[dbo].[logs_registradores] WHERE id_ihm = {id_ihm}"
         cursor.execute(query_count)
         count = cursor.fetchone()
 
@@ -85,9 +85,10 @@ def insert_registers_values(conn_db, values, insert_values):
             return
 
         # Buscar último batch_id registrado
-        select_batch_id = """
+        select_batch_id = f"""
             SELECT TOP 1 batch_id
             FROM [MES_Core].[dbo].[logs_registradores]
+            WHERE id_ihm = {id_ihm}
             ORDER BY batch_id DESC
         """
         cursor.execute(select_batch_id)

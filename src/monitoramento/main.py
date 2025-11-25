@@ -35,7 +35,8 @@ def main():
                     values, insert_values = read_registers(
                         id_ihm, conn_ihm[k], conn_db)
 
-                    insert_registers_values(conn_db, values, insert_values)
+                    insert_registers_values(
+                        id_ihm, conn_db, values, insert_values)
 
                     time.sleep(0.1)
                 except ConnectionError as ce:
