@@ -19,11 +19,11 @@ services:
       - network1
 
     healthcheck:
-      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/1433' || exit 1"]
+      test: ["CMD-SHELL", "[ -f /var/opt/mssql/.init-done ] && bash -c '</dev/tcp/localhost/1433' || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 10
-      start_period: 60s
+      start_period: 120s
 
   frontend:
     build:

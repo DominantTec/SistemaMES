@@ -27,3 +27,4 @@ urllib3_secure_extra==0.1.0
 python-dotenv==1.1.0
 streamlit
 sqlalchemy
+ruff==0.11.6

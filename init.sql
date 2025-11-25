@@ -109,26 +109,6 @@ PRIMARY KEY CLUSTERED
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
 GO
-/****** Object:  View [dbo].[vw_NotificacoesLidas]    Script Date: 27/10/2025 14:46:23 ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-CREATE   VIEW [dbo].[vw_NotificacoesLidas] AS 
-SELECT COUNT(*) AS TotalLidas FROM dbo.Notificacoes WHERE status = 1;
-GO
-/****** Object:  View [dbo].[vw_NotificacoesLidasPorMaquina]    Script Date: 27/10/2025 14:46:23 ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-
-CREATE   VIEW [dbo].[vw_NotificacoesLidasPorMaquina] AS 
-SELECT id_ihm, COUNT(*) AS TotalLidas 
-FROM dbo.Notificacoes 
-WHERE status = 1 
-GROUP BY id_ihm;
-GO
 /****** Object:  Table [dbo].[ihms]    Script Date: 27/10/2025 14:46:23 ******/
 SET ANSI_NULLS ON
 GO
@@ -149,25 +129,6 @@ PRIMARY KEY CLUSTERED
 	[id_ihm] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
-GO
-/****** Object:  View [dbo].[vw_NotificacoesPorLinha]    Script Date: 27/10/2025 14:46:23 ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-CREATE VIEW [dbo].[vw_NotificacoesPorLinha] AS 
-SELECT 
-    n.id, 
-    n.mensagem, 
-    n.data_hora,
-    n.id_ihm, 
-    n.status,
-    n.tipo,  
-    n.titulo, 
-    m.id_linha_producao 
-FROM notificacoes AS n 
-JOIN ihms AS m ON n.id_ihm = m.id_ihm
-WHERE m.id_linha_producao IS NOT NULL;
 GO
 /****** Object:  Table [dbo].[dados_receitas]    Script Date: 27/10/2025 14:46:23 ******/
 SET ANSI_NULLS ON
@@ -390,10 +351,10 @@ GO
 ALTER TABLE [dbo].[ihms] CHECK CONSTRAINT [FK_ihms_linhas_producao]
 GO
 ALTER TABLE [dbo].[linhas_producao]  WITH CHECK ADD FOREIGN KEY([id_sistema])
-REFERENCES [dbo].[sistemas] ([id])
+REFERENCES [dbo].[sistemas] ([id_sistema])
 GO
 ALTER TABLE [dbo].[logs_registradores]  WITH CHECK ADD  CONSTRAINT [FK_Logs_IHMs] FOREIGN KEY([id_ihm])
-REFERENCES [dbo].[ihms] ([id_sistema])
+REFERENCES [dbo].[ihms] ([id_ihm])
 GO
 ALTER TABLE [dbo].[logs_registradores] CHECK CONSTRAINT [FK_Logs_IHMs]
 GO
