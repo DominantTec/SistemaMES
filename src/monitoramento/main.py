@@ -19,7 +19,6 @@ def main():
         else:
             logger.error("Variáveis não carregadas! (main)")
         ids_ihm = str(os.environ['IHMS']).split(',')
-        # id_ihm = ids_ihm[0]
         conn_db = get_connection_db()
         conn_ihm = []
         for id_ihm in ids_ihm:
@@ -33,19 +32,11 @@ def main():
 
             conn_ihm.append(connection)
 
-        erros_maximo = 10
-        erros = 0
-        while erros <= erros_maximo:
+        while True:
             for k, id_ihm in enumerate(ids_ihm):
                 try:
                     logger.info(
                         f"========================================== {id_ihm} ==========================================")
-
-                    # hora_atual = datetime.datetime.now()
-                    # if hora_atual.hour == 4 and hora_atual.minute >= 5:
-                    #     logger.info(
-                    #         "Horário limite alcançado, interrompendo o loop")
-                    #     break
 
                     values, insert_values = read_registers(
                         id_ihm, conn_ihm[k], conn_db)
@@ -55,7 +46,6 @@ def main():
                     time.sleep(0.1)
                 except ConnectionError as ce:
                     while True:
-                        erros += 1
                         logger.info(f"{ce}")
                         logger.info(
                             "Tentando reestabelecer conexão com a IHM...")
