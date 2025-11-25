@@ -1,35 +1,31 @@
 import pyodbc
-from src.monitoramento.logger import logger
-from dotenv import load_dotenv
+from logger import logger
 import os
-
-if load_dotenv():
-    logger.info("Variáveis carregadas com sucesso! (database)")
-else:
-    logger.error("Variáveis não carregadas! (database)")
 
 
 def get_connection_db(driver=None, server=None, database=None):
     try:
-        password = os.environ['DB_PASSWORD']
-        if not driver:
-            driver = os.environ['DRIVER_OUT_CONTAINER']
-        if not server:
-            server = os.environ['DB_SERVER_OUT_CONTAINER']
-        if not database:
-            database = os.environ['DB_NAME']
+        driver = "{FreeTDS}"
+        server = os.getenv('DB_HOST')
+        port = os.getenv('DB_PORT')
+        database = os.getenv("DB_NAME")
+        user = os.getenv("DB_USER")
+        password = os.getenv("DB_PASSWORD")
+
         connection_string = (
             f"DRIVER={driver};"
             f"SERVER={server};"
+            f"PORT={port};"
             f"DATABASE={database};"
-            "UID=sa;"
+            f"UID={user};"
             f"PWD={password};"
             "TrustServerCertificate=yes;"
             "Encrypt=no;"
         )
+
         conn = pyodbc.connect(connection_string)
         logger.info("Conexão com o banco bem-sucedida!")
         return conn
     except Exception as e:
-        logger.info("Erro ao conectar ao banco de dados:", e)
+        logger.error("Erro ao conectar ao banco de dados: %s", e)
         return None

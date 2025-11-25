@@ -1,5 +1,5 @@
 from pymodbus.client import ModbusTcpClient
-from src.monitoramento.logger import logger
+from logger import logger
 
 
 def get_connection_ihm(id_ihm, conn_db):
@@ -24,5 +24,5 @@ def get_connection_ihm(id_ihm, conn_db):
             return None
 
     except Exception as e:
-        logger.info("Erro ao conectar ao IHM:", e)
+        logger.error("Erro ao conectar ao IHM: %s", e)
         return None

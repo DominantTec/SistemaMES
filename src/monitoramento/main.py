@@ -1,11 +1,9 @@
-from src.monitoramento.logger import logger
-from src.monitoramento.database import get_connection_db
-from src.monitoramento.ihm_client import get_connection_ihm
-from src.monitoramento.data_processor import read_registers
-from src.monitoramento.data_processor import insert_registers_values
-import datetime
+from logger import logger
+from database import get_connection_db
+from ihm_client import get_connection_ihm
+from data_processor import read_registers
+from data_processor import insert_registers_values
 import time
-from dotenv import load_dotenv
 import os
 
 
@@ -14,10 +12,6 @@ def main():
     conn_db = None
 
     try:
-        if load_dotenv():
-            logger.info("Variáveis carregadas com sucesso! (main)")
-        else:
-            logger.error("Variáveis não carregadas! (main)")
         ids_ihm = str(os.environ['IHMS']).split(',')
         conn_db = get_connection_db()
         conn_ihm = []

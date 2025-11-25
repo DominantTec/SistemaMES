@@ -142,7 +142,7 @@ def get_metrics_machine(machine_id: int) -> Dict[str, Any]:
             'operador': operador,
             'manutentor': manutentor
         }
-    except:
+    except Exception:
         return {
             'status_maquina': "-",
             'oee': "-",

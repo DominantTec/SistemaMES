@@ -1,4 +1,4 @@
-from src.monitoramento.logger import logger
+from logger import logger
 
 # Função para ler os registradores e montar a string de insert no banco de dados
 
@@ -29,13 +29,13 @@ def read_registers(id_ihm, conn_ihm, conn_db):
             except Exception as e:
                 # Perda de conexão Modbus (erro 10054)
                 if "[WinError 10054]" in str(e):
-                    logger.info(f"Conexão com a IHM perdida: {e}")
+                    logger.error(f"Conexão com a IHM perdida: {e}")
                     raise ConnectionError(
                         "Conexão perdida com a IHM, identificado pelo erro [WinError 10054]")
 
                 insert_values += f"(@BatchID, {id_ihm}, {register.id_registrador}, NULL),"
                 values.append(None)
-                logger.info(
+                logger.error(
                     f"Erro ao ler o registrador no endereço {register.endereco}: {e}")
 
         insert_values = insert_values[:-1]  # remove última vírgula
