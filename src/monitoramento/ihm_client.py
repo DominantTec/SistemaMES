@@ -17,7 +17,7 @@ def get_connection_ihm(id_ihm, conn_db):
 
         client = ModbusTcpClient(f"{ip}", port=port)
         if client.connect():
-            logger.info("Conexão com a ihm bem-sucedida!")
+            logger.info(f"Conexão com a ihm {id_ihm} bem-sucedida!")
             return client
         else:
             logger.info(f"Falha ao conectar com a IHM {ip}:{port}")
