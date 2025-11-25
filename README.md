@@ -4,7 +4,9 @@ Projeto para realizar o monitoramento dos dados de IHM's em fábricas.
 
 Para funcionamento do projeto siga as instruções a seguir:
 
-# 1. Gere o Ambiente Virtual
+# 1. Gere o Ambiente Virtual (Opcional)
+
+> :warning: O venv não é mais necessário para execução. Utilize o venv apenas para Debug fora dos containers.
 
 Instale o virtualenv:
 
@@ -69,11 +71,3 @@ Para abrir o tunelamento para IHM's:
 5. Clique no botão `Create Tunel`.
 
 Na lista de conexões, verifique se os `Status` estão `Online`.
-
-# 4. Rodando o monitoramento
-
-Para rodar o monitoramento, garanta que você está com o `venv` ativo e na raiz do projeto execute o seguinte comando:
-
-```bash
-python -m src.monitoramento.main
-```
