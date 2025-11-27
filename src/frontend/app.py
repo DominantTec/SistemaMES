@@ -35,18 +35,22 @@ for i, linha in linhas.iterrows():
     linha_id = str(linha["id_linha_producao"])
     linha_nome = linha["nome"]
 
-    # inicializar corretamente
+    # inicialização
     if linha_id not in st.session_state.linhas_expandidas:
         st.session_state.linhas_expandidas[linha_id] = False
 
-    # ícone
-    icon = "🔽" if st.session_state.linhas_expandidas[linha_id] else "▶️"
-
-    # botão toggle
-    if st.button(f"{icon} {linha_nome}", key=f"toggle_{linha_id}"):
+    # botão toggle primeiro (ANTES de calcular o ícone)
+    if st.button(
+        f"{'🔽' if st.session_state.linhas_expandidas[linha_id] else '▶️'} {linha_nome}",
+        key=f"toggle_{linha_id}"
+    ):
+        # alterna
         st.session_state.linhas_expandidas[linha_id] = not st.session_state.linhas_expandidas[linha_id]
+        st.rerun()   # <<< ESTA LINHA É ESSENCIAL
 
+    # depois do clique, agora sim o estado está atualizado
     expandida = st.session_state.linhas_expandidas[linha_id]
+    icon = "🔽" if expandida else "▶️"
 
     # ======================================================
     #  CARREGAR MÁQUINAS ATIVAS
