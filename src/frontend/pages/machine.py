@@ -1,6 +1,6 @@
 import streamlit as st
 from services.db import run_query
-from services.queries import get_machine_timeline
+from services.queries import get_machine_timeline, get_active_machines
 from datetime import datetime, time, timedelta
 import pandas as pd
 
@@ -9,7 +9,10 @@ st.set_page_config(page_title="Detalhes da Máquina", layout="wide")
 # ============================
 # Ler ID da máquina pela URL
 # ============================
-maq_id = st.query_params.get("maq_id", None)
+maq__id = st.query_params.get("maq_id", 0)
+
+maq_id = st.selectbox('Máquina Selecionada:', get_active_machines(
+    1)['id_ihm'].to_list(), get_active_machines(1)['id_ihm'].to_list().index(maq__id) if maq__id in get_active_machines(1)['id_ihm'].to_list() else 0)
 
 if not maq_id:
     st.error("Nenhuma máquina selecionada.")
