@@ -81,6 +81,15 @@ def get_machine_timeline(machine_id: int, data_inicio=None, data_fim=None) -> Di
 
 
 @st.cache_data(ttl=2)
+def get_machine_hours(machine_id: int) -> Dict[str, Any]:
+    return run_query("""
+        SELECT *
+        FROM tb_funcionamento
+        WHERE id_ihm = :id
+    """, {"id": machine_id})
+
+
+@st.cache_data(ttl=2)
 def get_metrics_machine(machine_id: int) -> Dict[str, Any]:
     try:
         df_registradores = get_machine_timeline(machine_id)
