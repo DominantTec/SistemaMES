@@ -391,6 +391,34 @@ USE [master]
 GO
 ALTER DATABASE [MES_Core] SET  READ_WRITE 
 GO
+/****** Object:  Table [tb_funcionamento] ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[tb_funcionamento] (
+    [id_funcionamento] [int] IDENTITY(1,1) NOT NULL,
+    [id_ihm] [int] NOT NULL,
+    [dia] [int] NOT NULL,
+    [mes] [int] NOT NULL,
+    [ano] [int] NOT NULL,
+    [horario_inicio] [datetime] NOT NULL,
+    [horario_fim] [datetime] NOT NULL,
+    CONSTRAINT [PK_tb_funcionamento] PRIMARY KEY CLUSTERED 
+    (
+        [id_funcionamento] ASC
+    ) WITH (
+        PAD_INDEX = OFF, 
+        STATISTICS_NORECOMPUTE = OFF, 
+        IGNORE_DUP_KEY = OFF, 
+        ALLOW_ROW_LOCKS = ON, 
+        ALLOW_PAGE_LOCKS = ON, 
+        OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF
+    ) ON [PRIMARY],
+    CONSTRAINT [FK_tb_funcionamento_ihms] FOREIGN KEY ([id_ihm]) 
+        REFERENCES [dbo].[ihms] ([id_ihm])
+) ON [PRIMARY]
+GO
 
 /***** POPULANDO AS TABELAS *****/
 
@@ -540,4 +568,74 @@ SET IDENTITY_INSERT [dbo].[parametros] ON
 
 INSERT [dbo].[parametros] ([id_parametro], [id_ihm], [tempo_producao], [producao_teorica], [meta]) VALUES (1, 1, CAST(N'07:00:00' AS Time), CAST(N'00:00:15' AS Time), 50)
 SET IDENTITY_INSERT [dbo].[parametros] OFF
+GO
+
+SET IDENTITY_INSERT [dbo].[tb_funcionamento] ON
+GO
+
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (1, 1, 1, 12, 2025, '2025-12-01 07:00:00', '2025-12-01 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (2, 1, 2, 12, 2025, '2025-12-02 07:00:00', '2025-12-02 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (3, 1, 3, 12, 2025, '2025-12-03 07:00:00', '2025-12-03 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (4, 1, 4, 12, 2025, '2025-12-04 07:00:00', '2025-12-04 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (5, 1, 5, 12, 2025, '2025-12-05 07:00:00', '2025-12-05 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (6, 1, 6, 12, 2025, '2025-12-06 07:00:00', '2025-12-06 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (7, 1, 7, 12, 2025, '2025-12-07 07:00:00', '2025-12-07 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (8, 1, 8, 12, 2025, '2025-12-08 07:00:00', '2025-12-08 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (9, 1, 9, 12, 2025, '2025-12-09 07:00:00', '2025-12-09 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (10, 1, 10, 12, 2025, '2025-12-10 07:00:00', '2025-12-10 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (11, 1, 11, 12, 2025, '2025-12-11 07:00:00', '2025-12-11 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (12, 1, 12, 12, 2025, '2025-12-12 07:00:00', '2025-12-12 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (13, 1, 13, 12, 2025, '2025-12-13 07:00:00', '2025-12-13 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (14, 1, 14, 12, 2025, '2025-12-14 07:00:00', '2025-12-14 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (15, 1, 15, 12, 2025, '2025-12-15 07:00:00', '2025-12-15 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (16, 1, 16, 12, 2025, '2025-12-16 07:00:00', '2025-12-16 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (17, 1, 17, 12, 2025, '2025-12-17 07:00:00', '2025-12-17 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (18, 1, 18, 12, 2025, '2025-12-18 07:00:00', '2025-12-18 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (19, 1, 19, 12, 2025, '2025-12-19 07:00:00', '2025-12-19 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (20, 1, 20, 12, 2025, '2025-12-20 07:00:00', '2025-12-20 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (21, 1, 21, 12, 2025, '2025-12-21 07:00:00', '2025-12-21 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (22, 1, 22, 12, 2025, '2025-12-22 07:00:00', '2025-12-22 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (23, 1, 23, 12, 2025, '2025-12-23 07:00:00', '2025-12-23 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (24, 1, 24, 12, 2025, '2025-12-24 07:00:00', '2025-12-24 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (25, 1, 25, 12, 2025, '2025-12-25 07:00:00', '2025-12-25 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (26, 1, 26, 12, 2025, '2025-12-26 07:00:00', '2025-12-26 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (27, 1, 27, 12, 2025, '2025-12-27 07:00:00', '2025-12-27 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (28, 1, 28, 12, 2025, '2025-12-28 07:00:00', '2025-12-28 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (29, 1, 29, 12, 2025, '2025-12-29 07:00:00', '2025-12-29 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (30, 1, 30, 12, 2025, '2025-12-30 07:00:00', '2025-12-30 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (31, 1, 31, 12, 2025, '2025-12-31 07:00:00', '2025-12-31 19:00:00')
+
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (32, 2, 1, 12, 2025, '2025-12-01 07:00:00', '2025-12-01 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (33, 2, 2, 12, 2025, '2025-12-02 07:00:00', '2025-12-02 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (34, 2, 3, 12, 2025, '2025-12-03 07:00:00', '2025-12-03 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (35, 2, 4, 12, 2025, '2025-12-04 07:00:00', '2025-12-04 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (36, 2, 5, 12, 2025, '2025-12-05 07:00:00', '2025-12-05 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (37, 2, 6, 12, 2025, '2025-12-06 07:00:00', '2025-12-06 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (38, 2, 7, 12, 2025, '2025-12-07 07:00:00', '2025-12-07 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (39, 2, 8, 12, 2025, '2025-12-08 07:00:00', '2025-12-08 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (40, 2, 9, 12, 2025, '2025-12-09 07:00:00', '2025-12-09 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (41, 2, 10, 12, 2025, '2025-12-10 07:00:00', '2025-12-10 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (42, 2, 11, 12, 2025, '2025-12-11 07:00:00', '2025-12-11 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (43, 2, 12, 12, 2025, '2025-12-12 07:00:00', '2025-12-12 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (44, 2, 13, 12, 2025, '2025-12-13 07:00:00', '2025-12-13 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (45, 2, 14, 12, 2025, '2025-12-14 07:00:00', '2025-12-14 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (46, 2, 15, 12, 2025, '2025-12-15 07:00:00', '2025-12-15 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (47, 2, 16, 12, 2025, '2025-12-16 07:00:00', '2025-12-16 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (48, 2, 17, 12, 2025, '2025-12-17 07:00:00', '2025-12-17 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (49, 2, 18, 12, 2025, '2025-12-18 07:00:00', '2025-12-18 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (50, 2, 19, 12, 2025, '2025-12-19 07:00:00', '2025-12-19 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (51, 2, 20, 12, 2025, '2025-12-20 07:00:00', '2025-12-20 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (52, 2, 21, 12, 2025, '2025-12-21 07:00:00', '2025-12-21 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (53, 2, 22, 12, 2025, '2025-12-22 07:00:00', '2025-12-22 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (54, 2, 23, 12, 2025, '2025-12-23 07:00:00', '2025-12-23 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (55, 2, 24, 12, 2025, '2025-12-24 07:00:00', '2025-12-24 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (56, 2, 25, 12, 2025, '2025-12-25 07:00:00', '2025-12-25 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (57, 2, 26, 12, 2025, '2025-12-26 07:00:00', '2025-12-26 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (58, 2, 27, 12, 2025, '2025-12-27 07:00:00', '2025-12-27 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (59, 2, 28, 12, 2025, '2025-12-28 07:00:00', '2025-12-28 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (60, 2, 29, 12, 2025, '2025-12-29 07:00:00', '2025-12-29 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (61, 2, 30, 12, 2025, '2025-12-30 07:00:00', '2025-12-30 19:00:00')
+INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (62, 2, 31, 12, 2025, '2025-12-31 07:00:00', '2025-12-31 19:00:00')
+
+SET IDENTITY_INSERT [dbo].[tb_funcionamento] OFF
 GO
