@@ -1,5 +1,11 @@
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, time
 from services.db import run_query_update
+
+
+def to_time(v):
+    if isinstance(v, time):
+        return v
+    return time(v.hour, v.minute)
 
 
 def get_weekday_start(reference_day=datetime.now()):
@@ -34,3 +40,24 @@ def fill_month_database(reference_day=datetime.now(), ids_ihm=[1, 2], start_hour
                       "horario_inicio": datetime(reference_day.year, reference_day.month, day, start_hour),
                       "horario_fim": datetime(reference_day.year, reference_day.month, day, end_hour)}
             run_query_update(query, params)
+
+
+def post_working_hours(reference_day, id_ihm, start_hour, end_hour):
+    query = """
+        UPDATE tb_funcionamento
+        SET horario_inicio = :horario_inicio,
+            horario_fim = :horario_fim
+        WHERE id_ihm = :id_ihm
+          AND dia = :dia
+          AND mes = :mes
+          AND ano = :ano
+    """
+    params = {
+        "id_ihm": id_ihm,
+        "dia": reference_day.day,
+        "mes": reference_day.month,
+        "ano": reference_day.year,
+        "horario_inicio": start_hour,
+        "horario_fim": end_hour
+    }
+    run_query_update(query, params)

@@ -2,7 +2,7 @@ import logging
 import streamlit as st
 from services.modbus import get_registers_values, post_registers_values
 from services.queries import get_active_machines, get_machine_hours
-from services.utils import get_weekday_start, get_last_day_month, fill_month_database
+from services.utils import get_weekday_start, get_last_day_month, fill_month_database, post_working_hours, to_time
 from datetime import datetime
 
 st.title("Settings")
@@ -12,8 +12,16 @@ machine = st.selectbox("Máquina", get_active_machines(1)
 
 
 # Operador -> Registrador
-meta = st.number_input('Operador', min_value=0, step=1,
-                       value=get_registers_values(machine, 0))
+with st.form("form_operador"):
+    meta = st.number_input('Operador', min_value=0, step=1,
+                           value=get_registers_values(machine, 0))
+    submit_operador = st.form_submit_button("Muda operador")
+
+if submit_operador:
+    if post_registers_values(machine, 0, int(meta)):
+        st.success('Funcionou')
+    else:
+        st.error('Não Funcionou')
 
 # Calendário funcionamento
 st.write("Calendário Funcionamento")
@@ -25,42 +33,85 @@ with col1:
 with col2:
     year_funcionamento = st.selectbox("Ano", [2025, 2026], index=[
                                       2025, 2026].index(today.year))
-col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
-week = ['Segunda', 'Terça', 'Quarta',
-        'Quinta', 'Sexta', 'Sábado', 'Domingo']
-week_cols = [col1, col2, col3, col4, col5, col6, col7]
-for k, col in enumerate(week_cols):
-    with col:
-        st.write(week[k])
-weekday = get_weekday_start(
-    datetime(year_funcionamento, month_funcionamento, 1))
-machine_hours = get_machine_hours({"MAQ1": 1, "MAQ2": 2}[machine])
+machine_id = {"MAQ1": 1, "MAQ2": 2}[machine]
+machine_hours = get_machine_hours(machine_id)
+
 first_month_day = datetime(year_funcionamento, month_funcionamento, 1)
 if len(machine_hours[(machine_hours['dia'] == first_month_day.day) & (machine_hours['mes'] == first_month_day.month) & (machine_hours['ano'] == first_month_day.year)]) == 0:
     fill_month_database(first_month_day)
-    machine_hours = get_machine_hours({"MAQ1": 1, "MAQ2": 2}[machine])
-for day in range(1, get_last_day_month(first_month_day) + 1):
-    weekday_loop = (weekday + day - 1) % 7
-    if weekday_loop == 0:
-        col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
-    week_cols = [col1, col2, col3, col4, col5, col6, col7]
-    with week_cols[weekday_loop]:
-        st.write(day)
-        st.session_state[f'{day}_start'] = machine_hours[(machine_hours['dia'] == day) & (
-            machine_hours['mes'] == month_funcionamento) & (machine_hours['ano'] == year_funcionamento)]['horario_inicio'].to_list()[0]
-        st.time_input(
-            f'De:', key=f'{day}_start')
-        st.session_state[f'{day}_end'] = machine_hours[(machine_hours['dia'] == day) & (
-            machine_hours['mes'] == month_funcionamento) & (machine_hours['ano'] == year_funcionamento)]['horario_fim'].to_list()[0]
-        st.time_input(
-            f'Até:', key=f'{day}_end')
-    if weekday_loop == 6:
-        st.divider()
+    machine_hours = get_machine_hours(machine_id)
 
+ctx_key = f"ctx_{machine_id}_{year_funcionamento}_{month_funcionamento}"
+if st.session_state.get("calendar_ctx") != ctx_key:
+    st.session_state["calendar_ctx"] = ctx_key
+    for k in list(st.session_state.keys()):
+        if k.endswith("_start") or k.endswith("_end"):
+            del st.session_state[k]
 
-# Botão
-if st.button('Processa mudanças'):
-    if post_registers_values(machine, 0, int(meta)):
-        st.success('Funcionou')
+weekday = get_weekday_start(
+    datetime(year_funcionamento, month_funcionamento, 1))
+
+cols = st.columns(7)
+week = ['Segunda', 'Terça', 'Quarta',
+        'Quinta', 'Sexta', 'Sábado', 'Domingo']
+for k, col in enumerate(cols):
+    with col:
+        st.write(week[k])
+
+with st.form("form_calendar"):
+    for day in range(1, get_last_day_month(first_month_day) + 1):
+        weekday_loop = (weekday + day - 1) % 7
+        if weekday_loop == 0 or day == 1:
+            cols = st.columns(7)
+
+        row = machine_hours[(machine_hours['dia'] == day) &
+                            (machine_hours['mes'] == month_funcionamento) &
+                            (machine_hours['ano'] == year_funcionamento)]
+        start_bd = row['horario_inicio'].to_list()[0]
+        end_bd = row['horario_fim'].to_list()[0]
+
+        start_key = f"{day}_start"
+        end_key = f"{day}_end"
+
+        if start_key not in st.session_state:
+            st.session_state[start_key] = start_bd
+        if end_key not in st.session_state:
+            st.session_state[end_key] = end_bd
+
+        with cols[weekday_loop]:
+            st.write(day)
+            st.time_input("De:", key=start_key)
+            st.time_input("Até:", key=end_key)
+
+        if weekday_loop == 6:
+            st.divider()
+
+    submit_calendar = st.form_submit_button("Processa mudanças")
+
+if submit_calendar:
+    updates = 0
+    for day in range(1, get_last_day_month(first_month_day) + 1):
+        row = machine_hours[(machine_hours['dia'] == day) &
+                            (machine_hours['mes'] == month_funcionamento) &
+                            (machine_hours['ano'] == year_funcionamento)]
+        start_bd = row['horario_inicio'].to_list()[0]
+        end_bd = row['horario_fim'].to_list()[0]
+
+        start_key = f"{day}_start"
+        end_key = f"{day}_end"
+
+        if (to_time(st.session_state[start_key]) != to_time(start_bd) or to_time(st.session_state[end_key]) != to_time(end_bd)):
+            post_working_hours(
+                datetime(year_funcionamento, month_funcionamento, day),
+                machine_id,
+                datetime(year_funcionamento, month_funcionamento, day,
+                         st.session_state[start_key].hour, st.session_state[start_key].minute),
+                datetime(year_funcionamento, month_funcionamento, day,
+                         st.session_state[end_key].hour, st.session_state[end_key].minute),
+            )
+            updates += 1
+
+    if updates:
+        st.success(f"Atualizado horas ({updates} dia(s)).")
     else:
-        st.error('Não Funcionou')
+        st.info("Nenhuma alteração para salvar.")
