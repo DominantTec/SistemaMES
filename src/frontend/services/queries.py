@@ -80,6 +80,35 @@ def get_machine_timeline(machine_id: int, data_inicio=None, data_fim=None) -> Di
     return df_registradores
 
 
+@st.cache_data(ttl=2)
+def get_machine_working_theory(machine_id: int, data_inicio=None, data_fim=None) -> Dict[str, Any]:
+    if not data_inicio or not data_fim:
+        df_funcionamento = run_query("""
+            SELECT * FROM tb_funcionamento
+            WHERE id_ihm = :id
+        """, {'id': machine_id})
+    else:
+        print("data_inicio")
+        print(data_inicio)
+        print("data_fim")
+        print(data_fim)
+        df_funcionamento = run_query("""
+            SELECT * FROM tb_funcionamento
+            WHERE id_ihm = :id 
+            AND horario_inicio >= :data_inicio 
+            AND horario_fim <= :data_fim
+        """, {'id': machine_id, 'data_inicio': data_inicio, 'data_fim': data_fim})
+    df_ihms = run_query("""
+        SELECT
+            id_ihm,
+            nome_maquina
+        FROM ihms
+    """)
+    df_funcionamento = df_funcionamento.merge(
+        df_ihms, how='left', on='id_ihm')
+    return df_funcionamento
+
+
 def get_machine_hours(machine_id: int) -> Dict[str, Any]:
     return run_query("""
         SELECT *
@@ -92,6 +121,7 @@ def get_machine_hours(machine_id: int) -> Dict[str, Any]:
 def get_metrics_machine(machine_id: int) -> Dict[str, Any]:
     try:
         df_registradores = get_machine_timeline(machine_id)
+        df_working_theory = get_machine_working_theory(machine_id)
 
         first_register = df_registradores[df_registradores['datahora']
                                           == df_registradores['datahora'].min()]
@@ -108,23 +138,40 @@ def get_metrics_machine(machine_id: int) -> Dict[str, Any]:
 
         # Disponibilidade = Tempo produzido / Tempo programado para produzir
         lista_produzido = []
+        lista_esperado = []
         status_antigo = ""
         inicio = None
+        inicio_teorico = None
         fim = None
+        fim_teorico = None
         for i, row in df_registradores.iterrows():
+            working_day = df_working_theory[(df_working_theory['ano'] == row['datahora'].year) & (df_working_theory['mes'] == row['datahora'].month) & (
+                df_working_theory['dia'] == row['datahora'].day) & (df_working_theory['id_ihm'] == machine_id)]
             if status_antigo != 'Produzindo' and row['status_maquina'] == 'Produzindo':
-                inicio = row['datahora']
+                if row['datahora'] < working_day['horario_inicio'].to_list()[0]:
+                    inicio = working_day['horario_inicio'].to_list()[0]
+                else:
+                    inicio = row['datahora']
+                inicio_teorico = working_day['horario_inicio'].to_list()[0]
             elif (status_antigo == 'Produzindo' and row['status_maquina'] != 'Produzindo') or (status_antigo == 'Produzindo' and row['status_maquina'] == 'Produzindo' and row['datahora'] == last_register['datahora'].to_list()[0]):
-                fim = row['datahora']
+                if row['datahora'] > working_day['horario_fim'].to_list()[0]:
+                    fim = working_day['horario_fim'].to_list()[0]
+                else:
+                    fim = row['datahora']
+                fim_teorico = working_day['horario_fim'].to_list()[0]
             if inicio and fim:
-                lista_produzido.append((inicio, fim))
+                if inicio.day == fim.day:
+                    lista_produzido.append((inicio, fim))
+                    lista_esperado.append((inicio_teorico, fim_teorico))
                 inicio = None
+                inicio_teorico = None
                 fim = None
+                fim_teorico = None
             status_antigo = row['status_maquina']
         tempo_produzido = sum([y.total_seconds()
                                for y in [x[1] - x[0] for x in lista_produzido]])
-        tempo_programado = (last_register['datahora'].to_list()[
-                            0] - first_register['datahora'].to_list()[0]).total_seconds()
+        tempo_programado = sum([y.total_seconds()
+                               for y in [x[1] - x[0] for x in lista_esperado]])
         disponibilidade = tempo_produzido / tempo_programado
 
         # Performance = Produção Real / Produção Teórica
