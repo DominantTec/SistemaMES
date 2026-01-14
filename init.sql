@@ -334,6 +334,35 @@ UNIQUE NONCLUSTERED
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
+/****** Object:  Table [tb_funcionamento] ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[tb_funcionamento] (
+    [id_funcionamento] [int] IDENTITY(1,1) NOT NULL,
+    [id_ihm] [int] NOT NULL,
+    [dia] [int] NOT NULL,
+    [mes] [int] NOT NULL,
+    [ano] [int] NOT NULL,
+    [horario_inicio] [datetime] NOT NULL,
+    [horario_fim] [datetime] NOT NULL,
+    CONSTRAINT [PK_tb_funcionamento] PRIMARY KEY CLUSTERED 
+    (
+        [id_funcionamento] ASC
+    ) WITH (
+        PAD_INDEX = OFF, 
+        STATISTICS_NORECOMPUTE = OFF, 
+        IGNORE_DUP_KEY = OFF, 
+        ALLOW_ROW_LOCKS = ON, 
+        ALLOW_PAGE_LOCKS = ON, 
+        OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF
+    ) ON [PRIMARY],
+    CONSTRAINT [FK_tb_funcionamento_ihms] FOREIGN KEY ([id_ihm]) 
+        REFERENCES [dbo].[ihms] ([id_ihm])
+) ON [PRIMARY]
+GO
+/******  ******/
 ALTER TABLE [dbo].[logs_registradores] ADD  DEFAULT (getdate()) FOR [datahora]
 GO
 ALTER TABLE [dbo].[notificacoes] ADD  DEFAULT ((0)) FOR [status]
@@ -391,34 +420,7 @@ USE [master]
 GO
 ALTER DATABASE [MES_Core] SET  READ_WRITE 
 GO
-/****** Object:  Table [tb_funcionamento] ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-CREATE TABLE [dbo].[tb_funcionamento] (
-    [id_funcionamento] [int] IDENTITY(1,1) NOT NULL,
-    [id_ihm] [int] NOT NULL,
-    [dia] [int] NOT NULL,
-    [mes] [int] NOT NULL,
-    [ano] [int] NOT NULL,
-    [horario_inicio] [datetime] NOT NULL,
-    [horario_fim] [datetime] NOT NULL,
-    CONSTRAINT [PK_tb_funcionamento] PRIMARY KEY CLUSTERED 
-    (
-        [id_funcionamento] ASC
-    ) WITH (
-        PAD_INDEX = OFF, 
-        STATISTICS_NORECOMPUTE = OFF, 
-        IGNORE_DUP_KEY = OFF, 
-        ALLOW_ROW_LOCKS = ON, 
-        ALLOW_PAGE_LOCKS = ON, 
-        OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF
-    ) ON [PRIMARY],
-    CONSTRAINT [FK_tb_funcionamento_ihms] FOREIGN KEY ([id_ihm]) 
-        REFERENCES [dbo].[ihms] ([id_ihm])
-) ON [PRIMARY]
-GO
+
 
 /***** POPULANDO AS TABELAS *****/
 
