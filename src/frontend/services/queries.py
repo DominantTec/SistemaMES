@@ -148,21 +148,25 @@ def get_metrics_machine(machine_id: int) -> Dict[str, Any]:
             working_day = df_working_theory[(df_working_theory['ano'] == row['datahora'].year) & (df_working_theory['mes'] == row['datahora'].month) & (
                 df_working_theory['dia'] == row['datahora'].day) & (df_working_theory['id_ihm'] == machine_id)]
             if status_antigo != 'Produzindo' and row['status_maquina'] == 'Produzindo':
-                if row['datahora'] < working_day['horario_inicio'].to_list()[0]:
-                    inicio = working_day['horario_inicio'].to_list()[0]
-                else:
-                    inicio = row['datahora']
-                inicio_teorico = working_day['horario_inicio'].to_list()[0]
+                if row['datahora'] < working_day['horario_fim'].to_list()[0]:
+                    if row['datahora'] < working_day['horario_inicio'].to_list()[0]:
+                        inicio = working_day['horario_inicio'].to_list()[0]
+                    else:
+                        inicio = row['datahora']
+                    inicio_teorico = working_day['horario_inicio'].to_list()[0]
             elif (status_antigo == 'Produzindo' and row['status_maquina'] != 'Produzindo') or (status_antigo == 'Produzindo' and row['status_maquina'] == 'Produzindo' and row['datahora'] == last_register['datahora'].to_list()[0]):
-                if row['datahora'] > working_day['horario_fim'].to_list()[0]:
-                    fim = working_day['horario_fim'].to_list()[0]
-                else:
-                    fim = row['datahora']
-                fim_teorico = working_day['horario_fim'].to_list()[0]
+                if row['datahora'] > working_day['horario_inicio'].to_list()[0]:
+                    if row['datahora'] > working_day['horario_fim'].to_list()[0]:
+                        fim = working_day['horario_fim'].to_list()[0]
+                    else:
+                        fim = row['datahora']
+                    fim_teorico = working_day['horario_fim'].to_list()[0]
             if inicio and fim:
                 if inicio.day == fim.day:
-                    lista_produzido.append((inicio, fim))
-                    lista_esperado.append((inicio_teorico, fim_teorico))
+                    if (inicio, fim) not in lista_produzido:
+                        lista_produzido.append((inicio, fim))
+                    if (inicio_teorico, fim_teorico) not in lista_esperado:
+                        lista_esperado.append((inicio_teorico, fim_teorico))
                 inicio = None
                 inicio_teorico = None
                 fim = None
@@ -187,7 +191,9 @@ def get_metrics_machine(machine_id: int) -> Dict[str, Any]:
 
         return {
             'status_maquina': status,
+            # 'oee': round(tempo_produzido, 2),
             'oee': round(100 * oee, 2),
+            # 'eficiencia': round(tempo_programado, 2),
             'eficiencia': round(100 * performance, 2),
             'qualidade': round(100 * qualidade, 2),
             'meta': meta,

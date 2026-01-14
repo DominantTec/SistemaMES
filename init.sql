@@ -455,9 +455,9 @@ GO
 SET IDENTITY_INSERT [dbo].[registradores] ON 
 
 INSERT [dbo].[registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (1, 1, 0, N'operador', 1)
-INSERT [dbo].[registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (2, NULL, 7024, N'produzido', 1)
-INSERT [dbo].[registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (3, NULL, 7025, N'reprovado', 1)
-INSERT [dbo].[registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (4, NULL, 7056, N'total_produzido', 1)
+INSERT [dbo].[registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (2, NULL, 3001, N'produzido', 1)
+INSERT [dbo].[registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (3, NULL, 3010, N'reprovado', 1)
+INSERT [dbo].[registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (4, NULL, 3000, N'total_produzido', 1)
 INSERT [dbo].[registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (5, 2, 1000, N'manutentor', 1)
 INSERT [dbo].[registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (6, 3, 1500, N'engenheiro', 1)
 INSERT [dbo].[registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (7, 6, 2000, N'status_maquina', 1)
