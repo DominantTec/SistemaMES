@@ -13,15 +13,31 @@ machine = st.selectbox("Máquina", get_active_machines(1)
 
 # Operador -> Registrador
 with st.form("form_operador"):
-    meta = st.number_input('Operador', min_value=0, step=1,
-                           value=get_registers_values(machine, 0))
+    operator = st.number_input('Operador', min_value=0, step=1,
+                               value=get_registers_values(machine, 0))
     submit_operador = st.form_submit_button("Muda operador")
 
 if submit_operador:
-    if post_registers_values(machine, 0, int(meta)):
+    if post_registers_values(machine, 0, int(operator)):
         st.success('Funcionou')
     else:
         st.error('Não Funcionou')
+
+# Meta e peça da máquina
+with st.form("form_meta"):
+    col1, col2 = st.columns(2)
+    with col1:
+        peca = st.selectbox("Peça", ["Peça 1", "Peça 2", "Peça 3"])
+    with col2:
+        meta = st.number_input('Meta', min_value=0, step=1, value=0)
+    submit_meta = st.form_submit_button("Ajustar Meta")
+
+if submit_meta:
+    if 1 == 2:
+        st.success('Meta ajustada!')
+    else:
+        st.error('Meta não ajustada!')
+
 
 # Calendário funcionamento
 st.write("Calendário Funcionamento")
