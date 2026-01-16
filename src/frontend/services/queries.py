@@ -117,6 +117,50 @@ def get_machine_hours(machine_id: int) -> Dict[str, Any]:
     """, {"id": machine_id})
 
 
+def get_possible_pieces(machine_id: int) -> list:
+    return run_query("""
+        SELECT piece_name
+        FROM tb_possible_pieces
+        WHERE id_ihm = :id
+    """, {"id": machine_id})['piece_name'].to_list()
+
+
+def get_selected_piece(machine_id: int, data_ref: Any | None = None) -> str:
+    if not data_ref:
+        resultado = run_query("""
+            SELECT *
+            FROM tb_operation_piece
+            WHERE id_ihm = :id
+            ORDER BY datahora DESC
+        """, {"id": machine_id})
+    else:
+        resultado = run_query("""
+            SELECT *
+            FROM tb_operation_piece
+            WHERE id_ihm = :id AND datahora <= :data
+            ORDER BY datahora DESC
+        """, {"id": machine_id, "data": data_ref})
+    return resultado['piece_name'].to_list()[0]
+
+
+def get_meta(machine_id: int, data_ref: Any | None = None) -> int:
+    if not data_ref:
+        resultado = run_query("""
+            SELECT *
+            FROM tb_meta
+            WHERE id_ihm = :id
+            ORDER BY datahora DESC
+        """, {"id": machine_id})
+    else:
+        resultado = run_query("""
+            SELECT *
+            FROM tb_meta
+            WHERE id_ihm = :id AND datahora <= :data
+            ORDER BY datahora DESC
+        """, {"id": machine_id, "data": data_ref})
+    return resultado['meta'].to_list()[0]
+
+
 @st.cache_data(ttl=2)
 def get_metrics_machine(machine_id: int, data_inicio: Any | None = None, data_fim: Any | None = None) -> Dict[str, Any]:
     try:

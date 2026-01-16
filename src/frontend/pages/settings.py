@@ -1,7 +1,7 @@
 import logging
 import streamlit as st
 from services.modbus import get_registers_values, post_registers_values
-from services.queries import get_active_machines, get_machine_hours
+from services.queries import get_active_machines, get_machine_hours, get_possible_pieces, get_selected_piece, get_meta
 from services.utils import get_weekday_start, get_last_day_month, fill_month_database, post_working_hours, to_time
 from datetime import datetime
 
@@ -9,7 +9,7 @@ st.title("Settings")
 
 machine = st.selectbox("Máquina", get_active_machines(1)
                        ['nome_maquina'].to_list())
-
+machine_id = {"MAQ1": 1, "MAQ2": 2}[machine]
 
 # Operador -> Registrador
 with st.form("form_operador"):
@@ -27,9 +27,14 @@ if submit_operador:
 with st.form("form_meta"):
     col1, col2 = st.columns(2)
     with col1:
-        peca = st.selectbox("Peça", ["Peça 1", "Peça 2", "Peça 3"])
+        possible_pieces = get_possible_pieces(machine_id)
+        peca = st.selectbox("Peça", possible_pieces, index=possible_pieces.index(
+            get_selected_piece(machine_id)))
+        # peca = st.selectbox("Peça", ["Peça 1", "Peça 2", "Peça 3"])
     with col2:
-        meta = st.number_input('Meta', min_value=0, step=1, value=0)
+        meta = st.number_input('Meta', min_value=0, step=1,
+                               value=get_meta(machine_id))
+        # meta = st.number_input('Meta', min_value=0, step=1, value=0)
     submit_meta = st.form_submit_button("Ajustar Meta")
 
 if submit_meta:
@@ -49,7 +54,6 @@ with col1:
 with col2:
     year_funcionamento = st.selectbox("Ano", [2025, 2026], index=[
                                       2025, 2026].index(today.year))
-machine_id = {"MAQ1": 1, "MAQ2": 2}[machine]
 machine_hours = get_machine_hours(machine_id)
 
 first_month_day = datetime(year_funcionamento, month_funcionamento, 1)

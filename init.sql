@@ -362,6 +362,82 @@ CREATE TABLE [dbo].[tb_funcionamento] (
         REFERENCES [dbo].[tb_ihms] ([id_ihm])
 ) ON [PRIMARY]
 GO
+/****** [tb_possible_pieces] ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[tb_possible_pieces] (
+    [id_possible_pieces] [int] IDENTITY(1,1) NOT NULL,
+    [id_ihm] [int] NOT NULL,
+    [piece_name] [varchar](100) NOT NULL,
+    [datahora] [datetime] NOT NULL,
+    CONSTRAINT [PK_tb_possible_pieces] PRIMARY KEY CLUSTERED 
+    (
+        [id_possible_pieces] ASC
+    ) WITH (
+        PAD_INDEX = OFF, 
+        STATISTICS_NORECOMPUTE = OFF, 
+        IGNORE_DUP_KEY = OFF, 
+        ALLOW_ROW_LOCKS = ON, 
+        ALLOW_PAGE_LOCKS = ON, 
+        OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF
+    ) ON [PRIMARY],
+    CONSTRAINT [FK_tb_possible_pieces] FOREIGN KEY ([id_ihm]) 
+        REFERENCES [dbo].[tb_ihms] ([id_ihm])
+) ON [PRIMARY]
+GO
+/****** [tb_operation_piece] ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[tb_operation_piece] (
+    [id_operation_piece] [int] IDENTITY(1,1) NOT NULL,
+    [id_ihm] [int] NOT NULL,
+    [piece_name] [varchar](100) NOT NULL,
+    [datahora] [datetime] NOT NULL,
+    CONSTRAINT [PK_tb_operation_piece] PRIMARY KEY CLUSTERED 
+    (
+        [id_operation_piece] ASC
+    ) WITH (
+        PAD_INDEX = OFF, 
+        STATISTICS_NORECOMPUTE = OFF, 
+        IGNORE_DUP_KEY = OFF, 
+        ALLOW_ROW_LOCKS = ON, 
+        ALLOW_PAGE_LOCKS = ON, 
+        OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF
+    ) ON [PRIMARY],
+    CONSTRAINT [FK_tb_operation_piece] FOREIGN KEY ([id_ihm]) 
+        REFERENCES [dbo].[tb_ihms] ([id_ihm])
+) ON [PRIMARY]
+GO
+/****** [tb_meta] ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[tb_meta] (
+    [id_meta] [int] IDENTITY(1,1) NOT NULL,
+    [id_ihm] [int] NOT NULL,
+    [meta] [int] NOT NULL,
+    [piece_name] [varchar](100) NOT NULL,
+    [datahora] [datetime] NOT NULL,
+    CONSTRAINT [PK_tb_meta] PRIMARY KEY CLUSTERED 
+    (
+        [id_meta] ASC
+    ) WITH (
+        PAD_INDEX = OFF, 
+        STATISTICS_NORECOMPUTE = OFF, 
+        IGNORE_DUP_KEY = OFF, 
+        ALLOW_ROW_LOCKS = ON, 
+        ALLOW_PAGE_LOCKS = ON, 
+        OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF
+    ) ON [PRIMARY],
+    CONSTRAINT [FK_tb_meta] FOREIGN KEY ([id_ihm]) 
+        REFERENCES [dbo].[tb_ihms] ([id_ihm])
+) ON [PRIMARY]
+GO
 /******  ******/
 ALTER TABLE [dbo].[tb_logs_registradores] ADD  DEFAULT (getdate()) FOR [datahora]
 GO
@@ -415,6 +491,12 @@ GO
 ALTER TABLE [dbo].[tb_notificacoes]  WITH CHECK ADD CHECK  (([tipo]='Outro' OR [tipo]='Manutenção realizada' OR [tipo]='Aguardando manutenção' OR [tipo]='Erro'))
 GO
 ALTER TABLE [SoftIHM].[tb_usuarios]  WITH CHECK ADD CHECK  (([tipo_usuario]='comum' OR [tipo_usuario]='admin'))
+GO
+ALTER TABLE [dbo].[tb_possible_pieces] ADD  DEFAULT (getdate()) FOR [datahora]
+GO
+ALTER TABLE [dbo].[tb_operation_piece] ADD  DEFAULT (getdate()) FOR [datahora]
+GO
+ALTER TABLE [dbo].[tb_meta] ADD  DEFAULT (getdate()) FOR [datahora]
 GO
 USE [master]
 GO
@@ -640,4 +722,35 @@ INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [an
 INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (62, 2, 31, 12, 2025, '2025-12-31 07:00:00', '2025-12-31 19:00:00')
 
 SET IDENTITY_INSERT [dbo].[tb_funcionamento] OFF
+GO
+
+SET IDENTITY_INSERT [dbo].[tb_possible_pieces] ON
+GO
+
+INSERT [dbo].[tb_possible_pieces] ([id_possible_pieces], [id_ihm], [piece_name], [datahora]) VALUES (1, 1, 'Peça 1', '2025-01-01 01:00:00')
+INSERT [dbo].[tb_possible_pieces] ([id_possible_pieces], [id_ihm], [piece_name], [datahora]) VALUES (2, 1, 'Peça 2', '2025-01-01 01:00:00')
+INSERT [dbo].[tb_possible_pieces] ([id_possible_pieces], [id_ihm], [piece_name], [datahora]) VALUES (3, 1, 'Peça 3', '2025-01-01 01:00:00')
+INSERT [dbo].[tb_possible_pieces] ([id_possible_pieces], [id_ihm], [piece_name], [datahora]) VALUES (4, 2, 'Peça 1', '2025-01-01 01:00:00')
+INSERT [dbo].[tb_possible_pieces] ([id_possible_pieces], [id_ihm], [piece_name], [datahora]) VALUES (5, 2, 'Peça 2', '2025-01-01 01:00:00')
+INSERT [dbo].[tb_possible_pieces] ([id_possible_pieces], [id_ihm], [piece_name], [datahora]) VALUES (6, 2, 'Peça 4', '2025-01-01 01:00:00')
+
+SET IDENTITY_INSERT [dbo].[tb_possible_pieces] OFF
+GO
+
+SET IDENTITY_INSERT [dbo].[tb_operation_piece] ON
+GO
+
+INSERT [dbo].[tb_operation_piece] ([id_operation_piece], [id_ihm], [piece_name], [datahora]) VALUES (1, 1, 'Peça 1', '2025-01-01 01:00:00')
+INSERT [dbo].[tb_operation_piece] ([id_operation_piece], [id_ihm], [piece_name], [datahora]) VALUES (2, 2, 'Peça 4', '2025-01-01 01:00:00')
+
+SET IDENTITY_INSERT [dbo].[tb_operation_piece] OFF
+GO
+
+SET IDENTITY_INSERT [dbo].[tb_meta] ON
+GO
+
+INSERT [dbo].[tb_meta] ([id_meta], [id_ihm], [meta], [piece_name], [datahora]) VALUES (1, 1, 100, 'Peça 1', '2025-01-01 01:00:00')
+INSERT [dbo].[tb_meta] ([id_meta], [id_ihm], [meta], [piece_name], [datahora]) VALUES (2, 2, 200, 'Peça 4', '2025-01-01 01:00:00')
+
+SET IDENTITY_INSERT [dbo].[tb_meta] OFF
 GO
