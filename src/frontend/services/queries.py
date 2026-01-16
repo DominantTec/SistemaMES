@@ -118,10 +118,12 @@ def get_machine_hours(machine_id: int) -> Dict[str, Any]:
 
 
 @st.cache_data(ttl=2)
-def get_metrics_machine(machine_id: int) -> Dict[str, Any]:
+def get_metrics_machine(machine_id: int, data_inicio: Any | None = None, data_fim: Any | None = None) -> Dict[str, Any]:
     try:
-        df_registradores = get_machine_timeline(machine_id)
-        df_working_theory = get_machine_working_theory(machine_id)
+        df_registradores = get_machine_timeline(
+            machine_id, data_inicio=data_inicio, data_fim=data_fim)
+        df_working_theory = get_machine_working_theory(
+            machine_id, data_inicio=data_inicio, data_fim=data_fim)
 
         first_register = df_registradores[df_registradores['datahora']
                                           == df_registradores['datahora'].min()]
