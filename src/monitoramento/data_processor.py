@@ -8,7 +8,7 @@ def read_registers(id_ihm, conn_ihm, conn_db):
         insert_values = ""
         values = []
         cursor = conn_db.cursor()
-        select_registers = f"SELECT id_registrador, endereco, descricao FROM registradores WHERE id_ihm = {id_ihm} ORDER BY id_registrador ASC"
+        select_registers = f"SELECT id_registrador, endereco, descricao FROM tb_registradores WHERE id_ihm = {id_ihm} ORDER BY id_registrador ASC"
         cursor.execute(select_registers)
         registers = cursor.fetchall()
 
@@ -57,7 +57,7 @@ def insert_registers_values(id_ihm, conn_db, values, insert_values):
         cursor = conn_db.cursor()
 
         # Verificar se a tabela está vazia
-        query_count = f"SELECT COUNT(*) FROM [MES_Core].[dbo].[logs_registradores] WHERE id_ihm = {id_ihm}"
+        query_count = f"SELECT COUNT(*) FROM [MES_Core].[dbo].[tb_logs_registradores] WHERE id_ihm = {id_ihm}"
         cursor.execute(query_count)
         count = cursor.fetchone()
 
@@ -87,7 +87,7 @@ def insert_registers_values(id_ihm, conn_db, values, insert_values):
         # Buscar último batch_id registrado
         select_batch_id = f"""
             SELECT TOP 1 batch_id
-            FROM [MES_Core].[dbo].[logs_registradores]
+            FROM [MES_Core].[dbo].[tb_logs_registradores]
             WHERE id_ihm = {id_ihm}
             ORDER BY batch_id DESC
         """
@@ -97,7 +97,7 @@ def insert_registers_values(id_ihm, conn_db, values, insert_values):
         # Carregar últimos valores para comparação
         select_last_values = f"""
             SELECT valor_bruto
-            FROM [MES_Core].[dbo].[logs_registradores]
+            FROM [MES_Core].[dbo].[tb_logs_registradores]
             WHERE batch_id = {batch_id[0]}
             ORDER BY id_log_registradores ASC
         """

@@ -7,7 +7,7 @@ import streamlit as st
 def get_active_lines() -> List[Dict[str, Any]]:
     return run_query("""
         SELECT id_linha_producao, nome
-        FROM linhas_producao
+        FROM tb_linhas_producao
         ORDER BY id_linha_producao
     """)
 
@@ -16,7 +16,7 @@ def get_active_lines() -> List[Dict[str, Any]]:
 def get_active_machines(line_id: int) -> List[Dict[str, Any]]:
     return run_query("""
         SELECT id_ihm, nome_maquina
-        FROM ihms
+        FROM tb_ihms
         WHERE id_linha_producao = :id
         ORDER BY id_ihm
     """, {"id": line_id})
@@ -26,7 +26,7 @@ def get_active_machines(line_id: int) -> List[Dict[str, Any]]:
 def get_machine_timeline(machine_id: int, data_inicio=None, data_fim=None) -> Dict[str, Any]:
     if not data_inicio or not data_fim:
         df_registradores = run_query("""
-            SELECT * FROM logs_registradores
+            SELECT * FROM tb_logs_registradores
             WHERE id_ihm = :id
         """, {'id': machine_id})
     else:
@@ -35,7 +35,7 @@ def get_machine_timeline(machine_id: int, data_inicio=None, data_fim=None) -> Di
         print("data_fim")
         print(data_fim)
         df_registradores = run_query("""
-            SELECT * FROM logs_registradores
+            SELECT * FROM tb_logs_registradores
             WHERE id_ihm = :id 
             AND datahora >= :data_inicio 
             AND datahora <= :data_fim
@@ -44,13 +44,13 @@ def get_machine_timeline(machine_id: int, data_inicio=None, data_fim=None) -> Di
         SELECT
             id_ihm,
             nome_maquina
-        FROM ihms
+        FROM tb_ihms
     """)
     df_depara_registradores = run_query("""
         SELECT
             id_registrador,
             descricao 
-        FROM registradores
+        FROM tb_registradores
     """)
     if len(df_registradores) > 2:
         df_registradores = df_registradores.merge(
@@ -102,7 +102,7 @@ def get_machine_working_theory(machine_id: int, data_inicio=None, data_fim=None)
         SELECT
             id_ihm,
             nome_maquina
-        FROM ihms
+        FROM tb_ihms
     """)
     df_funcionamento = df_funcionamento.merge(
         df_ihms, how='left', on='id_ihm')

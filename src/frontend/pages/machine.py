@@ -25,7 +25,7 @@ maq_id = int(maq_id)
 # ============================
 info_ihm = run_query("""
     SELECT nome_maquina
-    FROM ihms
+    FROM tb_ihms
     WHERE id_ihm = :id
 """, {"id": maq_id})
 
