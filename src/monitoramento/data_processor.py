@@ -71,10 +71,10 @@ def insert_registers_values(id_ihm, conn_db, values, insert_values):
 
                 SET @BatchID = NEXT VALUE FOR LogBatchSequence;
 
-                INSERT INTO fila_batch_ids (batch_id, status)
+                INSERT INTO tb_fila_batch_ids (batch_id, status)
                 VALUES (@BatchID, 0);
 
-                INSERT INTO Logs_Registradores (batch_id, id_ihm, id_registrador, valor_bruto)
+                INSERT INTO tb_logs_registradores (batch_id, id_ihm, id_registrador, valor_bruto)
                 VALUES
                 {insert_values};
             """
@@ -117,13 +117,13 @@ def insert_registers_values(id_ihm, conn_db, values, insert_values):
 
             SET @BatchID = NEXT VALUE FOR LogBatchSequence;
 
-            INSERT INTO fila_batch_ids (batch_id, status)
+            INSERT INTO tb_fila_batch_ids (batch_id, status)
             VALUES (@BatchID, 0);
 
-            INSERT INTO fila_paradas (batch_id, status)
+            INSERT INTO tb_fila_paradas (batch_id, status)
             VALUES (@BatchID, 0);
 
-            INSERT INTO Logs_Registradores (batch_id, id_ihm, id_registrador, valor_bruto)
+            INSERT INTO tb_logs_registradores (batch_id, id_ihm, id_registrador, valor_bruto)
             VALUES
             {insert_values};
         """

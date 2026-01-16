@@ -359,7 +359,7 @@ CREATE TABLE [dbo].[tb_funcionamento] (
         OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF
     ) ON [PRIMARY],
     CONSTRAINT [FK_tb_funcionamento_ihms] FOREIGN KEY ([id_ihm]) 
-        REFERENCES [dbo].[ihms] ([id_ihm])
+        REFERENCES [dbo].[tb_ihms] ([id_ihm])
 ) ON [PRIMARY]
 GO
 /******  ******/
