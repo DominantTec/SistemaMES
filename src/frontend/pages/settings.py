@@ -1,7 +1,7 @@
 import logging
 import streamlit as st
 from services.modbus import get_registers_values, post_registers_values
-from services.queries import get_active_machines, get_machine_hours, get_possible_pieces, get_selected_piece, get_meta
+from services.queries import get_active_machines, get_machine_hours, get_possible_pieces, get_selected_piece, get_meta, insert_meta
 from services.utils import get_weekday_start, get_last_day_month, fill_month_database, post_working_hours, to_time
 from datetime import datetime
 
@@ -30,15 +30,13 @@ with st.form("form_meta"):
         possible_pieces = get_possible_pieces(machine_id)
         peca = st.selectbox("Peça", possible_pieces, index=possible_pieces.index(
             get_selected_piece(machine_id)))
-        # peca = st.selectbox("Peça", ["Peça 1", "Peça 2", "Peça 3"])
     with col2:
         meta = st.number_input('Meta', min_value=0, step=1,
                                value=get_meta(machine_id))
-        # meta = st.number_input('Meta', min_value=0, step=1, value=0)
     submit_meta = st.form_submit_button("Ajustar Meta")
 
 if submit_meta:
-    if 1 == 2:
+    if insert_meta(machine_id, peca, meta):
         st.success('Meta ajustada!')
     else:
         st.error('Meta não ajustada!')

@@ -1,4 +1,4 @@
-from services.db import run_query
+from services.db import run_query, run_query_update
 from typing import List, Dict, Any
 import streamlit as st
 
@@ -159,6 +159,30 @@ def get_meta(machine_id: int, data_ref: Any | None = None) -> int:
             ORDER BY datahora DESC
         """, {"id": machine_id, "data": data_ref})
     return resultado['meta'].to_list()[0]
+
+
+def insert_meta(machine_id: int, piece_name: str, new_meta: int, data_ref: Any | None = None) -> bool:
+    query = """
+        INSERT INTO tb_meta (id_ihm, meta, piece_name)
+        VALUES (:id_ihm, :meta, :piece_name)
+    """
+    params = {
+        "id_ihm": machine_id,
+        "meta": new_meta,
+        "piece_name": piece_name
+    }
+    query_2 = """
+        INSERT INTO tb_operation_piece (id_ihm, piece_name)
+        VALUES (:id_ihm, :piece_name)
+    """
+    params_2 = {
+        "id_ihm": machine_id,
+        "piece_name": piece_name
+    }
+    if run_query_update(query, params) and run_query_update(query_2, params_2):
+        return True
+    else:
+        return False
 
 
 @st.cache_data(ttl=2)
