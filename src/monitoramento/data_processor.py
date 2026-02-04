@@ -8,7 +8,7 @@ def read_registers(id_ihm, conn_ihm, conn_db):
         insert_values = ""
         values = []
         cursor = conn_db.cursor()
-        select_registers = f"SELECT id_registrador, endereco, descricao FROM tb_registradores WHERE id_ihm = {id_ihm} ORDER BY id_registrador ASC"
+        select_registers = f"SELECT id_registrador, nu_endereco, tx_descricao FROM tb_registrador WHERE id_ihm = {id_ihm} ORDER BY id_registrador ASC"
         cursor.execute(select_registers)
         registers = cursor.fetchall()
 
@@ -16,15 +16,15 @@ def read_registers(id_ihm, conn_ihm, conn_db):
         for register in registers:
             try:
                 valor_registrador = conn_ihm.read_holding_registers(
-                    address=register.endereco,
+                    address=register.nu_endereco,
                     count=1
                 ).registers[0]
 
-                insert_values += f"(@BatchID, {id_ihm}, {register.id_registrador}, {valor_registrador}),"
+                insert_values += f"({id_ihm}, {register.id_registrador}, {valor_registrador}),"
                 values.append(valor_registrador)
 
                 logger.info(
-                    f"{register.endereco}   |   {valor_registrador}   |   {register.descricao}")
+                    f"{register.nu_endereco}   |   {valor_registrador}   |   {register.tx_descricao}")
 
             except Exception as e:
                 # Perda de conexão Modbus (erro 10054)
@@ -33,10 +33,10 @@ def read_registers(id_ihm, conn_ihm, conn_db):
                     raise ConnectionError(
                         "Conexão perdida com a IHM, identificado pelo erro [WinError 10054]")
 
-                insert_values += f"(@BatchID, {id_ihm}, {register.id_registrador}, NULL),"
+                insert_values += f"({id_ihm}, {register.id_registrador}, NULL),"
                 values.append(None)
                 logger.error(
-                    f"Erro ao ler o registrador no endereço {register.endereco}: {e}")
+                    f"Erro ao ler o registrador no endereço {register.nu_endereco}: {e}")
 
         insert_values = insert_values[:-1]  # remove última vírgula
         return values, insert_values
@@ -57,24 +57,17 @@ def insert_registers_values(id_ihm, conn_db, values, insert_values):
         cursor = conn_db.cursor()
 
         # Verificar se a tabela está vazia
-        query_count = f"SELECT COUNT(*) FROM [MES_Core].[dbo].[tb_logs_registradores] WHERE id_ihm = {id_ihm}"
+        query_count = f"SELECT COUNT(*) FROM [MES_Core].[dbo].[tb_log_registrador] WHERE id_ihm = {id_ihm}"
         cursor.execute(query_count)
         count = cursor.fetchone()
 
         # Tabela vazia → inserir primeiro registro sem comparação
         if count[0] == 0:
             logger.info(
-                "A tabela logs_registradores está vazia. Inserindo novo registro...")
+                "A tabela tb_log_registrador está vazia. Inserindo novo registro...")
 
             insert_log_string = f"""
-                DECLARE @BatchID BIGINT;
-
-                SET @BatchID = NEXT VALUE FOR LogBatchSequence;
-
-                INSERT INTO tb_fila_batch_ids (batch_id, status)
-                VALUES (@BatchID, 0);
-
-                INSERT INTO tb_logs_registradores (batch_id, id_ihm, id_registrador, valor_bruto)
+                INSERT INTO tb_log_registrador (id_ihm, id_registrador, nu_valor_bruto)
                 VALUES
                 {insert_values};
             """
@@ -84,22 +77,22 @@ def insert_registers_values(id_ihm, conn_db, values, insert_values):
             logger.info("Dados inseridos com sucesso!")
             return
 
-        # Buscar último batch_id registrado
-        select_batch_id = f"""
-            SELECT TOP 1 batch_id
-            FROM [MES_Core].[dbo].[tb_logs_registradores]
+        # Buscar último registro registrado
+        select_last_time = f"""
+            SELECT TOP 1 dt_created_at
+            FROM [MES_Core].[dbo].[tb_log_registrador]
             WHERE id_ihm = {id_ihm}
-            ORDER BY batch_id DESC
+            ORDER BY dt_created_at DESC
         """
-        cursor.execute(select_batch_id)
-        batch_id = cursor.fetchone()
+        cursor.execute(select_last_time)
+        last_time = cursor.fetchone()
 
         # Carregar últimos valores para comparação
         select_last_values = f"""
-            SELECT valor_bruto
-            FROM [MES_Core].[dbo].[tb_logs_registradores]
-            WHERE batch_id = {batch_id[0]}
-            ORDER BY id_log_registradores ASC
+            SELECT nu_valor_bruto
+            FROM [MES_Core].[dbo].[tb_log_registrador]
+            WHERE dt_created_at = '{last_time[0]}'
+            ORDER BY id_log_registrador ASC
         """
         cursor.execute(select_last_values)
         last_values = [int(row[0]) for row in cursor.fetchall()]
@@ -113,17 +106,7 @@ def insert_registers_values(id_ihm, conn_db, values, insert_values):
         logger.info("Alteração detectada. Inserindo novo registro...")
 
         insert_log_string = f"""
-            DECLARE @BatchID BIGINT;
-
-            SET @BatchID = NEXT VALUE FOR LogBatchSequence;
-
-            INSERT INTO tb_fila_batch_ids (batch_id, status)
-            VALUES (@BatchID, 0);
-
-            INSERT INTO tb_fila_paradas (batch_id, status)
-            VALUES (@BatchID, 0);
-
-            INSERT INTO tb_logs_registradores (batch_id, id_ihm, id_registrador, valor_bruto)
+            INSERT INTO tb_log_registrador (id_ihm, id_registrador, nu_valor_bruto)
             VALUES
             {insert_values};
         """

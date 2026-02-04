@@ -5,7 +5,7 @@ from logger import logger
 def get_connection_ihm(id_ihm, conn_db):
     try:
         cursor = conn_db.cursor()
-        select_ihms = f"SELECT ip_address, port_number FROM tb_ihms WHERE id_ihm = {id_ihm}"
+        select_ihms = f"SELECT tx_ip_address, tx_port_number FROM tb_ihm WHERE id_ihm = {id_ihm}"
         cursor.execute(select_ihms)
         result = cursor.fetchone()
 
