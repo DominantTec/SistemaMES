@@ -24,8 +24,8 @@ maq_id = int(maq_id)
 # Buscar os dados da máquina
 # ============================
 info_ihm = run_query("""
-    SELECT nome_maquina
-    FROM tb_ihms
+    SELECT tx_name
+    FROM tb_ihm
     WHERE id_ihm = :id
 """, {"id": maq_id})
 
@@ -33,7 +33,7 @@ if len(info_ihm) == 0:
     st.error("Máquina não encontrada.")
     st.stop()
 
-nome_maquina = info_ihm["nome_maquina"][0]
+nome_maquina = info_ihm["tx_name"][0]
 
 st.title(f"🖥️{nome_maquina}")
 
@@ -130,8 +130,8 @@ else:
         proximo = registros.loc[i + 1]
 
         status = atual["status_maquina"]
-        t1 = atual["datahora"]
-        t2 = proximo["datahora"]
+        t1 = atual["dt_created_at"]
+        t2 = proximo["dt_created_at"]
 
         duracao_min = (t2 - t1).total_seconds() / 60
         tempos[status] = tempos.get(status, 0) + duracao_min
@@ -139,7 +139,7 @@ else:
     # Último registro
     ultimo_status = registros["status_maquina"].to_list()[-1]
     duracao_ultimo = (
-        data_fim - registros["datahora"].to_list()[-1]).total_seconds() / 60
+        data_fim - registros["dt_created_at"].to_list()[-1]).total_seconds() / 60
     tempos[ultimo_status] = tempos.get(ultimo_status, 0) + duracao_ultimo
 
     # converter em DataFrame
@@ -176,14 +176,14 @@ else:
 
         timeline_rows.append({
             "status": atual["status_maquina"],
-            "inicio": atual["datahora"],
-            "fim": proximo["datahora"]
+            "inicio": atual["dt_created_at"],
+            "fim": proximo["dt_created_at"]
         })
 
     # último registro dura até o final do período
     timeline_rows.append({
         "status": registros["status_maquina"].to_list()[-1],
-        "inicio": registros["datahora"].to_list()[-1],
+        "inicio": registros["dt_created_at"].to_list()[-1],
         "fim": data_fim
     })
 
@@ -216,8 +216,8 @@ st.write("## 🎯 Meta x Realizado (Radial)")
 META = 110
 
 # Buscar último registro dentro do período
-registro_final = registros[registros['datahora']
-                           == registros['datahora'].max()]
+registro_final = registros[registros['dt_created_at']
+                           == registros['dt_created_at'].max()]
 
 if len(registro_final) == 0:
     st.warning("Não há dados suficientes no período para gerar o gráfico.")

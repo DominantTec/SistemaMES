@@ -6,8 +6,8 @@ import streamlit as st
 @st.cache_data(ttl=10)
 def get_active_lines() -> List[Dict[str, Any]]:
     return run_query("""
-        SELECT id_linha_producao, nome
-        FROM tb_linhas_producao
+        SELECT id_linha_producao, tx_name
+        FROM tb_linha_producao
         ORDER BY id_linha_producao
     """)
 
@@ -15,8 +15,8 @@ def get_active_lines() -> List[Dict[str, Any]]:
 @st.cache_data(ttl=10)
 def get_active_machines(line_id: int) -> List[Dict[str, Any]]:
     return run_query("""
-        SELECT id_ihm, nome_maquina
-        FROM tb_ihms
+        SELECT id_ihm, tx_name
+        FROM tb_ihm
         WHERE id_linha_producao = :id
         ORDER BY id_ihm
     """, {"id": line_id})
@@ -30,27 +30,23 @@ def get_machine_timeline(machine_id: int, data_inicio=None, data_fim=None) -> Di
             WHERE id_ihm = :id
         """, {'id': machine_id})
     else:
-        print("data_inicio")
-        print(data_inicio)
-        print("data_fim")
-        print(data_fim)
         df_registradores = run_query("""
-            SELECT * FROM tb_logs_registradores
+            SELECT * FROM tb_log_registrador
             WHERE id_ihm = :id 
-            AND datahora >= :data_inicio 
-            AND datahora <= :data_fim
+            AND dt_created_at >= :data_inicio 
+            AND dt_created_at <= :data_fim
         """, {'id': machine_id, 'data_inicio': data_inicio, 'data_fim': data_fim})
     df_ihms = run_query("""
         SELECT
             id_ihm,
-            nome_maquina
-        FROM tb_ihms
+            tx_name
+        FROM tb_ihm
     """)
     df_depara_registradores = run_query("""
         SELECT
             id_registrador,
-            descricao 
-        FROM tb_registradores
+            tx_descricao 
+        FROM tb_registrador
     """)
     if len(df_registradores) > 2:
         df_registradores = df_registradores.merge(
@@ -58,11 +54,11 @@ def get_machine_timeline(machine_id: int, data_inicio=None, data_fim=None) -> Di
         df_registradores = df_registradores.merge(
             df_depara_registradores, how='left', on='id_registrador')
         df_registradores = df_registradores[[
-            'nome_maquina', 'descricao', 'datahora', 'valor_bruto']]
+            'tx_name', 'tx_descricao', 'dt_created_at', 'nu_valor_bruto']]
         del df_ihms, df_depara_registradores
         df_registradores = df_registradores.pivot_table(
-            index=['nome_maquina', 'datahora'], columns='descricao', values='valor_bruto', aggfunc='first').reset_index()
-        df_registradores = df_registradores.sort_values('datahora')
+            index=['tx_name', 'dt_created_at'], columns='tx_descricao', values='nu_valor_bruto', aggfunc='first').reset_index()
+        df_registradores = df_registradores.sort_values('dt_created_at')
         df_registradores.reset_index(drop=True, inplace=True)
         depara_status_maquina = {
             '0': 'Parada',
@@ -84,25 +80,21 @@ def get_machine_timeline(machine_id: int, data_inicio=None, data_fim=None) -> Di
 def get_machine_working_theory(machine_id: int, data_inicio=None, data_fim=None) -> Dict[str, Any]:
     if not data_inicio or not data_fim:
         df_funcionamento = run_query("""
-            SELECT * FROM tb_funcionamento
-            WHERE id_ihm = :id
+            SELECT * FROM tb_turnos
+            WHERE id_linha_producao = (SELECT id_linha_producao FROM tb_ihm WHERE id_ihm = :id)
         """, {'id': machine_id})
     else:
-        print("data_inicio")
-        print(data_inicio)
-        print("data_fim")
-        print(data_fim)
         df_funcionamento = run_query("""
-            SELECT * FROM tb_funcionamento
-            WHERE id_ihm = :id 
-            AND horario_inicio >= :data_inicio 
-            AND horario_fim <= :data_fim
+            SELECT * FROM tb_turnos
+            WHERE id_linha_producao = (SELECT id_linha_producao FROM tb_ihm WHERE id_ihm = :id)
+            AND dt_inicio >= :data_inicio 
+            AND dt_fim <= :data_fim
         """, {'id': machine_id, 'data_inicio': data_inicio, 'data_fim': data_fim})
     df_ihms = run_query("""
         SELECT
             id_ihm,
-            nome_maquina
-        FROM tb_ihms
+            tx_name
+        FROM tb_ihm
     """)
     df_funcionamento = df_funcionamento.merge(
         df_ihms, how='left', on='id_ihm')
@@ -111,78 +103,85 @@ def get_machine_working_theory(machine_id: int, data_inicio=None, data_fim=None)
 
 def get_machine_hours(machine_id: int) -> Dict[str, Any]:
     return run_query("""
-        SELECT *
-        FROM tb_funcionamento
-        WHERE id_ihm = :id
+        SELECT * FROM tb_turnos
+        WHERE id_linha_producao = :id
     """, {"id": machine_id})
+    # SELECT * FROM tb_turnos
+    # WHERE id_linha_producao = (SELECT id_linha_producao FROM tb_ihm WHERE id_ihm = :id)
 
 
 def get_possible_pieces(machine_id: int) -> list:
-    return run_query("""
-        SELECT piece_name
-        FROM tb_possible_pieces
-        WHERE id_ihm = :id
-    """, {"id": machine_id})['piece_name'].to_list()
+    return ['PEÇA TEMP', 'PEÇA 1']
+    # return run_query("""
+    #     SELECT tx_peca
+    #     FROM tb_depara_peca
+    #     WHERE id_ihm = :id
+    # """, {"id": machine_id})['tx_peca'].to_list()
 
 
 def get_selected_piece(machine_id: int, data_ref: Any | None = None) -> str:
     if not data_ref:
-        resultado = run_query("""
-            SELECT *
-            FROM tb_operation_piece
-            WHERE id_ihm = :id
-            ORDER BY datahora DESC
-        """, {"id": machine_id})
+        # resultado = run_query("""
+        #     SELECT *
+        #     FROM tb_operation_piece
+        #     WHERE id_ihm = :id
+        #     ORDER BY dt_created_at DESC
+        # """, {"id": machine_id})
+        resultado = 'PEÇA TEMP'
     else:
-        resultado = run_query("""
-            SELECT *
-            FROM tb_operation_piece
-            WHERE id_ihm = :id AND datahora <= :data
-            ORDER BY datahora DESC
-        """, {"id": machine_id, "data": data_ref})
-    return resultado['piece_name'].to_list()[0]
+        # resultado = run_query("""
+        #     SELECT *
+        #     FROM tb_operation_piece
+        #     WHERE id_ihm = :id AND dt_created_at <= :data
+        #     ORDER BY dt_created_at DESC
+        # """, {"id": machine_id, "data": data_ref})
+        resultado = 'PEÇA TEMP'
+    return resultado
 
 
 def get_meta(machine_id: int, data_ref: Any | None = None) -> int:
     if not data_ref:
-        resultado = run_query("""
-            SELECT *
-            FROM tb_meta
-            WHERE id_ihm = :id
-            ORDER BY datahora DESC
-        """, {"id": machine_id})
+        # resultado = run_query("""
+        #     SELECT *
+        #     FROM tb_meta
+        #     WHERE id_ihm = :id
+        #     ORDER BY dt_created_at DESC
+        # """, {"id": machine_id})
+        resultado = 10
     else:
-        resultado = run_query("""
-            SELECT *
-            FROM tb_meta
-            WHERE id_ihm = :id AND datahora <= :data
-            ORDER BY datahora DESC
-        """, {"id": machine_id, "data": data_ref})
-    return resultado['meta'].to_list()[0]
+        # resultado = run_query("""
+        #     SELECT *
+        #     FROM tb_meta
+        #     WHERE id_ihm = :id AND dt_created_at <= :data
+        #     ORDER BY dt_created_at DESC
+        # """, {"id": machine_id, "data": data_ref})
+        resultado = 10
+    return resultado
 
 
 def insert_meta(machine_id: int, piece_name: str, new_meta: int, data_ref: Any | None = None) -> bool:
-    query = """
-        INSERT INTO tb_meta (id_ihm, meta, piece_name)
-        VALUES (:id_ihm, :meta, :piece_name)
-    """
-    params = {
-        "id_ihm": machine_id,
-        "meta": new_meta,
-        "piece_name": piece_name
-    }
-    query_2 = """
-        INSERT INTO tb_operation_piece (id_ihm, piece_name)
-        VALUES (:id_ihm, :piece_name)
-    """
-    params_2 = {
-        "id_ihm": machine_id,
-        "piece_name": piece_name
-    }
-    if run_query_update(query, params) and run_query_update(query_2, params_2):
-        return True
-    else:
-        return False
+    return False
+    # query = """
+    #     INSERT INTO tb_meta (id_ihm, meta, piece_name)
+    #     VALUES (:id_ihm, :meta, :piece_name)
+    # """
+    # params = {
+    #     "id_ihm": machine_id,
+    #     "meta": new_meta,
+    #     "piece_name": piece_name
+    # }
+    # query_2 = """
+    #     INSERT INTO tb_operation_piece (id_ihm, piece_name)
+    #     VALUES (:id_ihm, :piece_name)
+    # """
+    # params_2 = {
+    #     "id_ihm": machine_id,
+    #     "piece_name": piece_name
+    # }
+    # if run_query_update(query, params) and run_query_update(query_2, params_2):
+    #     return True
+    # else:
+    #     return False
 
 
 @st.cache_data(ttl=2)
@@ -193,10 +192,10 @@ def get_metrics_machine(machine_id: int, data_inicio: Any | None = None, data_fi
         df_working_theory = get_machine_working_theory(
             machine_id, data_inicio=data_inicio, data_fim=data_fim)
 
-        first_register = df_registradores[df_registradores['datahora']
-                                          == df_registradores['datahora'].min()]
-        last_register = df_registradores[df_registradores['datahora']
-                                         == df_registradores['datahora'].max()]
+        first_register = df_registradores[df_registradores['dt_created_at']
+                                          == df_registradores['dt_created_at'].min()]
+        last_register = df_registradores[df_registradores['dt_created_at']
+                                         == df_registradores['dt_created_at'].max()]
         status = last_register['status_maquina'].to_list()[0]
         operador = last_register['operador'].to_list()[0]
         manutentor = last_register['manutentor'].to_list()[0]
@@ -215,22 +214,22 @@ def get_metrics_machine(machine_id: int, data_inicio: Any | None = None, data_fi
         fim = None
         fim_teorico = None
         for i, row in df_registradores.iterrows():
-            working_day = df_working_theory[(df_working_theory['ano'] == row['datahora'].year) & (df_working_theory['mes'] == row['datahora'].month) & (
-                df_working_theory['dia'] == row['datahora'].day) & (df_working_theory['id_ihm'] == machine_id)]
+            working_day = df_working_theory[(df_working_theory['dt_inicio'] == row['dt_created_at'].year) & (df_working_theory['dt_inicio'] == row['dt_created_at'].month) & (
+                df_working_theory['dt_inicio'] == row['dt_created_at'].day) & (df_working_theory['id_ihm'] == machine_id)]
             if status_antigo != 'Produzindo' and row['status_maquina'] == 'Produzindo':
-                if row['datahora'] < working_day['horario_fim'].to_list()[0]:
-                    if row['datahora'] < working_day['horario_inicio'].to_list()[0]:
-                        inicio = working_day['horario_inicio'].to_list()[0]
+                if row['dt_created_at'] < working_day['dt_fim'].to_list()[0]:
+                    if row['dt_created_at'] < working_day['dt_inicio'].to_list()[0]:
+                        inicio = working_day['dt_inicio'].to_list()[0]
                     else:
-                        inicio = row['datahora']
-                    inicio_teorico = working_day['horario_inicio'].to_list()[0]
-            elif (status_antigo == 'Produzindo' and row['status_maquina'] != 'Produzindo') or (status_antigo == 'Produzindo' and row['status_maquina'] == 'Produzindo' and row['datahora'] == last_register['datahora'].to_list()[0]):
-                if row['datahora'] > working_day['horario_inicio'].to_list()[0]:
-                    if row['datahora'] > working_day['horario_fim'].to_list()[0]:
-                        fim = working_day['horario_fim'].to_list()[0]
+                        inicio = row['dt_created_at']
+                    inicio_teorico = working_day['dt_inicio'].to_list()[0]
+            elif (status_antigo == 'Produzindo' and row['status_maquina'] != 'Produzindo') or (status_antigo == 'Produzindo' and row['status_maquina'] == 'Produzindo' and row['dt_created_at'] == last_register['dt_created_at'].to_list()[0]):
+                if row['dt_created_at'] > working_day['dt_inicio'].to_list()[0]:
+                    if row['dt_created_at'] > working_day['dt_fim'].to_list()[0]:
+                        fim = working_day['dt_fim'].to_list()[0]
                     else:
-                        fim = row['datahora']
-                    fim_teorico = working_day['horario_fim'].to_list()[0]
+                        fim = row['dt_created_at']
+                    fim_teorico = working_day['dt_fim'].to_list()[0]
             if inicio and fim:
                 if inicio.day == fim.day:
                     if (inicio, fim) not in lista_produzido:

@@ -28,36 +28,36 @@ def get_last_day_month(reference_day=datetime.now()):
 
 def fill_month_database(reference_day=datetime.now(), ids_ihm=[1, 2], start_hour=7, end_hour=20):
     query = """
-        INSERT INTO tb_funcionamento (id_ihm, dia, mes, ano, horario_inicio, horario_fim)
-        VALUES (:id_ihm, :dia, :mes, :ano, :horario_inicio, :horario_fim)
+        INSERT INTO tb_turnos (tx_name, dt_inicio, dt_fim, id_linha_producao, bl_ativo)
+        VALUES (:tx_name, :dt_inicio, :dt_fim, :id_linha_producao, :bl_ativo)
     """
     for id_ihm in ids_ihm:
         for day in range(1, get_last_day_month(reference_day)+1):
-            params = {"id_ihm": id_ihm,
-                      "dia": day,
-                      "mes": reference_day.month,
-                      "ano": reference_day.year,
-                      "horario_inicio": datetime(reference_day.year, reference_day.month, day, start_hour),
-                      "horario_fim": datetime(reference_day.year, reference_day.month, day, end_hour)}
+            params = {"id_linha_producao": 1,
+                      "tx_name": 'normal',
+                      "bl_ativo": True,
+                      "dt_inicio": datetime(reference_day.year, reference_day.month, day, start_hour),
+                      "dt_fim": datetime(reference_day.year, reference_day.month, day, end_hour)}
             run_query_update(query, params)
 
 
 def post_working_hours(reference_day, id_ihm, start_hour, end_hour):
-    query = """
-        UPDATE tb_funcionamento
-        SET horario_inicio = :horario_inicio,
-            horario_fim = :horario_fim
-        WHERE id_ihm = :id_ihm
-          AND dia = :dia
-          AND mes = :mes
-          AND ano = :ano
-    """
-    params = {
-        "id_ihm": id_ihm,
-        "dia": reference_day.day,
-        "mes": reference_day.month,
-        "ano": reference_day.year,
-        "horario_inicio": start_hour,
-        "horario_fim": end_hour
-    }
-    run_query_update(query, params)
+    # query = """
+    #     UPDATE tb_turnos
+    #     SET dt_inicio = :dt_inicio,
+    #         dt_fim = :dt_fim
+    #     WHERE id_ihm = :id_ihm
+    #       AND dia = :dia
+    #       AND mes = :mes
+    #       AND ano = :ano
+    # """
+    # params = {
+    #     "id_ihm": id_ihm,
+    #     "dia": reference_day.day,
+    #     "mes": reference_day.month,
+    #     "ano": reference_day.year,
+    #     "horario_inicio": start_hour,
+    #     "horario_fim": end_hour
+    # }
+    # run_query_update(query, params)
+    return 0

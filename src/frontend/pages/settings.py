@@ -8,8 +8,8 @@ from datetime import datetime
 st.title("Settings")
 
 machine = st.selectbox("Máquina", get_active_machines(1)
-                       ['nome_maquina'].to_list())
-machine_id = {"MAQ1": 1, "MAQ2": 2}[machine]
+                       ['tx_name'].to_list())
+machine_id = {"MAQUINA_1": 1, "MAQUINA_2": 2}[machine]
 
 # Operador -> Registrador
 with st.form("form_operador"):
@@ -55,9 +55,13 @@ with col2:
 machine_hours = get_machine_hours(machine_id)
 
 first_month_day = datetime(year_funcionamento, month_funcionamento, 1)
-if len(machine_hours[(machine_hours['dia'] == first_month_day.day) & (machine_hours['mes'] == first_month_day.month) & (machine_hours['ano'] == first_month_day.year)]) == 0:
+if len(machine_hours[(machine_hours['dt_inicio'] == first_month_day.day) & (machine_hours['dt_inicio'] == first_month_day.month) & (machine_hours['dt_inicio'] == first_month_day.year)]) == 0:
     fill_month_database(first_month_day)
     machine_hours = get_machine_hours(machine_id)
+
+machine_hours['dia'] = machine_hours['dt_inicio'].apply(lambda x: x.day)
+machine_hours['mes'] = machine_hours['dt_inicio'].apply(lambda x: x.month)
+machine_hours['ano'] = machine_hours['dt_inicio'].apply(lambda x: x.year)
 
 ctx_key = f"ctx_{machine_id}_{year_funcionamento}_{month_funcionamento}"
 if st.session_state.get("calendar_ctx") != ctx_key:
@@ -85,8 +89,8 @@ with st.form("form_calendar"):
         row = machine_hours[(machine_hours['dia'] == day) &
                             (machine_hours['mes'] == month_funcionamento) &
                             (machine_hours['ano'] == year_funcionamento)]
-        start_bd = row['horario_inicio'].to_list()[0]
-        end_bd = row['horario_fim'].to_list()[0]
+        start_bd = row['dt_inicio'].to_list()[0]
+        end_bd = row['dt_fim'].to_list()[0]
 
         start_key = f"{day}_start"
         end_key = f"{day}_end"
@@ -112,8 +116,8 @@ if submit_calendar:
         row = machine_hours[(machine_hours['dia'] == day) &
                             (machine_hours['mes'] == month_funcionamento) &
                             (machine_hours['ano'] == year_funcionamento)]
-        start_bd = row['horario_inicio'].to_list()[0]
-        end_bd = row['horario_fim'].to_list()[0]
+        start_bd = row['dt_inicio'].to_list()[0]
+        end_bd = row['dt_fim'].to_list()[0]
 
         start_key = f"{day}_start"
         end_key = f"{day}_end"

@@ -31,9 +31,9 @@ if "linhas_expandidas" not in st.session_state:
 linhas = get_active_lines()
 
 for i, linha in linhas.iterrows():
-    
+
     linha_id = str(linha["id_linha_producao"])
-    linha_nome = linha["nome"]
+    linha_nome = linha["tx_name"]
 
     # inicialização
     if linha_id not in st.session_state.linhas_expandidas:
@@ -68,7 +68,7 @@ for i, linha in linhas.iterrows():
     for m, maq in maquinas.iterrows():
 
         maq_id_raw = maq["id_ihm"]
-        nome_maquina = maq["nome_maquina"]
+        nome_maquina = maq["tx_name"]
 
         # Carregar métricas da máquina
         ultimo = get_metrics_machine(maq_id_raw)
