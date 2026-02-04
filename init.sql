@@ -100,8 +100,8 @@ GO
 CREATE TABLE dbo.tb_turnos (
     id_turno        INT IDENTITY(1,1) NOT NULL,
     tx_name         NVARCHAR(120)     NOT NULL,
-    dt_inicio       TIME(0)           NOT NULL,
-    dt_fim          TIME(0)           NOT NULL,
+    dt_inicio       DATETIME2(0)           NOT NULL,
+    dt_fim          DATETIME2(0)           NOT NULL,
     id_linha_producao INT             NOT NULL,
     bl_ativo        BIT               NOT NULL
         CONSTRAINT DF_tb_turnos_ativo DEFAULT (1),
