@@ -1,756 +1,247 @@
-USE [master]
-GO
-/****** [MES_Core] ******/
-CREATE DATABASE [MES_Core]
-GO
-IF (1 = FULLTEXTSERVICEPROPERTY('IsFullTextInstalled'))
-begin
-EXEC [MES_Core].[dbo].[sp_fulltext_database] @action = 'enable'
-end
-GO
-ALTER DATABASE [MES_Core] SET ANSI_NULL_DEFAULT OFF 
-GO
-ALTER DATABASE [MES_Core] SET ANSI_NULLS OFF 
-GO
-ALTER DATABASE [MES_Core] SET ANSI_PADDING OFF 
-GO
-ALTER DATABASE [MES_Core] SET ANSI_WARNINGS OFF 
-GO
-ALTER DATABASE [MES_Core] SET ARITHABORT OFF 
-GO
-ALTER DATABASE [MES_Core] SET AUTO_CLOSE OFF 
-GO
-ALTER DATABASE [MES_Core] SET AUTO_SHRINK OFF 
-GO
-ALTER DATABASE [MES_Core] SET AUTO_UPDATE_STATISTICS ON 
-GO
-ALTER DATABASE [MES_Core] SET CURSOR_CLOSE_ON_COMMIT OFF 
-GO
-ALTER DATABASE [MES_Core] SET CURSOR_DEFAULT  GLOBAL 
-GO
-ALTER DATABASE [MES_Core] SET CONCAT_NULL_YIELDS_NULL OFF 
-GO
-ALTER DATABASE [MES_Core] SET NUMERIC_ROUNDABORT OFF 
-GO
-ALTER DATABASE [MES_Core] SET QUOTED_IDENTIFIER OFF 
-GO
-ALTER DATABASE [MES_Core] SET RECURSIVE_TRIGGERS OFF 
-GO
-ALTER DATABASE [MES_Core] SET  DISABLE_BROKER 
-GO
-ALTER DATABASE [MES_Core] SET AUTO_UPDATE_STATISTICS_ASYNC OFF 
-GO
-ALTER DATABASE [MES_Core] SET DATE_CORRELATION_OPTIMIZATION OFF 
-GO
-ALTER DATABASE [MES_Core] SET TRUSTWORTHY OFF 
-GO
-ALTER DATABASE [MES_Core] SET ALLOW_SNAPSHOT_ISOLATION OFF 
-GO
-ALTER DATABASE [MES_Core] SET PARAMETERIZATION SIMPLE 
-GO
-ALTER DATABASE [MES_Core] SET READ_COMMITTED_SNAPSHOT OFF 
-GO
-ALTER DATABASE [MES_Core] SET HONOR_BROKER_PRIORITY OFF 
-GO
-ALTER DATABASE [MES_Core] SET RECOVERY SIMPLE 
-GO
-ALTER DATABASE [MES_Core] SET  MULTI_USER 
-GO
-ALTER DATABASE [MES_Core] SET PAGE_VERIFY CHECKSUM  
-GO
-ALTER DATABASE [MES_Core] SET DB_CHAINING OFF 
-GO
-ALTER DATABASE [MES_Core] SET FILESTREAM( NON_TRANSACTED_ACCESS = OFF ) 
-GO
-ALTER DATABASE [MES_Core] SET TARGET_RECOVERY_TIME = 60 SECONDS 
-GO
-ALTER DATABASE [MES_Core] SET DELAYED_DURABILITY = DISABLED 
-GO
-ALTER DATABASE [MES_Core] SET ACCELERATED_DATABASE_RECOVERY = OFF  
-GO
-ALTER DATABASE [MES_Core] SET QUERY_STORE = ON
-GO
-ALTER DATABASE [MES_Core] SET QUERY_STORE (OPERATION_MODE = READ_WRITE, CLEANUP_POLICY = (STALE_QUERY_THRESHOLD_DAYS = 30), DATA_FLUSH_INTERVAL_SECONDS = 900, INTERVAL_LENGTH_MINUTES = 60, MAX_STORAGE_SIZE_MB = 1000, QUERY_CAPTURE_MODE = AUTO, SIZE_BASED_CLEANUP_MODE = AUTO, MAX_PLANS_PER_QUERY = 200, WAIT_STATS_CAPTURE_MODE = ON)
-GO
-USE [MES_Core]
-GO
-/****** [SoftIHM] ******/
-CREATE SCHEMA [SoftIHM]
-GO
-USE [MES_Core]
-GO
-/****** [LogBatchSequence] ******/
-CREATE SEQUENCE [dbo].[LogBatchSequence] 
- AS [bigint]
- START WITH 100000
- INCREMENT BY 1
- MINVALUE -9223372036854775808
- MAXVALUE 9223372036854775807
- NO CACHE 
-GO
-/****** [tb_notificacoes] ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-CREATE TABLE [dbo].[tb_notificacoes](
-	[id_notificacao] [int] IDENTITY(1,1) NOT NULL,
-	[id_ihm] [int] NOT NULL,
-	[titulo] [nvarchar](100) NOT NULL,
-	[mensagem] [nvarchar](max) NOT NULL,
-	[status] [bit] NOT NULL,
-	[tipo] [nvarchar](255) NULL,
-	[data_hora] [datetime] NOT NULL,
-	[nivel] [int] NULL,
-	[batch_id] [int] NULL,
-PRIMARY KEY CLUSTERED 
-(
-	[id_notificacao] ASC
-)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
-) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
-GO
-/****** [tb_ihms] ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-CREATE TABLE [dbo].[tb_ihms](
-	[id_ihm] [int] IDENTITY(1,1) NOT NULL,
-	[ip_address] [nvarchar](100) NOT NULL,
-	[port_number] [nvarchar](255) NULL,
-	[id_linha_producao] [int] NOT NULL,
-	[nome_maquina] [nvarchar](50) NOT NULL,
-	[acumulado] [int] NULL,
-	[operador] [nvarchar](100) NULL,
-	[manutentor] [nvarchar](100) NULL,
-	[status_maquina] [nvarchar](50) NULL,
-PRIMARY KEY CLUSTERED 
-(
-	[id_ihm] ASC
-)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
-) ON [PRIMARY]
-GO
-/****** [dados_receitas] ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-CREATE TABLE [dbo].[tb_dados_receitas](
-	[id_dado_receitas] [int] IDENTITY(1,1) NOT NULL,
-	[id_receita] [int] NOT NULL,
-	[codigo] [int] NOT NULL,
-	[descricao] [nvarchar](max) NULL,
-PRIMARY KEY CLUSTERED 
-(
-	[id_dado_receitas] ASC
-)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
-) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
-GO
-/****** [tb_fila_batch_ids] ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-CREATE TABLE [dbo].[tb_fila_batch_ids](
-	[id_fila_batch_id] [int] IDENTITY(1,1) NOT NULL,
-	[batch_id] [int] NULL,
-	[status] [int] NULL,
- CONSTRAINT [PK_fila_batch_ids] PRIMARY KEY CLUSTERED 
-(
-	[id_fila_batch_id] ASC
-)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
-) ON [PRIMARY]
-GO
-/****** [tb_fila_paradas] ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-CREATE TABLE [dbo].[tb_fila_paradas](
-	[id_fila_parada] [int] IDENTITY(1,1) NOT NULL,
-	[batch_id] [int] NULL,
-	[status] [int] NULL
-) ON [PRIMARY]
-GO
-/****** [tb_linhas_producao] ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-CREATE TABLE [dbo].[tb_linhas_producao](
-	[id_linha_producao] [int] IDENTITY(1,1) NOT NULL,
-	[nome] [nvarchar](100) NOT NULL,
-	[id_sistema] [int] NOT NULL,
-PRIMARY KEY CLUSTERED 
-(
-	[id_linha_producao] ASC
-)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
-) ON [PRIMARY]
-GO
-/****** [tb_logs_registradores] ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-CREATE TABLE [dbo].[tb_logs_registradores](
-	[id_log_registradores] [bigint] IDENTITY(1,1) NOT NULL,
-	[id_ihm] [int] NOT NULL,
-	[id_registrador] [int] NOT NULL,
-	[batch_id] [bigint] NOT NULL,
-	[valor_bruto] [nvarchar](255) NOT NULL,
-	[datahora] [datetime] NOT NULL,
-PRIMARY KEY CLUSTERED 
-(
-	[id_log_registradores] ASC
-)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
-) ON [PRIMARY]
-GO
-/****** [tb_ordens_servico] ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-CREATE TABLE [dbo].[tb_ordens_servico](
-	[id_ordem_servicos] [int] IDENTITY(1,1) NOT NULL,
-	[hora_abertura] [datetime] NULL,
-	[hora_inicio] [datetime] NULL,
-	[hora_fim] [datetime] NULL,
-	[falha] [varchar](100) NULL,
-	[batch_id_abertura] [int] NULL,
-	[batch_id_inicio] [int] NULL,
-	[batch_id_fim] [int] NULL,
-	[id_ihm] [int] NULL,
-	[manutentor_inicio] [varchar](100) NULL,
-	[manutentor_fim] [varchar](100) NULL,
-	[operador] [varchar](100) NULL,
- CONSTRAINT [PK_ordens_servico] PRIMARY KEY CLUSTERED 
-(
-	[id_ordem_servicos] ASC
-)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
-) ON [PRIMARY]
-GO
-/****** [tb_paradas] ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-CREATE TABLE [dbo].[tb_paradas](
-	[id_parada] [int] IDENTITY(1,1) NOT NULL,
-	[id_ihm] [int] NULL,
-	[batch_id_inicio] [int] NULL,
-	[batch_id_fim] [int] NULL,
-	[hora_inicio] [datetime] NULL,
-	[hora_fim] [datetime] NULL,
-	[motivo] [varchar](100) NULL,
-	[id_os] [int] NULL,
-	[operador] [varchar](100) NULL,
- CONSTRAINT [PK_paradas] PRIMARY KEY CLUSTERED 
-(
-	[id_parada] ASC
-)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
-) ON [PRIMARY]
-GO
-/****** [dbo].[tb_parametros] ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-CREATE TABLE [dbo].[tb_parametros](
-	[id_parametro] [int] IDENTITY(1,1) NOT NULL,
-	[id_ihm] [int] NULL,
-	[tempo_producao] [time](7) NULL,
-	[producao_teorica] [time](7) NULL,
-	[meta] [int] NULL,
- CONSTRAINT [PK_parametros] PRIMARY KEY CLUSTERED 
-(
-	[id_parametro] ASC
-)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
-) ON [PRIMARY]
-GO
-/****** [tb_receitas] ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-CREATE TABLE [dbo].[tb_receitas](
-	[id_receita] [int] IDENTITY(1,1) NOT NULL,
-	[id_sistema] [int] NOT NULL,
-	[nome] [nvarchar](100) NOT NULL,
-PRIMARY KEY CLUSTERED 
-(
-	[id_receita] ASC
-)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
-) ON [PRIMARY]
-GO
-/****** [tb_registradores] ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-CREATE TABLE [dbo].[tb_registradores](
-	[id_registrador] [int] IDENTITY(1,1) NOT NULL,
-	[id_receita] [int] NULL,
-	[endereco] [int] NOT NULL,
-	[descricao] [nvarchar](max) NULL,
-	[id_ihm] [int] NOT NULL,
-PRIMARY KEY CLUSTERED 
-(
-	[id_registrador] ASC
-)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
-) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
-GO
-/****** [tb_sistemas] ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-CREATE TABLE [dbo].[tb_sistemas](
-	[id_sistema] [int] IDENTITY(1,1) NOT NULL,
-	[Nome] [nvarchar](100) NOT NULL,
-PRIMARY KEY CLUSTERED 
-(
-	[id_sistema] ASC
-)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
-) ON [PRIMARY]
-GO
-/****** [SoftIHM].[tb_usuarios] ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-CREATE TABLE [SoftIHM].[tb_usuarios](
-	[id_usuario] [int] IDENTITY(1,1) NOT NULL,
-	[nome] [varchar](100) NOT NULL,
-	[usuario] [varchar](50) NOT NULL,
-	[senha] [varchar](255) NOT NULL,
-	[tipo_usuario] [varchar](20) NOT NULL,
-PRIMARY KEY CLUSTERED 
-(
-	[id_usuario] ASC
-)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
-UNIQUE NONCLUSTERED 
-(
-	[usuario] ASC
-)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
-) ON [PRIMARY]
-GO
-/****** [tb_funcionamento] ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-CREATE TABLE [dbo].[tb_funcionamento] (
-    [id_funcionamento] [int] IDENTITY(1,1) NOT NULL,
-    [id_ihm] [int] NOT NULL,
-    [dia] [int] NOT NULL,
-    [mes] [int] NOT NULL,
-    [ano] [int] NOT NULL,
-    [horario_inicio] [datetime] NOT NULL,
-    [horario_fim] [datetime] NOT NULL,
-    CONSTRAINT [PK_tb_funcionamento] PRIMARY KEY CLUSTERED 
-    (
-        [id_funcionamento] ASC
-    ) WITH (
-        PAD_INDEX = OFF, 
-        STATISTICS_NORECOMPUTE = OFF, 
-        IGNORE_DUP_KEY = OFF, 
-        ALLOW_ROW_LOCKS = ON, 
-        ALLOW_PAGE_LOCKS = ON, 
-        OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF
-    ) ON [PRIMARY],
-    CONSTRAINT [FK_tb_funcionamento_ihms] FOREIGN KEY ([id_ihm]) 
-        REFERENCES [dbo].[tb_ihms] ([id_ihm])
-) ON [PRIMARY]
-GO
-/****** [tb_possible_pieces] ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-CREATE TABLE [dbo].[tb_possible_pieces] (
-    [id_possible_pieces] [int] IDENTITY(1,1) NOT NULL,
-    [id_ihm] [int] NOT NULL,
-    [piece_name] [varchar](100) NOT NULL,
-    [datahora] [datetime] NOT NULL,
-    CONSTRAINT [PK_tb_possible_pieces] PRIMARY KEY CLUSTERED 
-    (
-        [id_possible_pieces] ASC
-    ) WITH (
-        PAD_INDEX = OFF, 
-        STATISTICS_NORECOMPUTE = OFF, 
-        IGNORE_DUP_KEY = OFF, 
-        ALLOW_ROW_LOCKS = ON, 
-        ALLOW_PAGE_LOCKS = ON, 
-        OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF
-    ) ON [PRIMARY],
-    CONSTRAINT [FK_tb_possible_pieces] FOREIGN KEY ([id_ihm]) 
-        REFERENCES [dbo].[tb_ihms] ([id_ihm])
-) ON [PRIMARY]
-GO
-/****** [tb_operation_piece] ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-CREATE TABLE [dbo].[tb_operation_piece] (
-    [id_operation_piece] [int] IDENTITY(1,1) NOT NULL,
-    [id_ihm] [int] NOT NULL,
-    [piece_name] [varchar](100) NOT NULL,
-    [datahora] [datetime] NOT NULL,
-    CONSTRAINT [PK_tb_operation_piece] PRIMARY KEY CLUSTERED 
-    (
-        [id_operation_piece] ASC
-    ) WITH (
-        PAD_INDEX = OFF, 
-        STATISTICS_NORECOMPUTE = OFF, 
-        IGNORE_DUP_KEY = OFF, 
-        ALLOW_ROW_LOCKS = ON, 
-        ALLOW_PAGE_LOCKS = ON, 
-        OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF
-    ) ON [PRIMARY],
-    CONSTRAINT [FK_tb_operation_piece] FOREIGN KEY ([id_ihm]) 
-        REFERENCES [dbo].[tb_ihms] ([id_ihm])
-) ON [PRIMARY]
-GO
-/****** [tb_meta] ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-CREATE TABLE [dbo].[tb_meta] (
-    [id_meta] [int] IDENTITY(1,1) NOT NULL,
-    [id_ihm] [int] NOT NULL,
-    [meta] [int] NOT NULL,
-    [piece_name] [varchar](100) NOT NULL,
-    [datahora] [datetime] NOT NULL,
-    CONSTRAINT [PK_tb_meta] PRIMARY KEY CLUSTERED 
-    (
-        [id_meta] ASC
-    ) WITH (
-        PAD_INDEX = OFF, 
-        STATISTICS_NORECOMPUTE = OFF, 
-        IGNORE_DUP_KEY = OFF, 
-        ALLOW_ROW_LOCKS = ON, 
-        ALLOW_PAGE_LOCKS = ON, 
-        OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF
-    ) ON [PRIMARY],
-    CONSTRAINT [FK_tb_meta] FOREIGN KEY ([id_ihm]) 
-        REFERENCES [dbo].[tb_ihms] ([id_ihm])
-) ON [PRIMARY]
-GO
-/******  ******/
-ALTER TABLE [dbo].[tb_logs_registradores] ADD  DEFAULT (getdate()) FOR [datahora]
-GO
-ALTER TABLE [dbo].[tb_notificacoes] ADD  DEFAULT ((0)) FOR [status]
-GO
-ALTER TABLE [dbo].[tb_notificacoes] ADD  DEFAULT (getdate()) FOR [data_hora]
-GO
-ALTER TABLE [dbo].[tb_dados_receitas]  WITH CHECK ADD  CONSTRAINT [FK_dados_receitas] FOREIGN KEY([id_receita])
-REFERENCES [dbo].[tb_receitas] ([id_receita])
-GO
-ALTER TABLE [dbo].[tb_dados_receitas] CHECK CONSTRAINT [FK_dados_receitas]
-GO
-ALTER TABLE [dbo].[tb_ihms]  WITH CHECK ADD  CONSTRAINT [FK_ihms_linhas_producao] FOREIGN KEY([id_linha_producao])
-REFERENCES [dbo].[tb_linhas_producao] ([id_linha_producao])
-GO
-ALTER TABLE [dbo].[tb_ihms] CHECK CONSTRAINT [FK_ihms_linhas_producao]
-GO
-ALTER TABLE [dbo].[tb_linhas_producao]  WITH CHECK ADD FOREIGN KEY([id_sistema])
-REFERENCES [dbo].[tb_sistemas] ([id_sistema])
-GO
-ALTER TABLE [dbo].[tb_logs_registradores]  WITH CHECK ADD  CONSTRAINT [FK_Logs_IHMs] FOREIGN KEY([id_ihm])
-REFERENCES [dbo].[tb_ihms] ([id_ihm])
-GO
-ALTER TABLE [dbo].[tb_logs_registradores] CHECK CONSTRAINT [FK_Logs_IHMs]
-GO
-ALTER TABLE [dbo].[tb_logs_registradores]  WITH CHECK ADD  CONSTRAINT [FK_Logs_Registradores] FOREIGN KEY([id_registrador])
-REFERENCES [dbo].[tb_registradores] ([id_registrador])
-GO
-ALTER TABLE [dbo].[tb_logs_registradores] CHECK CONSTRAINT [FK_Logs_Registradores]
-GO
-ALTER TABLE [dbo].[tb_notificacoes]  WITH CHECK ADD  CONSTRAINT [FK_Notificacoes_IHMs] FOREIGN KEY([id_ihm])
-REFERENCES [dbo].[tb_ihms] ([id_ihm])
-GO
-ALTER TABLE [dbo].[tb_notificacoes] CHECK CONSTRAINT [FK_Notificacoes_IHMs]
-GO
-ALTER TABLE [dbo].[tb_receitas]  WITH CHECK ADD  CONSTRAINT [FK_receitas_sistemas] FOREIGN KEY([id_sistema])
-REFERENCES [dbo].[tb_sistemas] ([id_sistema])
-GO
-ALTER TABLE [dbo].[tb_receitas] CHECK CONSTRAINT [FK_receitas_sistemas]
-GO
-ALTER TABLE [dbo].[tb_registradores]  WITH CHECK ADD  CONSTRAINT [FK_registrador_ihm] FOREIGN KEY([id_ihm])
-REFERENCES [dbo].[tb_ihms] ([id_ihm])
-GO
-ALTER TABLE [dbo].[tb_registradores] CHECK CONSTRAINT [FK_registrador_ihm]
-GO
-ALTER TABLE [dbo].[tb_registradores]  WITH CHECK ADD  CONSTRAINT [FK_registradores_receitas] FOREIGN KEY([id_receita])
-REFERENCES [dbo].[tb_receitas] ([id_receita])
-GO
-ALTER TABLE [dbo].[tb_registradores] CHECK CONSTRAINT [FK_registradores_receitas]
-GO
-ALTER TABLE [dbo].[tb_notificacoes]  WITH CHECK ADD CHECK  (([tipo]='Outro' OR [tipo]='Manutenção realizada' OR [tipo]='Aguardando manutenção' OR [tipo]='Erro'))
-GO
-ALTER TABLE [SoftIHM].[tb_usuarios]  WITH CHECK ADD CHECK  (([tipo_usuario]='comum' OR [tipo_usuario]='admin'))
-GO
-ALTER TABLE [dbo].[tb_possible_pieces] ADD  DEFAULT (getdate()) FOR [datahora]
-GO
-ALTER TABLE [dbo].[tb_operation_piece] ADD  DEFAULT (getdate()) FOR [datahora]
-GO
-ALTER TABLE [dbo].[tb_meta] ADD  DEFAULT (getdate()) FOR [datahora]
-GO
-USE [master]
-GO
-ALTER DATABASE [MES_Core] SET  READ_WRITE 
+/* =========================================================
+   DB: MES_Core  (SQL Server 2022)
+   ========================================================= */
+
+IF DB_ID(N'MES_Core') IS NULL
+BEGIN
+    CREATE DATABASE [MES_Core];
+END
 GO
 
-
-/***** POPULANDO AS TABELAS *****/
-
-USE [MES_Core]
-GO
-SET IDENTITY_INSERT [dbo].[tb_sistemas] ON 
-
-INSERT [dbo].[tb_sistemas] ([id_sistema], [Nome]) VALUES (1, N'piloto_1')
-SET IDENTITY_INSERT [dbo].[tb_sistemas] OFF
-GO
-SET IDENTITY_INSERT [dbo].[tb_linhas_producao] ON 
-
-INSERT [dbo].[tb_linhas_producao] ([id_linha_producao], [nome], [id_sistema]) VALUES (1, N'Linha Produção Principal', 1)
-SET IDENTITY_INSERT [dbo].[tb_linhas_producao] OFF
-GO
-SET IDENTITY_INSERT [dbo].[tb_ihms] ON 
-
-INSERT [dbo].[tb_ihms] ([id_ihm], [ip_address], [port_number], [id_linha_producao], [nome_maquina], [acumulado], [operador], [manutentor], [status_maquina]) VALUES (1, N'192.168.11.89', N'502', 1, N'MAQ1', NULL, NULL, NULL, NULL)
-INSERT [dbo].[tb_ihms] ([id_ihm], [ip_address], [port_number], [id_linha_producao], [nome_maquina], [acumulado], [operador], [manutentor], [status_maquina]) VALUES (2, N'192.168.11.90', N'502', 1, N'MAQ2', NULL, NULL, NULL, NULL)
-SET IDENTITY_INSERT [dbo].[tb_ihms] OFF
-GO
-SET IDENTITY_INSERT [dbo].[tb_receitas] ON 
-
-INSERT [dbo].[tb_receitas] ([id_receita], [id_sistema], [nome]) VALUES (1, 1, N'operadores')
-INSERT [dbo].[tb_receitas] ([id_receita], [id_sistema], [nome]) VALUES (2, 1, N'manutentores')
-INSERT [dbo].[tb_receitas] ([id_receita], [id_sistema], [nome]) VALUES (3, 1, N'engenheiros')
-INSERT [dbo].[tb_receitas] ([id_receita], [id_sistema], [nome]) VALUES (4, 1, N'motivos_paradas')
-INSERT [dbo].[tb_receitas] ([id_receita], [id_sistema], [nome]) VALUES (5, 1, N'falhas')
-INSERT [dbo].[tb_receitas] ([id_receita], [id_sistema], [nome]) VALUES (6, 1, N'status_maquina')
-SET IDENTITY_INSERT [dbo].[tb_receitas] OFF
-GO
-SET IDENTITY_INSERT [dbo].[tb_registradores] ON 
-
-INSERT [dbo].[tb_registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (1, 1, 0, N'operador', 1)
-INSERT [dbo].[tb_registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (2, NULL, 3001, N'produzido', 1)
-INSERT [dbo].[tb_registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (3, NULL, 3010, N'reprovado', 1)
-INSERT [dbo].[tb_registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (4, NULL, 3000, N'total_produzido', 1)
-INSERT [dbo].[tb_registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (5, 2, 1000, N'manutentor', 1)
-INSERT [dbo].[tb_registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (6, 3, 1500, N'engenheiro', 1)
-INSERT [dbo].[tb_registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (7, 6, 2000, N'status_maquina', 1)
-INSERT [dbo].[tb_registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (8, 4, 2000, N'motivo_parada', 1)
-INSERT [dbo].[tb_registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (9, 1, 0, N'operador', 2)
-INSERT [dbo].[tb_registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (10, NULL, 7024, N'produzido', 2)
-INSERT [dbo].[tb_registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (11, NULL, 7025, N'reprovado', 2)
-INSERT [dbo].[tb_registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (12, NULL, 7056, N'total_produzido', 2)
-INSERT [dbo].[tb_registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (13, 2, 1000, N'manutentor', 2)
-INSERT [dbo].[tb_registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (14, 3, 1500, N'engenheiro', 2)
-INSERT [dbo].[tb_registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (15, 6, 2000, N'status_maquina', 2)
-INSERT [dbo].[tb_registradores] ([id_registrador], [id_receita], [endereco], [descricao], [id_ihm]) VALUES (16, 4, 2000, N'motivo_parada', 2)
-SET IDENTITY_INSERT [dbo].[tb_registradores] OFF
-GO
-SET IDENTITY_INSERT [dbo].[tb_dados_receitas] ON 
-
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1, 1, 1, N'Antonia Tomaz')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (2, 1, 2, N'Janice Souza')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (3, 1, 3, N'Daiane Godofredo')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (4, 1, 5, N'Claudia Almeida')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (5, 1, 7, N'Sueli Ferreira')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (6, 1, 22, N'Janete Azevedo')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (7, 1, 23, N'Andreia Vilela')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (8, 1, 24, N'Joana Darc')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (9, 1, 26, N'Carlos Cesar')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (10, 1, 28, N'Katia da Silva')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (11, 1, 34, N'Crisleide Oliveira')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (12, 1, 45, N'Sueli Pereira')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (13, 1, 46, N'Dislene da Silva')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (14, 1, 47, N'Luciana Ribeiro')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (15, 1, 48, N'Luziete Ribeiro')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (16, 1, 49, N'Vanessa Michael')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (17, 1, 50, N'Rosanfega de Jesus')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (18, 1, 11, N'Clesia Maria')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (19, 1, 6, N'Doralice')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (20, 1, 48, N'Luziete')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (21, 1, 53, N'Luciano Barbeiro')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1002, 2, 100, N'Hugo Cesar')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1003, 2, 101, N'Cleberson Sarmento')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1004, 2, 102, N'Tiago Bastos')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1005, 2, 103, N'Mateus Braga')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1006, 2, 104, N'Carlos Eduardo')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1007, 2, 105, N'Rafael Rodrigues')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1008, 2, 106, N'Alexandre Lima')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1009, 2, 107, N'Wagner de Souza')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1010, 2, 108, N'Roberto Satori')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1011, 2, 109, N'Marcus Ribeiro')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1012, 2, 110, N'Marcelo Ricardo')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1013, 2, 111, N'Fernando Jose')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1014, 2, 112, N'Edson da Luz')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1015, 2, 113, N'Willian Marcos')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1016, 2, 114, N'Johnny Neris')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1017, 2, 115, N'Jose Carlos')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1018, 2, 116, N'Gean Cardoso')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1019, 2, 117, N'Ricardo Macena')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1020, 2, 118, N'Diego Jose')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1021, 2, 119, N'Maicon Ribeiro')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1022, 2, 120, N'Flavio Balera')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1023, 2, 121, N'Gildasio Reis')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1024, 2, 122, N'Jonas Mendes')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1025, 3, 500, N'Marcelo Francelino')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1026, 3, 501, N'Willian Correa')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1027, 3, 502, N'Yanke Vinicius')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1028, 3, 503, N'Michael dos Santos')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1029, 3, 504, N'Marcos Guimaraes')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1030, 3, 505, N'Fabricio Santos')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1031, 3, 506, N'Marcelo Ardito')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1032, 3, 507, N'Antonia Tomaz')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1033, 3, 508, N'Janice Souza')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1034, 3, 509, N'Luciano Ribeiro')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1035, 4, 1, N'Passar Padrao')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1036, 4, 2, N'troca da caixa de saida')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1037, 4, 3, N'abastecimento de material')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1038, 4, 4, N'Limpeza geral da maquina ')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1039, 4, 5, N'DDS e/ou Ginastica')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1040, 4, 6, N'Refeicao')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1041, 4, 7, N'Troca de operador')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1042, 4, 8, N'Ausencia do posto de trabalho')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1043, 4, 9, N'Reunião')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1044, 4, 10, N'Disco enroscado na alimentador')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1045, 4, 11, N'Borboleta enroscada na alimentador')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1046, 4, 12, N'Registro enroscado na alimentador')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1047, 4, 13, N'Inspecao de torque')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1048, 4, 14, N'Falta de material para producao')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1049, 4, 15, N'Treinamento ')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1050, 4, 16, N'Fora de turno ')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1051, 4, 17, N'Reset da maquina')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1052, 4, 18, N'Aguardando qualidade')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1053, 4, 19, N'Testes de Qualidade')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1054, 4, 20, N'Limpeza de Vedante ')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1055, 4, 21, N'abastecimento de vedante')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1056, 4, 22, N'Falha no ciclo')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1057, 4, 23, N'Baixa Pressao de Ar')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1058, 4, 24, N'Ajuste')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1059, 6, 0, N'Máquina sem produção')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1060, 6, 1, N'Máquina liberada')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1061, 6, 2, N'Manutenção')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1062, 6, 3, N'Motivo')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1063, 6, 4, N'Aguardando eletricista')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1064, 6, 5, N'Aguardando mecânico')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1065, 6, 6, N'Máquina sem produção')
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1066, 6, 7, N'Máquina produzindo')
-
-INSERT [dbo].[tb_dados_receitas] ([id_dado_receitas], [id_receita], [codigo], [descricao]) VALUES (1067, 4, 3300, N'Falha teste')
-
-SET IDENTITY_INSERT [dbo].[tb_dados_receitas] OFF
-GO
-SET IDENTITY_INSERT [dbo].[tb_parametros] ON
-
-
-INSERT [dbo].[tb_parametros] ([id_parametro], [id_ihm], [tempo_producao], [producao_teorica], [meta]) VALUES (1, 1, CAST(N'07:00:00' AS Time), CAST(N'00:00:15' AS Time), 50)
-SET IDENTITY_INSERT [dbo].[tb_parametros] OFF
+USE [MES_Core];
 GO
 
-SET IDENTITY_INSERT [dbo].[tb_funcionamento] ON
+CREATE TABLE dbo.tb_linha_producao (
+    id_linha_producao INT IDENTITY(1,1) NOT NULL,
+    tx_name           NVARCHAR(120)     NOT NULL,
+    CONSTRAINT PK_tb_linha_producao PRIMARY KEY CLUSTERED (id_linha_producao),
+    CONSTRAINT UQ_tb_linha_producao_tx_name UNIQUE (tx_name)
+);
 GO
 
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (1, 1, 1, 12, 2025, '2025-12-01 07:00:00', '2025-12-01 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (2, 1, 2, 12, 2025, '2025-12-02 07:00:00', '2025-12-02 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (3, 1, 3, 12, 2025, '2025-12-03 07:00:00', '2025-12-03 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (4, 1, 4, 12, 2025, '2025-12-04 07:00:00', '2025-12-04 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (5, 1, 5, 12, 2025, '2025-12-05 07:00:00', '2025-12-05 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (6, 1, 6, 12, 2025, '2025-12-06 07:00:00', '2025-12-06 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (7, 1, 7, 12, 2025, '2025-12-07 07:00:00', '2025-12-07 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (8, 1, 8, 12, 2025, '2025-12-08 07:00:00', '2025-12-08 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (9, 1, 9, 12, 2025, '2025-12-09 07:00:00', '2025-12-09 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (10, 1, 10, 12, 2025, '2025-12-10 07:00:00', '2025-12-10 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (11, 1, 11, 12, 2025, '2025-12-11 07:00:00', '2025-12-11 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (12, 1, 12, 12, 2025, '2025-12-12 07:00:00', '2025-12-12 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (13, 1, 13, 12, 2025, '2025-12-13 07:00:00', '2025-12-13 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (14, 1, 14, 12, 2025, '2025-12-14 07:00:00', '2025-12-14 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (15, 1, 15, 12, 2025, '2025-12-15 07:00:00', '2025-12-15 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (16, 1, 16, 12, 2025, '2025-12-16 07:00:00', '2025-12-16 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (17, 1, 17, 12, 2025, '2025-12-17 07:00:00', '2025-12-17 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (18, 1, 18, 12, 2025, '2025-12-18 07:00:00', '2025-12-18 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (19, 1, 19, 12, 2025, '2025-12-19 07:00:00', '2025-12-19 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (20, 1, 20, 12, 2025, '2025-12-20 07:00:00', '2025-12-20 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (21, 1, 21, 12, 2025, '2025-12-21 07:00:00', '2025-12-21 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (22, 1, 22, 12, 2025, '2025-12-22 07:00:00', '2025-12-22 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (23, 1, 23, 12, 2025, '2025-12-23 07:00:00', '2025-12-23 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (24, 1, 24, 12, 2025, '2025-12-24 07:00:00', '2025-12-24 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (25, 1, 25, 12, 2025, '2025-12-25 07:00:00', '2025-12-25 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (26, 1, 26, 12, 2025, '2025-12-26 07:00:00', '2025-12-26 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (27, 1, 27, 12, 2025, '2025-12-27 07:00:00', '2025-12-27 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (28, 1, 28, 12, 2025, '2025-12-28 07:00:00', '2025-12-28 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (29, 1, 29, 12, 2025, '2025-12-29 07:00:00', '2025-12-29 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (30, 1, 30, 12, 2025, '2025-12-30 07:00:00', '2025-12-30 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (31, 1, 31, 12, 2025, '2025-12-31 07:00:00', '2025-12-31 19:00:00')
-
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (32, 2, 1, 12, 2025, '2025-12-01 07:00:00', '2025-12-01 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (33, 2, 2, 12, 2025, '2025-12-02 07:00:00', '2025-12-02 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (34, 2, 3, 12, 2025, '2025-12-03 07:00:00', '2025-12-03 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (35, 2, 4, 12, 2025, '2025-12-04 07:00:00', '2025-12-04 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (36, 2, 5, 12, 2025, '2025-12-05 07:00:00', '2025-12-05 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (37, 2, 6, 12, 2025, '2025-12-06 07:00:00', '2025-12-06 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (38, 2, 7, 12, 2025, '2025-12-07 07:00:00', '2025-12-07 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (39, 2, 8, 12, 2025, '2025-12-08 07:00:00', '2025-12-08 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (40, 2, 9, 12, 2025, '2025-12-09 07:00:00', '2025-12-09 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (41, 2, 10, 12, 2025, '2025-12-10 07:00:00', '2025-12-10 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (42, 2, 11, 12, 2025, '2025-12-11 07:00:00', '2025-12-11 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (43, 2, 12, 12, 2025, '2025-12-12 07:00:00', '2025-12-12 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (44, 2, 13, 12, 2025, '2025-12-13 07:00:00', '2025-12-13 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (45, 2, 14, 12, 2025, '2025-12-14 07:00:00', '2025-12-14 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (46, 2, 15, 12, 2025, '2025-12-15 07:00:00', '2025-12-15 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (47, 2, 16, 12, 2025, '2025-12-16 07:00:00', '2025-12-16 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (48, 2, 17, 12, 2025, '2025-12-17 07:00:00', '2025-12-17 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (49, 2, 18, 12, 2025, '2025-12-18 07:00:00', '2025-12-18 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (50, 2, 19, 12, 2025, '2025-12-19 07:00:00', '2025-12-19 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (51, 2, 20, 12, 2025, '2025-12-20 07:00:00', '2025-12-20 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (52, 2, 21, 12, 2025, '2025-12-21 07:00:00', '2025-12-21 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (53, 2, 22, 12, 2025, '2025-12-22 07:00:00', '2025-12-22 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (54, 2, 23, 12, 2025, '2025-12-23 07:00:00', '2025-12-23 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (55, 2, 24, 12, 2025, '2025-12-24 07:00:00', '2025-12-24 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (56, 2, 25, 12, 2025, '2025-12-25 07:00:00', '2025-12-25 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (57, 2, 26, 12, 2025, '2025-12-26 07:00:00', '2025-12-26 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (58, 2, 27, 12, 2025, '2025-12-27 07:00:00', '2025-12-27 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (59, 2, 28, 12, 2025, '2025-12-28 07:00:00', '2025-12-28 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (60, 2, 29, 12, 2025, '2025-12-29 07:00:00', '2025-12-29 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (61, 2, 30, 12, 2025, '2025-12-30 07:00:00', '2025-12-30 19:00:00')
-INSERT [dbo].[tb_funcionamento] ([id_funcionamento], [id_ihm], [dia], [mes], [ano], [horario_inicio], [horario_fim]) VALUES (62, 2, 31, 12, 2025, '2025-12-31 07:00:00', '2025-12-31 19:00:00')
-
-SET IDENTITY_INSERT [dbo].[tb_funcionamento] OFF
+CREATE TABLE dbo.tb_ihm (
+    id_ihm           INT IDENTITY(1,1) NOT NULL,
+    tx_ip_address    VARCHAR(45)       NOT NULL,
+    tx_port_number   VARCHAR(45)       NOT NULL,
+    id_linha_producao INT              NOT NULL,
+    tx_name          NVARCHAR(120)     NOT NULL,
+    CONSTRAINT PK_tb_ihm PRIMARY KEY CLUSTERED (id_ihm),
+    CONSTRAINT FK_tb_ihm_linha FOREIGN KEY (id_linha_producao)
+        REFERENCES dbo.tb_linha_producao (id_linha_producao),
+    CONSTRAINT CK_tb_ihm_port CHECK (tx_port_number BETWEEN 1 AND 65535),
+    CONSTRAINT UQ_tb_ihm_ip_port UNIQUE (tx_ip_address, tx_port_number),
+    CONSTRAINT UQ_tb_ihm_tx_name UNIQUE (tx_name)
+);
 GO
 
-SET IDENTITY_INSERT [dbo].[tb_possible_pieces] ON
+CREATE TABLE dbo.tb_registrador (
+    id_registrador INT IDENTITY(1,1) NOT NULL,
+    nu_endereco    INT               NOT NULL,
+    tx_descricao   NVARCHAR(255)     NULL,
+    id_ihm         INT               NOT NULL,
+    CONSTRAINT PK_tb_registrador PRIMARY KEY CLUSTERED (id_registrador),
+    CONSTRAINT FK_tb_registrador_ihm FOREIGN KEY (id_ihm)
+        REFERENCES dbo.tb_ihm (id_ihm)
+);
 GO
 
-INSERT [dbo].[tb_possible_pieces] ([id_possible_pieces], [id_ihm], [piece_name], [datahora]) VALUES (1, 1, 'Peça 1', '2025-01-01 01:00:00')
-INSERT [dbo].[tb_possible_pieces] ([id_possible_pieces], [id_ihm], [piece_name], [datahora]) VALUES (2, 1, 'Peça 2', '2025-01-01 01:00:00')
-INSERT [dbo].[tb_possible_pieces] ([id_possible_pieces], [id_ihm], [piece_name], [datahora]) VALUES (3, 1, 'Peça 3', '2025-01-01 01:00:00')
-INSERT [dbo].[tb_possible_pieces] ([id_possible_pieces], [id_ihm], [piece_name], [datahora]) VALUES (4, 2, 'Peça 1', '2025-01-01 01:00:00')
-INSERT [dbo].[tb_possible_pieces] ([id_possible_pieces], [id_ihm], [piece_name], [datahora]) VALUES (5, 2, 'Peça 2', '2025-01-01 01:00:00')
-INSERT [dbo].[tb_possible_pieces] ([id_possible_pieces], [id_ihm], [piece_name], [datahora]) VALUES (6, 2, 'Peça 4', '2025-01-01 01:00:00')
-
-SET IDENTITY_INSERT [dbo].[tb_possible_pieces] OFF
+CREATE TABLE dbo.tb_log_registrador (
+    id_log_registrador BIGINT IDENTITY(1,1) NOT NULL,
+    id_ihm             INT                 NOT NULL,
+    id_registrador     INT                 NOT NULL,
+    nu_valor_bruto     DECIMAL(18,4)       NOT NULL,
+    dt_created_at      DATETIME2(0)        NOT NULL
+        CONSTRAINT DF_tb_log_registrador_created DEFAULT (SYSUTCDATETIME()),
+    CONSTRAINT PK_tb_log_registrador PRIMARY KEY CLUSTERED (id_log_registrador),
+    CONSTRAINT FK_tb_log_registrador_ihm FOREIGN KEY (id_ihm)
+        REFERENCES dbo.tb_ihm (id_ihm),
+    CONSTRAINT FK_tb_log_registrador_registrador FOREIGN KEY (id_registrador)
+        REFERENCES dbo.tb_registrador (id_registrador)
+);
 GO
 
-SET IDENTITY_INSERT [dbo].[tb_operation_piece] ON
+CREATE INDEX IX_tb_log_registrador_dt_created_at
+    ON dbo.tb_log_registrador (dt_created_at);
 GO
 
-INSERT [dbo].[tb_operation_piece] ([id_operation_piece], [id_ihm], [piece_name], [datahora]) VALUES (1, 1, 'Peça 1', '2025-01-01 01:00:00')
-INSERT [dbo].[tb_operation_piece] ([id_operation_piece], [id_ihm], [piece_name], [datahora]) VALUES (2, 2, 'Peça 4', '2025-01-01 01:00:00')
-
-SET IDENTITY_INSERT [dbo].[tb_operation_piece] OFF
+CREATE INDEX IX_tb_log_registrador_ihm_registrador_dt
+    ON dbo.tb_log_registrador (id_ihm, id_registrador, dt_created_at DESC);
 GO
 
-SET IDENTITY_INSERT [dbo].[tb_meta] ON
+CREATE TABLE dbo.tb_users (
+    id_users        INT IDENTITY(1,1) NOT NULL,
+    tx_name         NVARCHAR(120)     NOT NULL,
+    tx_password     NVARCHAR(255)     NOT NULL,
+    tx_role         NVARCHAR(50)      NOT NULL,
+    dt_created_at   DATETIME2(0)      NOT NULL
+        CONSTRAINT DF_tb_users_created DEFAULT (SYSUTCDATETIME()),
+    dt_modified_at  DATETIME2(0)      NULL,
+    CONSTRAINT PK_tb_users PRIMARY KEY CLUSTERED (id_users),
+    CONSTRAINT UQ_tb_users_tx_name UNIQUE (tx_name)
+);
 GO
 
-INSERT [dbo].[tb_meta] ([id_meta], [id_ihm], [meta], [piece_name], [datahora]) VALUES (1, 1, 100, 'Peça 1', '2025-01-01 01:00:00')
-INSERT [dbo].[tb_meta] ([id_meta], [id_ihm], [meta], [piece_name], [datahora]) VALUES (2, 2, 200, 'Peça 4', '2025-01-01 01:00:00')
+CREATE TABLE dbo.tb_log_portal (
+    id_log_portal  BIGINT IDENTITY(1,1) NOT NULL,
+    id_users       INT                 NOT NULL,
+    tx_description NVARCHAR(500)       NOT NULL,
+    dt_created_at  DATETIME2(0)        NOT NULL
+        CONSTRAINT DF_tb_log_portal_created DEFAULT (SYSUTCDATETIME()),
+    CONSTRAINT PK_tb_log_portal PRIMARY KEY CLUSTERED (id_log_portal),
+    CONSTRAINT FK_tb_log_portal_users FOREIGN KEY (id_users)
+        REFERENCES dbo.tb_users (id_users)
+);
+GO
 
-SET IDENTITY_INSERT [dbo].[tb_meta] OFF
+CREATE INDEX IX_tb_log_portal_users_dt
+    ON dbo.tb_log_portal (id_users, dt_created_at DESC);
+GO
+
+CREATE TABLE dbo.tb_turnos (
+    id_turno        INT IDENTITY(1,1) NOT NULL,
+    tx_name         NVARCHAR(120)     NOT NULL,
+    dt_inicio       TIME(0)           NOT NULL,
+    dt_fim          TIME(0)           NOT NULL,
+    id_linha_producao INT             NOT NULL,
+    bl_ativo        BIT               NOT NULL
+        CONSTRAINT DF_tb_turnos_ativo DEFAULT (1),
+    dt_created_at   DATETIME2(0)      NOT NULL
+        CONSTRAINT DF_tb_turnos_created DEFAULT (SYSUTCDATETIME()),
+    dt_modified_at  DATETIME2(0)      NULL,
+    CONSTRAINT PK_tb_turnos PRIMARY KEY CLUSTERED (id_turno),
+    CONSTRAINT FK_tb_turnos_linha FOREIGN KEY (id_linha_producao)
+        REFERENCES dbo.tb_linha_producao (id_linha_producao)
+);
+GO
+
+CREATE INDEX IX_tb_turnos_linha_ativo
+    ON dbo.tb_turnos (id_linha_producao, bl_ativo);
+GO
+
+CREATE TABLE dbo.tb_peca (
+    id_peca          INT IDENTITY(1,1) NOT NULL,
+    tx_name          NVARCHAR(120)     NOT NULL,
+    tempo_producao   INT               NOT NULL,
+    CONSTRAINT PK_tb_peca PRIMARY KEY CLUSTERED (id_peca),
+    CONSTRAINT UQ_tb_peca_tx_name UNIQUE (tx_name),
+    CONSTRAINT CK_tb_peca_tempo CHECK (tempo_producao >= 0)
+);
+GO
+
+CREATE TABLE dbo.tb_depara_operador (
+    id_depara_operador INT IDENTITY(1,1) NOT NULL,
+    nu_cod_operador    INT               NOT NULL,
+    tx_operador        NVARCHAR(120)     NOT NULL,
+    id_ihm             INT               NOT NULL,
+    CONSTRAINT PK_tb_depara_operador PRIMARY KEY CLUSTERED (id_depara_operador),
+    CONSTRAINT FK_tb_depara_operador_ihm FOREIGN KEY (id_ihm)
+        REFERENCES dbo.tb_ihm (id_ihm),
+    CONSTRAINT UQ_tb_depara_operador UNIQUE (id_ihm, nu_cod_operador)
+);
+GO
+
+CREATE TABLE dbo.tb_depara_engenheiro (
+    id_depara_engenheiro INT IDENTITY(1,1) NOT NULL,
+    nu_cod_engenheiro    INT               NOT NULL,
+    tx_engenheiro        NVARCHAR(120)     NOT NULL,
+    id_ihm               INT               NOT NULL,
+    CONSTRAINT PK_tb_depara_engenheiro PRIMARY KEY CLUSTERED (id_depara_engenheiro),
+    CONSTRAINT FK_tb_depara_engenheiro_ihm FOREIGN KEY (id_ihm)
+        REFERENCES dbo.tb_ihm (id_ihm),
+    CONSTRAINT UQ_tb_depara_engenheiro UNIQUE (id_ihm, nu_cod_engenheiro)
+);
+GO
+
+CREATE TABLE dbo.tb_depara_manutentor (
+    id_depara_manutentor INT IDENTITY(1,1) NOT NULL,
+    nu_cod_manutentor    INT               NOT NULL,
+    tx_manutentor        NVARCHAR(120)     NOT NULL,
+    id_ihm               INT               NOT NULL,
+    CONSTRAINT PK_tb_depara_manutentor PRIMARY KEY CLUSTERED (id_depara_manutentor),
+    CONSTRAINT FK_tb_depara_manutentor_ihm FOREIGN KEY (id_ihm)
+        REFERENCES dbo.tb_ihm (id_ihm),
+    CONSTRAINT UQ_tb_depara_manutentor UNIQUE (id_ihm, nu_cod_manutentor)
+);
+GO
+
+CREATE TABLE dbo.tb_depara_motivo_parada (
+    id_depara_motivo_parada INT IDENTITY(1,1) NOT NULL,
+    nu_cod_motivo_parada    INT               NOT NULL,
+    tx_motivo_parada        NVARCHAR(200)     NOT NULL,
+    id_ihm                  INT               NOT NULL,
+    CONSTRAINT PK_tb_depara_motivo_parada PRIMARY KEY CLUSTERED (id_depara_motivo_parada),
+    CONSTRAINT FK_tb_depara_motivo_parada_ihm FOREIGN KEY (id_ihm)
+        REFERENCES dbo.tb_ihm (id_ihm),
+    CONSTRAINT UQ_tb_depara_motivo_parada UNIQUE (id_ihm, nu_cod_motivo_parada)
+);
+GO
+
+CREATE TABLE dbo.tb_depara_justificativa (
+    id_depara_justificativa INT IDENTITY(1,1) NOT NULL,
+    nu_cod_justificativa    INT               NOT NULL,
+    tx_justificativa        NVARCHAR(200)     NOT NULL,
+    id_ihm                  INT               NOT NULL,
+    CONSTRAINT PK_tb_depara_justificativa PRIMARY KEY CLUSTERED (id_depara_justificativa),
+    CONSTRAINT FK_tb_depara_justificativa_ihm FOREIGN KEY (id_ihm)
+        REFERENCES dbo.tb_ihm (id_ihm),
+    CONSTRAINT UQ_tb_depara_justificativa UNIQUE (id_ihm, nu_cod_justificativa)
+);
+GO
+
+CREATE TABLE dbo.tb_depara_peca (
+    id_depara_peca INT IDENTITY(1,1) NOT NULL,
+    nu_cod_peca    INT               NOT NULL,
+    tx_peca        NVARCHAR(120)     NOT NULL,
+    id_ihm         INT               NOT NULL,
+    CONSTRAINT PK_tb_depara_peca PRIMARY KEY CLUSTERED (id_depara_peca),
+    CONSTRAINT FK_tb_depara_peca_ihm FOREIGN KEY (id_ihm)
+        REFERENCES dbo.tb_ihm (id_ihm),
+    CONSTRAINT UQ_tb_depara_peca UNIQUE (id_ihm, nu_cod_peca)
+);
+GO
+
+/* POPULANDO TABELAS */ 
+
+USE MES_Core;
+GO
+
+BEGIN TRANSACTION;
+
+SET IDENTITY_INSERT dbo.tb_linha_producao ON;
+
+INSERT INTO dbo.tb_linha_producao (id_linha_producao, tx_name)
+VALUES (1, N'LINHA_1');
+
+SET IDENTITY_INSERT dbo.tb_linha_producao OFF;
+
+SET IDENTITY_INSERT dbo.tb_ihm ON;
+
+INSERT INTO dbo.tb_ihm (id_ihm, tx_ip_address, tx_port_number, id_linha_producao, tx_name)
+VALUES
+(1, '192.168.11.89', 502, 1, N'MAQUINA_1'),
+(2, '192.168.11.90', 502, 1, N'MAQUINA_2');
+
+SET IDENTITY_INSERT dbo.tb_ihm OFF;
+
+INSERT INTO dbo.tb_registrador (nu_endereco, tx_descricao, id_ihm)
+VALUES
+(0,    N'operador',        1),
+(3001, N'produzido',       1),
+(3010, N'reprovado',       1),
+(3000, N'total_produzido', 1),
+(1000, N'manutentor',      1),
+(1500, N'engenheiro',      1),
+(2000, N'status_maquina',  1),
+(2000, N'motivo_parada',   1),
+
+(0,    N'operador',        2),
+(7024, N'produzido',       2),
+(7025, N'reprovado',       2),
+(7056, N'total_produzido', 2),
+(1000, N'manutentor',      2),
+(1500, N'engenheiro',      2),
+(2000, N'status_maquina',  2),
+(2000, N'motivo_parada',   2);
+
+COMMIT;
 GO
