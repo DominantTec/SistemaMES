@@ -1,7 +1,7 @@
 import logging
 import streamlit as st
 from services.modbus import get_registers_values, post_registers_values
-from services.queries import get_active_machines, get_machine_shifts, get_possible_pieces, get_selected_piece, get_meta, insert_meta
+from services.queries import get_active_machines, get_machine_shifts, get_possible_pieces, get_selected_piece, get_meta, get_meta_register
 from services.utils import get_weekday_start, get_last_day_month, fill_month_database, post_working_hours, to_time
 from datetime import datetime
 
@@ -36,10 +36,14 @@ with st.form("form_meta"):
     submit_meta = st.form_submit_button("Ajustar Meta")
 
 if submit_meta:
-    if insert_meta(machine_id, peca, meta):
-        st.success('Meta ajustada!')
+    meta_register = get_meta_register(machine_id)
+    if meta_register == -1:
+        st.error('Sem registro de meta para essa IHM!!!')
     else:
-        st.error('Meta não ajustada!')
+        if post_registers_values(machine, meta_register, int(meta)):
+            st.success('Meta ajustada!')
+        else:
+            st.error('Meta não ajustada!')
 
 
 # Calendário funcionamento

@@ -106,91 +106,102 @@ def get_machine_shifts(machine_id: int, data_inicio=None, data_fim=None) -> Dict
     return df_funcionamento
 
 
-# def get_machine_hours(machine_id: int) -> Dict[str, Any]:
-#     return run_query("""
-#         SELECT * FROM tb_turnos
-#         WHERE id_linha_producao = (SELECT id_linha_producao FROM tb_ihm WHERE id_ihm = :id)
-#     """, {"id": machine_id})
-    # SELECT * FROM tb_turnos
-    # WHERE id_linha_producao = (SELECT id_linha_producao FROM tb_ihm WHERE id_ihm = :id)
-
-
 def get_possible_pieces(machine_id: int) -> list:
     '''Retorna as peças possiveis em uma determinada IHM.'''
-    return ['PEÇA TEMP', 'PEÇA 1']
-    # return run_query("""
-    #     SELECT tx_peca
-    #     FROM tb_depara_peca
-    #     WHERE id_ihm = :id
-    # """, {"id": machine_id})['tx_peca'].to_list()
+    try:
+        resultado = run_query("""
+            SELECT tx_peca
+            FROM tb_depara_peca
+            WHERE id_ihm = :id
+        """, {"id": machine_id})
+        if resultado['tx_peca'].to_list() == []:
+            return ['PEÇA TEMP', 'PEÇA 1', 'SEM PEÇAS PARA DEPARA']
+        else:
+            return resultado['tx_peca'].to_list()
+    except:
+        return ['PEÇA TEMP', 'PEÇA 1']
 
 
 def get_selected_piece(machine_id: int, data_ref: Any | None = None) -> str:
     '''Retorna a peça seleciona antes da data informada.'''
-    if not data_ref:
-        # resultado = run_query("""
-        #     SELECT *
-        #     FROM tb_operation_piece
-        #     WHERE id_ihm = :id
-        #     ORDER BY dt_created_at DESC
-        # """, {"id": machine_id})
-        resultado = 'PEÇA TEMP'
-    else:
-        # resultado = run_query("""
-        #     SELECT *
-        #     FROM tb_operation_piece
-        #     WHERE id_ihm = :id AND dt_created_at <= :data
-        #     ORDER BY dt_created_at DESC
-        # """, {"id": machine_id, "data": data_ref})
-        resultado = 'PEÇA TEMP'
-    return resultado
+    try:
+        if not data_ref:
+            cod_peca = run_query("""
+                SELECT *
+                FROM tb_log_registrador
+                WHERE id_registrador = (SELECT id_registrador
+                                        FROM tb_registrador
+                                        WHERE id_ihm = :id AND tx_descricao='modelo_peça')
+                ORDER BY dt_created_at DESC
+            """, {"id": machine_id})['nu_valor_bruto'].tolist()[0]
+            resultado = run_query("""
+                SELECT tx_peca
+                FROM tb_depara_peca
+                WHERE id_ihm = :id AND nu_cod_peca=:nu_cod_peca
+            """, {"id": machine_id, "nu_cod_peca": cod_peca})['tx_peca'].tolist()
+        else:
+            cod_peca = run_query("""
+                SELECT *
+                FROM tb_log_registrador
+                WHERE id_registrador = (SELECT id_registrador
+                                        FROM tb_registrador
+                                        WHERE id_ihm = :id AND tx_descricao='modelo_peça')
+                    AND dt_created_at <= :data
+                ORDER BY dt_created_at DESC
+            """, {"id": machine_id, "data": data_ref})['nu_valor_bruto'].tolist()[0]
+            resultado = run_query("""
+                SELECT tx_peca
+                FROM tb_depara_peca
+                WHERE id_ihm = :id AND nu_cod_peca=:nu_cod_peca
+            """, {"id": machine_id, "nu_cod_peca": cod_peca})['tx_peca'].tolist()
+        if resultado == []:
+            return 'PEÇA TEMP'
+        else:
+            return resultado[0]
+    except:
+        return 'PEÇA TEMP'
 
 
 def get_meta(machine_id: int, data_ref: Any | None = None) -> int:
     '''Retorna a meta antes da data informada.'''
-    if not data_ref:
-        # resultado = run_query("""
-        #     SELECT *
-        #     FROM tb_meta
-        #     WHERE id_ihm = :id
-        #     ORDER BY dt_created_at DESC
-        # """, {"id": machine_id})
-        resultado = 10
-    else:
-        # resultado = run_query("""
-        #     SELECT *
-        #     FROM tb_meta
-        #     WHERE id_ihm = :id AND dt_created_at <= :data
-        #     ORDER BY dt_created_at DESC
-        # """, {"id": machine_id, "data": data_ref})
-        resultado = 10
-    return resultado
+    try:
+        if not data_ref:
+            resultado = run_query("""
+                SELECT *
+                FROM tb_log_registrador
+                WHERE id_registrador = (SELECT id_registrador
+                                        FROM tb_registrador
+                                        WHERE id_ihm = :id AND tx_descricao='meta')
+                ORDER BY dt_created_at DESC
+            """, {"id": machine_id})
+        else:
+            resultado = run_query("""
+                SELECT *
+                FROM tb_log_registrador
+                WHERE id_registrador = (SELECT id_registrador
+                                        FROM tb_registrador
+                                        WHERE id_ihm = :id AND tx_descricao='meta')
+                    AND dt_created_at <= :data
+                ORDER BY dt_created_at DESC
+            """, {"id": machine_id, "data": data_ref})
+        resultado = int(resultado['nu_valor_bruto'].tolist()[0])
+        return resultado
+    except:
+        return 1
 
 
-def insert_meta(machine_id: int, piece_name: str, new_meta: int, data_ref: Any | None = None) -> bool:
-    '''Modifica a meta atual da IHM.'''
-    return False
-    # query = """
-    #     INSERT INTO tb_meta (id_ihm, meta, piece_name)
-    #     VALUES (:id_ihm, :meta, :piece_name)
-    # """
-    # params = {
-    #     "id_ihm": machine_id,
-    #     "meta": new_meta,
-    #     "piece_name": piece_name
-    # }
-    # query_2 = """
-    #     INSERT INTO tb_operation_piece (id_ihm, piece_name)
-    #     VALUES (:id_ihm, :piece_name)
-    # """
-    # params_2 = {
-    #     "id_ihm": machine_id,
-    #     "piece_name": piece_name
-    # }
-    # if run_query_update(query, params) and run_query_update(query_2, params_2):
-    #     return True
-    # else:
-    #     return False
+def get_meta_register(machine_id: int) -> int:
+    '''Retorna o registro referente a meta naquela IHM.'''
+    try:
+        resultado = run_query("""
+            SELECT nu_endereco
+            FROM tb_registrador
+            WHERE id_ihm = :id AND tx_descricao='meta'
+        """, {"id": machine_id})
+        resultado = resultado['nu_endereco'].tolist()[0]
+        return resultado
+    except:
+        return -1
 
 
 @st.cache_data(ttl=2)
@@ -210,10 +221,6 @@ def get_metrics_machine(machine_id: int, data_inicio: Any | None = None, data_fi
         operador = last_register['operador'].to_list()[0]
         manutentor = last_register['manutentor'].to_list()[0]
         engenheiro = last_register['engenheiro'].to_list()[0]
-
-        # produzido = last_register['produzido'].to_list()[0]
-        # reprovado = last_register['reprovado'].to_list()[0]
-        # total = last_register['total_produzido'].to_list()[0]
 
         # OEE = Disponibilidade * Performance * Qualidade
 
