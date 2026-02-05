@@ -233,6 +233,8 @@ VALUES
 (1500, N'engenheiro',      1),
 (2000, N'status_maquina',  1),
 (2000, N'motivo_parada',   1),
+(4000, N'meta',            1),
+(4100, N'modelo_peça',     1),
 
 (0,    N'operador',        2),
 (7024, N'produzido',       2),
