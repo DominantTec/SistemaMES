@@ -77,12 +77,14 @@ for i, linha in linhas.iterrows():
         # ======================================================
         #  DETALHES QUANDO EXPANDIDO
         # ======================================================
+
         if expandida:
             detalhes_html = f"""
                 <div style="margin-top:10px; text-align:left; color:black; font-size:12px;">
                     <b>Status:</b> {ultimo["status_maquina"].capitalize()}<br>
                     <b>OEE:</b> {ultimo['oee']} %<br>
-                    <b>Eficiência:</b> {ultimo['eficiencia']} %<br>
+                    <b>Disponibilidade:</b> {ultimo['disponibilidade']} %<br>
+                    <b>Performance:</b> {ultimo['performance']} %<br>
                     <b>Qualidade:</b> {ultimo['qualidade']} %<br>
                     <b>Meta:</b> {ultimo["meta"]}<br>
                     <b>Produzido:</b> {ultimo['produzido']}<br>
@@ -90,6 +92,7 @@ for i, linha in linhas.iterrows():
                     <b>Total Produzido:</b> {ultimo['total_produzido']}<br>
                     <b>Operador:</b> {ultimo["operador"]}<br>
                     <b>Manutentor:</b> {ultimo["manutentor"]}<br>
+                    <b>Engenheiro:</b> {ultimo["engenheiro"]}<br>
                 </div>
             """
         else:

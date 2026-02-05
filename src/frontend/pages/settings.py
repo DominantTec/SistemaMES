@@ -1,7 +1,7 @@
 import logging
 import streamlit as st
 from services.modbus import get_registers_values, post_registers_values
-from services.queries import get_active_machines, get_machine_hours, get_possible_pieces, get_selected_piece, get_meta, insert_meta
+from services.queries import get_active_machines, get_machine_shifts, get_possible_pieces, get_selected_piece, get_meta, insert_meta
 from services.utils import get_weekday_start, get_last_day_month, fill_month_database, post_working_hours, to_time
 from datetime import datetime
 
@@ -52,12 +52,12 @@ with col1:
 with col2:
     year_funcionamento = st.selectbox("Ano", [2025, 2026], index=[
                                       2025, 2026].index(today.year))
-machine_hours = get_machine_hours(machine_id)
+machine_hours = get_machine_shifts(machine_id)
 
 first_month_day = datetime(year_funcionamento, month_funcionamento, 1)
 if len(machine_hours[(machine_hours['dt_inicio'] == first_month_day.day) & (machine_hours['dt_inicio'] == first_month_day.month) & (machine_hours['dt_inicio'] == first_month_day.year)]) == 0:
     fill_month_database(first_month_day)
-    machine_hours = get_machine_hours(machine_id)
+    machine_hours = get_machine_shifts(machine_id)
 
 machine_hours['dia'] = machine_hours['dt_inicio'].apply(lambda x: x.day)
 machine_hours['mes'] = machine_hours['dt_inicio'].apply(lambda x: x.month)
