@@ -351,3 +351,46 @@ def get_metrics_machine(machine_id: int, data_inicio: Any | None = None, data_fi
             'manutentor': "-",
             'engenheiro': '-'
         }
+
+def get_alerts_ihm(id_ihm: int, data_inicio: Any | None = None, data_fim: Any | None = None) -> List[Dict[str, Any]]:
+    '''Retorna os alertas de uma IHM para um dado periodo de tempo.'''
+    # if not data_inicio or not data_fim:
+    #     df_alertas = run_query("""
+    #         SELECT
+    #             dt_created_at,
+    #             tx_descricao,
+    #             nu_valor_bruto
+    #         FROM tb_log_registrador
+    #         WHERE id_ihm = :id AND tx_descricao IN ('alerta_1', 'alerta_2', 'alerta_3')
+    #         ORDER BY dt_created_at DESC
+    #     """, {'id': id_ihm})
+    # else:
+    #     df_alertas = run_query("""
+    #         SELECT
+    #             dt_created_at,
+    #             tx_descricao,
+    #             nu_valor_bruto
+    #         FROM tb_log_registrador
+    #         WHERE id_ihm = :id AND tx_descricao IN ('alerta_1', 'alerta_2', 'alerta_3')
+    #             AND dt_created_at >= :data_inicio 
+    #             AND dt_created_at <= :data_fim
+    #         ORDER BY dt_created_at DESC
+    #     """, {'id': id_ihm, 'data_inicio': data_inicio, 'data_fim': data_fim})
+    # return df_alertas.to_dict('records')
+    return [
+            {
+                'dt_created_at': '2024-01-01 08:00:00',
+                'tx_descricao': 'alerta_1',
+                'nu_valor_bruto': 1
+            },
+            {
+                'dt_created_at': '2024-01-01 09:00:00',
+                'tx_descricao': 'alerta_2',
+                'nu_valor_bruto': 1
+            },
+            {
+                'dt_created_at': '2024-01-01 10:00:00',
+                'tx_descricao': 'alerta_3',
+                'nu_valor_bruto': 1
+            }
+    ]
