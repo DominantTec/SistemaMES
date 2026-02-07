@@ -32,8 +32,7 @@ def render_topbar(page_title: str, oee_global: float, maquinas_ativas: int, maqu
     """
 
 def render_last_events(events: List[Dict[str, Any]]) -> str:
-    # assume sempre 3 (como você quer)
-    e1, e2, e3 = events
+    e1, e2, e3, e4 = events
 
     return f"""
     <div class="events-row">
@@ -59,5 +58,13 @@ def render_last_events(events: List[Dict[str, Any]]) -> str:
         <span class="event-maq">{e3["maq"]}</span>
         <span class="event-msg">{e3["msg"]}</span>
       </div>
+      
+      <div class="event-item">
+        <span class="event-time">{e4["hora"]}</span>
+        <span class="dot {dot_class(e4.get("tipo"))}"></span>
+        <span class="event-maq">{e4["maq"]}</span>
+        <span class="event-msg">{e4["msg"]}</span>
+      </div>
+      
     </div>
     """

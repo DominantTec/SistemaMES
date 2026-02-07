@@ -98,5 +98,44 @@ BASE_CSS = """
 .dot-ok{ background:#22C55E; }
 .dot-warn{ background:#F59E0B; }
 .dot-err{ background:#EF4444; }
+div.stButton > button {
+  display: flex;
+  align-items: left;
+  gap: 20px;
+
+  padding: 12px 14px;
+  border-radius: 12px;
+
+  background: #FCD56D;
+  color: #111827;
+
+  font-weight: 800;
+  font-size: 16px;
+
+  width: 210%;
+  border: none;
+  box-shadow: none;
+
+  cursor: pointer;
+}
+
+/* REMOVE completamente hover */
+div.stButton > button:hover {
+  background: #FCD56D;
+  color: #111827;
+}
+
+/* REMOVE active/focus azul do navegador */
+div.stButton > button:active,
+div.stButton > button:focus,
+div.stButton > button:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+/* Opcional: desativa animações padrão */
+div.stButton > button {
+  transition: none;
+}
 </style>
 """
