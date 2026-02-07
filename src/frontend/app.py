@@ -1,7 +1,7 @@
 import streamlit as st
 from datetime import datetime
 from ui.styles import BASE_CSS
-from ui.components import render_topbar, render_last_events, render_button_sidebar, esconde_pg_sidebar
+from ui.components import render_topbar, render_last_events, render_button_sidebar, esconde_pg_sidebar, render_button_sidebar_pg_atual
 
 st.set_page_config(page_title="PCP Monitor", layout="wide")
 st.markdown(esconde_pg_sidebar(), unsafe_allow_html=True)
@@ -10,7 +10,8 @@ st.markdown(esconde_pg_sidebar(), unsafe_allow_html=True)
 with st.sidebar:
     st.title("🖥️PCP Monitor")
     st.markdown("---")
-    st.markdown(render_button_sidebar("▦ Visão Geral"), unsafe_allow_html=True)
+    st.markdown(render_button_sidebar_pg_atual("▦ Visão Geral"), unsafe_allow_html=True)
+    st.markdown(render_button_sidebar("🔧 Ordens em aberto"), unsafe_allow_html=True)
 
 page_title = "Monitoramento de Chão de Fábrica"
 oee_global = 78.4

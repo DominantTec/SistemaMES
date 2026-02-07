@@ -69,25 +69,32 @@ def render_last_events(events: List[Dict[str, Any]]) -> str:
     </div>
     """
     
+def render_button_sidebar_pg_atual(btn_title: str) -> str:
+    return f"""
+    <div class="button-sidebar-pg-atual">
+    
+      <div>
+        <span>{btn_title}</span>
+      </div>
+      
+    </div>
+    """
+    
 def render_button_sidebar(btn_title: str) -> str:
     return f"""
     <div class="button-sidebar">
     
       <div>
-        <span class="button-pg-atual">{btn_title}</span>
+        <span>{btn_title}</span>
       </div>
       
     </div>
     """
-  
+    
 def esconde_pg_sidebar() -> str:
     return """
     <style>
     [data-testid="stSidebarNav"] { 
-      display: none !important; 
-    }
-
-    section[data-testid="stSidebar"] nav { 
       display: none !important; 
     }
     </style>

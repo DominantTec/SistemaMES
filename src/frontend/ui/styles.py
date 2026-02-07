@@ -98,7 +98,7 @@ BASE_CSS = """
 .dot-ok{ background:#22C55E; }
 .dot-warn{ background:#F59E0B; }
 .dot-err{ background:#EF4444; }
-.button-sidebar {
+.button-sidebar-pg-atual {
   display: flex;
   align-items: left;
   gap: 20px;
@@ -107,6 +107,26 @@ BASE_CSS = """
   border-radius: 12px;
 
   background: #FCD56D;
+  color: #111827;
+
+  font-weight: 800;
+  font-size: 20px;
+
+  width: 100%;
+  border: none;
+  box-shadow: none;
+
+  cursor: pointer;
+}
+.button-sidebar {
+  display: flex;
+  align-items: left;
+  gap: 20px;
+
+  padding: 12px 14px;
+  border-radius: 12px;
+
+  background: transparent;
   color: #111827;
 
   font-weight: 800;
