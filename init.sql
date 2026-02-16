@@ -118,6 +118,16 @@ CREATE INDEX IX_tb_turnos_linha_ativo
     ON dbo.tb_turnos (id_linha_producao, bl_ativo);
 GO
 
+CREATE TABLE dbo.tb_ftp_needed (
+    id_ftp_needed   INT IDENTITY(1,1)   NOT NULL,
+    id_ihm          INT                 NOT NULL,
+    bl_needed       BIT                 NOT NULL,
+    CONSTRAINT PK_tb_ftp_needed PRIMARY KEY CLUSTERED (id_ftp_needed),
+    CONSTRAINT FK_tb_ftp_needed_ihm FOREIGN KEY (id_ihm)
+        REFERENCES dbo.tb_ihm (id_ihm)
+);
+GO
+
 CREATE TABLE dbo.tb_peca (
     id_peca          INT IDENTITY(1,1) NOT NULL,
     tx_name          NVARCHAR(120)     NOT NULL,
@@ -222,6 +232,15 @@ VALUES
 (2, '192.168.11.90', 502, 1, N'MAQUINA_2');
 
 SET IDENTITY_INSERT dbo.tb_ihm OFF;
+
+SET IDENTITY_INSERT dbo.tb_ftp_needed ON;
+
+INSERT INTO dbo.tb_ftp_needed (id_ftp_needed, id_ihm, bl_needed)
+VALUES
+(1, 1, 1),
+(2, 2, 0);
+
+SET IDENTITY_INSERT dbo.tb_ftp_needed OFF;
 
 INSERT INTO dbo.tb_registrador (nu_endereco, tx_descricao, id_ihm)
 VALUES
