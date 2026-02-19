@@ -1,5 +1,5 @@
 from logger import logger
-from database import get_connection_db
+from database import get_connection_db, execute_select, insert_dataframe
 from ihm_client import get_connection_ihm
 from data_processor import read_registers
 from data_processor import insert_registers_values
@@ -25,6 +25,31 @@ def main():
                 connection = get_connection_ihm(id_ihm, conn_db)
 
             conn_ihm.append(connection)
+
+            # Consulta se é necessário atualização via FTP
+            update_needed = execute_select('SELECT bl_needed FROM tb_ftp_needed WHERE id_ihm = ?',
+                                           {'id_ihm': id_ihm},
+                                           conn_db)['bl_needed'].to_list()[0]
+
+            # Caso necessário, baixa arquivo via FTP
+            if update_needed:
+                logger.info(
+                    f'IHM {id_ihm} precisa de atualização do bd via FTP.')
+                logger.info('Atualização via FTP ainda em construção.')
+
+                # Le arquivo FTP
+                # logger.info('Buscando arquivo via FTP.')
+                # logger.info('Fazendo o download do arquivo via FTP.')
+                # logger.info('Lendo as bases do CSV.')
+
+                # Inclui informações na base de dados
+                # logger.info('Atualizando as informações do banco de dados.')
+
+                # Faz marcação de FTP feito
+                logger.info('Marcando atualização FTP como feita.')
+            else:
+                logger.info(
+                    f'IHM {id_ihm} não precisa de atualização do bd via FTP.')
 
         while True:
             for k, id_ihm in enumerate(ids_ihm):
