@@ -1,5 +1,6 @@
 from logger import logger
 from database import get_connection_db, execute_select, insert_dataframe
+from ftp_services import connect_ftp, list_files, download_file, read_ftp_file
 from ihm_client import get_connection_ihm
 from data_processor import read_registers
 from data_processor import insert_registers_values
@@ -33,20 +34,45 @@ def main():
 
             # Caso necessário, baixa arquivo via FTP
             if update_needed:
-                logger.info(
-                    f'IHM {id_ihm} precisa de atualização do bd via FTP.')
-                logger.info('Atualização via FTP ainda em construção.')
+                try:
+                    logger.info(
+                        f'IHM {id_ihm} precisa de atualização do bd via FTP.')
+                    logger.info('Atualização via FTP ainda em construção.')
 
-                # Le arquivo FTP
-                # logger.info('Buscando arquivo via FTP.')
-                # logger.info('Fazendo o download do arquivo via FTP.')
-                # logger.info('Lendo as bases do CSV.')
+                    host_ftp = execute_select('SELECT tx_ip_address FROM tb_ihm WHERE id_ihm = ?',
+                                              {'id_ihm': id_ihm},
+                                              conn_db)['tx_ip_address'].to_list()[0]
 
-                # Inclui informações na base de dados
-                # logger.info('Atualizando as informações do banco de dados.')
+                    logger.info('Buscando arquivo via FTP.')
+                    ftp_connection = connect_ftp(
+                        host_ftp, os.environ['FTP_USER'], os.environ['FTP_PASSWORD'])
 
-                # Faz marcação de FTP feito
-                logger.info('Marcando atualização FTP como feita.')
+                    logger.info('Listando os arquivos via FTP.')
+                    temp_file = 'apoio.csv'
+                    ftp_files = list_files(ftp_connection, '/')
+
+                    logger.info('Fazendo o download do arquivo via FTP.')
+                    for file in ftp_files:
+                        if file.endswith('.csv'):
+                            download_file(ftp_connection, '/', file, temp_file)
+                            break
+
+                    logger.info('Lendo as bases do CSV.')
+                    tables_dict = read_ftp_file(temp_file)
+
+                    for key in tables_dict:
+                        # if key == 'Operador':
+                        logger.info(
+                            f'Atualizando as informações de {key} do banco de dados.')
+
+                    logger.info('Deletando arquivo utilizado.')
+                    os.remove(temp_file)
+
+                    # Faz marcação de FTP feito
+                    logger.info('Marcando atualização FTP como feita.')
+                except Exception as e:
+                    logger.error('Erro ao executar a atualização FTP.')
+                    raise e
             else:
                 logger.info(
                     f'IHM {id_ihm} não precisa de atualização do bd via FTP.')
