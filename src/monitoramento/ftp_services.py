@@ -58,29 +58,31 @@ def download_file(ftp: FTP,
 
 def read_ftp_file(file_path):
     tables = dict()
+    data = []
+    current_table = None
     with open(file_path, encoding="utf-8") as f:
         for linha in f:
             linha = linha.strip()
             if not linha:   # linha vazia → terminou tabela
-                if tabela_atual and dados:
-                    tables[tabela_atual] = pd.DataFrame(
-                        dados, columns=["ID", "Codigo", "Nome"])
-                    dados = []
+                if current_table and data:
+                    tables[current_table] = pd.DataFrame(
+                        data, columns=["ID", "Codigo", "Nome"])
+                    data = []
                 continue
 
             partes = [x.strip() for x in linha.split(",") if x.strip()]
 
             # Detecta nome da tabela (ex: Matriculas, Manutentor)
             if len(partes) == 3 and partes[1].isdigit() and partes[2].isdigit():
-                tabela_atual = partes[0]
+                current_table = partes[0]
                 continue
 
-            # Pulamos linhas metadados (ex: "2,1,0,0,Código")
+            # Pulamos linhas metadata (ex: "2,1,0,0,Código")
             if len(partes) >= 4:
                 continue
 
-            # Linhas de dados válidas (ID, Código, Nome)
+            # Linhas de data válidas (ID, Código, Nome)
             if len(partes) >= 3:
-                dados.append(partes[:3])
+                data.append(partes[:3])
 
     return tables
