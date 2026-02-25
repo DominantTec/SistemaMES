@@ -3,7 +3,7 @@ services:
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: mssql-server
     ports:
-      - 1433:1433
+      - 14330:1433
     environment:
       - ACCEPT_EULA=Y
       - MSSQL_SA_PASSWORD=${DB_PASSWORD}
@@ -14,7 +14,6 @@ services:
     env_file:
       - .env
     entrypoint: ["/bin/bash", "/usr/src/entrypoint.sh"]
-    # restart: always
     networks:
       - network1
 
@@ -25,31 +24,7 @@ services:
       retries: 10
       start_period: 120s
 
-  frontend:
-    build:
-      network: host
-      context: ./frontend
-      dockerfile: Dockerfile
-    ports:
-      - "8501:8501"
-    environment:
-      - DB_HOST=${DB_HOST}
-      - DB_PORT=${DB_PORT}
-      - DB_USER=${DB_USER}
-      - DB_PASSWORD=${DB_PASSWORD}
-      - DB_NAME=${DB_NAME}
-    restart: unless-stopped
-    env_file:
-      - .env
-    depends_on:
-      mssql:
-        condition: service_healthy
-    command: streamlit run app.py --server.port=8501 --server.address=0.0.0.0
-    volumes:
-      - ./frontend:/app
-    networks:
-      - network1
-  
+  # --- SEU COLETOR MODBUS - mantém como está ---
   monitoramento:
     build:
       network: host
@@ -71,6 +46,33 @@ services:
     command: python -m main
     networks:
       - network1
+
+  # --- NOVO: FASTAPI (API do seu sistema) ---
+  api:
+    build:
+      network: host
+      context: .
+      dockerfile: ./api/Dockerfile
+    container_name: pcp-api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+    depends_on:
+      mssql:
+        condition: service_healthy
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./:/app
+    networks:
+      - network1
+
 
 networks:
   network1:
