@@ -1,0 +1,134 @@
+.sidebar{
+  width: 290px;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--line);
+  padding: 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sb-header{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 4px;
+}
+
+.sb-logo{
+  width: 34px;
+  height: 34px;
+  background: #dbeafe;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: var(--brand);
+  font-weight: 700;
+}
+
+.sb-title{
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.sb-nav{
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sb-item{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: var(--text);
+  background: transparent;
+  border-radius: 10px;
+  padding: 10px 10px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  width: 100%;
+  font: inherit;
+  text-align: left;
+}
+
+.sb-item:hover{
+  background: rgba(255,255,255,0.6);
+  border-color: var(--line);
+}
+
+.sb-item.active{
+  background: var(--active);
+  border-color: rgba(0,0,0,0.06);
+}
+
+.sb-ico{
+  width: 22px;
+  display: inline-block;
+  text-align: center;
+  opacity: 0.85;
+}
+
+.sb-section{ margin-top: 6px; }
+
+.sb-section-title{
+  font-size: 16px;
+  color: var(--muted);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin: 10px 4px 8px;
+}
+
+.sb-line{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: transparent;
+  border: 0;
+  width: 100%;
+  cursor: pointer;
+  padding: 10px 10px;
+  border-radius: 10px;
+  text-align: left;
+  font: inherit;
+  color: black;
+}
+
+.sb-line:hover{
+  background: rgba(255,255,255,0.6);
+}
+
+.dot{
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--brand);
+  display: inline-block;
+}
+
+.sb-spacer{ flex: 1; }
+
+.sb-card{
+  background: rgba(255,255,255,0.7);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.sb-card-title{ font-size: 14px; }
+.sb-card-sub{ font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+.progress{
+  height: 8px;
+  border-radius: 999px;
+  background: #e5e7eb;
+  overflow: hidden;
+  margin-top: 12px;
+}
+
+.progress-bar{
+  height: 100%;
+  background: #9ca3af;
+  border-radius: 999px;
+}
