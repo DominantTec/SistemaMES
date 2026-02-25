@@ -1,30 +1,29 @@
+from flask import app
 from services.db import run_query, run_query_update
 from typing import List, Dict, Any
-import streamlit as st
 
 
-@st.cache_data(ttl=10)
-def get_active_lines() -> List[Dict[str, Any]]:
-    '''Retorna todas as linhas de produção.'''
-    return run_query("""
+@app.get("/api/lines")
+def get_lines():
+    df = run_query("""
         SELECT id_linha_producao, tx_name
-        FROM tb_linha_producao
+        FROM dbo.tb_linha_producao
         ORDER BY id_linha_producao
     """)
+    return df.to_dict(orient="records")
 
 
-@st.cache_data(ttl=10)
-def get_active_machines(line_id: int) -> List[Dict[str, Any]]:
-    '''Retorna todas as IHMs de uma determinada linha.'''
-    return run_query("""
+@app.get("/api/lines/{line_id}/machines")
+def get_machines_by_line(line_id: int):
+    df = run_query("""
         SELECT id_ihm, tx_name
-        FROM tb_ihm
-        WHERE id_linha_producao = :id
+        FROM dbo.tb_ihm
+        WHERE id_linha_producao = :line_id
         ORDER BY id_ihm
-    """, {"id": line_id})
+    """, {"line_id": line_id})
+    return df.to_dict(orient="records")
 
 
-@st.cache_data(ttl=2)
 def get_machine_timeline(machine_id: int, data_inicio=None, data_fim=None) -> Dict[str, Any]:
     '''Retorna a linha do tempo de uma IHM filtrada no tempo ou não.'''
     if not data_inicio or not data_fim:
@@ -79,7 +78,6 @@ def get_machine_timeline(machine_id: int, data_inicio=None, data_fim=None) -> Di
     return df_registradores
 
 
-@st.cache_data(ttl=2)
 def get_machine_shifts(machine_id: int, data_inicio=None, data_fim=None) -> Dict[str, Any]:
     '''Usando o id de uma IHM, retorna os turnos de uma linha de produção filtrado por data ou não.'''
     if not data_inicio or not data_fim:
@@ -204,7 +202,6 @@ def get_meta_register(machine_id: int) -> int:
         return -1
 
 
-@st.cache_data(ttl=2)
 def get_metrics_machine(machine_id: int, data_inicio: Any | None = None, data_fim: Any | None = None) -> Dict[str, Any]:
     '''Retorna as principais informações de uma IHM para um dado periodo de tempo.'''
     try:
