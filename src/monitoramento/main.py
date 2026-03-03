@@ -60,10 +60,16 @@ def main():
                     logger.info('Lendo as bases do CSV.')
                     tables_dict = read_ftp_file(temp_file)
 
+                    depara_tables = {
+                        'Matriculas': ('tb_depara_operador', {'Codigo': 'nu_cod_operador', 'Nome': 'tx_operador'})
+                    }
+
                     for key in tables_dict:
-                        # if key == 'Operador':
-                        logger.info(
-                            f'Atualizando as informações de {key} do banco de dados.')
+                        if key == 'Matriculas':
+                            logger.info(
+                                f'Atualizando as informações de {depara_tables[key][0]} do banco de dados.')
+                            insert_dataframe(tables_dict[key][['Codigo', 'Nome']].rename(
+                                columns=depara_tables[key][1]), depara_tables[key][0], conn_db)
 
                     logger.info('Deletando arquivo utilizado.')
                     os.remove(temp_file)
