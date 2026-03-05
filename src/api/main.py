@@ -5,6 +5,7 @@ from api.routers.health import router as health_router
 from api.routers.dashboard import router as dashboard_router
 from api.routers.lines import router as lines_router
 from api.routers.machines import router as machines_router
+from api.routers.overview import router as overview_router
 
 app = FastAPI(title="PCP API")
 
@@ -20,3 +21,4 @@ app.include_router(health_router)
 app.include_router(dashboard_router)
 app.include_router(lines_router)
 app.include_router(machines_router)
+app.include_router(overview_router)
