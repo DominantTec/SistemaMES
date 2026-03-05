@@ -1,0 +1,378 @@
+/* ============================================================
+   Overview.css — Visão Geral do Chão de Fábrica
+   ============================================================ */
+
+.ov-root {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ── Loading / Error ───────────────────────────────────────── */
+.ov-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 40px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.ov-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--line);
+  border-top-color: var(--brand);
+  border-radius: 50%;
+  animation: ov-spin 0.7s linear infinite;
+}
+
+@keyframes ov-spin { to { transform: rotate(360deg); } }
+
+.ov-error {
+  padding: 20px;
+  color: #dc2626;
+  background: #fee2e2;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+/* ── Topbar ────────────────────────────────────────────────── */
+.ov-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 24px;
+  background: rgba(255,255,255,0.85);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  backdrop-filter: blur(6px);
+}
+
+.ov-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-width: 0;
+}
+
+.ov-topbar-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+.ov-topbar-kpis {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ov-kpi-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #22c55e;
+  display: inline-block;
+  box-shadow: 0 0 0 3px rgba(34,197,94,.2);
+}
+
+.ov-kpi {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 13px;
+}
+
+.ov-kpi-label { color: var(--muted); }
+
+.ov-kpi strong {
+  font-weight: 800;
+  font-size: 14px;
+}
+
+.ov-kpi-sep { color: var(--muted); opacity: 0.5; }
+
+.ov-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.ov-topbar-pill {
+  padding: 7px 14px;
+  background: #f3f4f6;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ov-topbar-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--brand);
+  color: #fff;
+  font-weight: 800;
+  font-size: 13px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+/* ── Event Ticker ──────────────────────────────────────────── */
+.ov-ticker {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 18px;
+  background: rgba(255,255,255,0.8);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.ov-ticker-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.ov-ticker-items {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  overflow: hidden;
+}
+
+.ov-ticker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.ov-ticker-time {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.ov-ticker-machine {
+  font-weight: 700;
+  color: var(--brand);
+  background: #dbeafe;
+  padding: 2px 7px;
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+.ov-ticker-desc { color: var(--muted); }
+
+/* ── Lines ─────────────────────────────────────────────────── */
+.ov-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ov-line-section {
+  background: rgba(255,255,255,0.75);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px;
+}
+
+.ov-line-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.ov-line-badge {
+  background: var(--brand);
+  color: #fff;
+  font-weight: 700;
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+
+.ov-line-meta {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.ov-line-meta strong { color: var(--text); font-weight: 700; }
+
+/* ── Machine Grid ──────────────────────────────────────────── */
+.ov-machine-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 12px;
+}
+
+/* ── Machine Card ──────────────────────────────────────────── */
+.ov-machine-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: box-shadow 0.15s;
+}
+
+.ov-machine-card:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+}
+
+.ov-machine-status-bar {
+  height: 5px;
+  flex-shrink: 0;
+}
+
+.ov-machine-body {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+
+.ov-machine-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.ov-machine-name {
+  font-weight: 800;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.ov-machine-status-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.ov-machine-op {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* OEE */
+.ov-oee-block {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ov-oee-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.ov-oee-value {
+  font-size: 26px;
+  font-weight: 900;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+/* Metric rows */
+.ov-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ov-metric-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ov-metric-label {
+  font-size: 11px;
+  color: var(--muted);
+  width: 30px;
+  flex-shrink: 0;
+}
+
+.ov-bar-track {
+  flex: 1;
+  height: 7px;
+  background: #f3f4f6;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.ov-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+.ov-metric-value {
+  font-size: 11px;
+  font-weight: 700;
+  width: 34px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* Produção */
+.ov-prod-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+  margin-top: 2px;
+}
+
+.ov-prod-label {
+  font-size: 11px;
+  color: var(--muted);
+  width: 30px;
+  flex-shrink: 0;
+}
+
+.ov-prod-value {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.ov-prod-value strong {
+  font-weight: 800;
+  font-size: 15px;
+}
+
+.ov-prod-meta {
+  font-size: 12px;
+  color: var(--muted);
+}

@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.routers.health import router as health_router
 from api.routers.dashboard import router as dashboard_router
 from api.routers.lines import router as lines_router
-from api.routers.machines import router as machines_router
+from api.routers.machine import router as machines_router
 from api.routers.overview import router as overview_router
 
 app = FastAPI(title="PCP API")
