@@ -343,357 +343,353 @@ def get_metrics_machine(machine_id: int, data_inicio: Optional[Any] = None, data
 
 
 def get_alerts_ihm(id_ihm: int, data_inicio: Optional[Any] = None, data_fim: Optional[Any] = None) -> List[Dict[str, Any]]:
-    """Retorna os alertas de uma IHM para um dado periodo de tempo."""
-    # TODO: implementar query real
-    return [
-        {"dt_created_at": "2024-01-01 08:00:00", "tx_descricao": "alerta_1", "nu_valor_bruto": 1},
-        {"dt_created_at": "2024-01-01 09:00:00", "tx_descricao": "alerta_2", "nu_valor_bruto": 1},
-        {"dt_created_at": "2024-01-01 10:00:00", "tx_descricao": "alerta_3", "nu_valor_bruto": 1},
-    ]
+    """Retorna mudanças de status e motivo de parada de uma IHM."""
+    params: Dict[str, Any] = {"id_ihm": id_ihm}
+    filtro_data = ""
+    if data_inicio and data_fim:
+        filtro_data = "AND lr.dt_created_at >= :data_inicio AND lr.dt_created_at <= :data_fim"
+        params["data_inicio"] = data_inicio
+        params["data_fim"] = data_fim
+
+    df = run_query(f"""
+        SELECT TOP 50
+            lr.dt_created_at,
+            r.tx_descricao,
+            lr.nu_valor_bruto
+        FROM dbo.tb_log_registrador lr
+        JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
+        WHERE lr.id_ihm = :id_ihm
+          AND r.tx_descricao IN ('status_maquina', 'motivo_parada')
+          {filtro_data}
+        ORDER BY lr.dt_created_at DESC
+    """, params)
+
+    return df.to_dict(orient="records")
 
 
 # =========================
-# VISÃO GERAL (MOCK)
-# Substitua o corpo destas funções pelos dados reais quando estiver pronto.
+# HELPERS INTERNOS
+# =========================
+
+_CORES_EQUIPE = ["#f59e0b", "#3b82f6", "#10b981", "#8b5cf6", "#ef4444"]
+_STATUS_NAO_PRODUTIVO = {"Parada", "Máquina em manutenção", "Limpeza", "Aguardando Manutentor"}
+
+
+def _resolve_nome(codigo: Any, id_ihm: int, tabela: str, col_cod: str, col_nome: str) -> Optional[str]:
+    """Resolve um código numérico para nome via tabela de de-para."""
+    try:
+        cod = int(float(codigo))
+        if cod == 0:
+            return None
+        df = run_query(f"""
+            SELECT {col_nome} FROM dbo.{tabela}
+            WHERE id_ihm = :id AND {col_cod} = :cod
+        """, {"id": id_ihm, "cod": cod})
+        return df[col_nome].iloc[0] if not df.empty else None
+    except Exception:
+        return None
+
+
+def _avatar(nome: Optional[str]) -> Optional[str]:
+    """Gera as iniciais de um nome para avatar."""
+    if not nome:
+        return None
+    return "".join(p[0].upper() for p in str(nome).split() if p)[:2]
+
+
+# =========================
+# VISÃO GERAL
 # =========================
 
 def get_overview_topbar() -> dict:
     """KPIs globais e eventos recentes para a topbar da Visão Geral."""
+    maquinas_total = int(run_query("SELECT COUNT(*) AS total FROM dbo.tb_ihm")["total"].iloc[0])
+
+    # Último status de cada IHM
+    df_status = run_query("""
+        SELECT lr.id_ihm, lr.nu_valor_bruto AS status
+        FROM dbo.tb_log_registrador lr
+        JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
+        INNER JOIN (
+            SELECT lr2.id_ihm, MAX(lr2.dt_created_at) AS max_dt
+            FROM dbo.tb_log_registrador lr2
+            JOIN dbo.tb_registrador r2 ON r2.id_registrador = lr2.id_registrador
+            WHERE r2.tx_descricao = 'status_maquina'
+            GROUP BY lr2.id_ihm
+        ) latest ON latest.id_ihm = lr.id_ihm AND lr.dt_created_at = latest.max_dt
+        WHERE r.tx_descricao = 'status_maquina'
+    """)
+
+    status_inativos = {0, 52}
+    maquinas_ativas = (
+        int(df_status[~df_status["status"].isin(status_inativos)]["id_ihm"].nunique())
+        if not df_status.empty else 0
+    )
+
+    # Eventos recentes: últimas mudanças de status
+    depara_status = {
+        0: "Máquina parada",       1: "Passando padrão",
+        4: "Iniciou limpeza",     49: "Entrou em produção",
+        50: "Máquina liberada",   51: "Aguardando manutentor",
+        52: "Entrou em manutenção", 53: "Alteração de parâmetros",
+    }
+    df_eventos = run_query("""
+        SELECT TOP 5
+            i.tx_name AS maquina,
+            lr.dt_created_at,
+            lr.nu_valor_bruto AS status_cod
+        FROM dbo.tb_log_registrador lr
+        JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
+        JOIN dbo.tb_ihm i ON i.id_ihm = lr.id_ihm
+        WHERE r.tx_descricao = 'status_maquina'
+        ORDER BY lr.dt_created_at DESC
+    """)
+    eventos = [
+        {
+            "hora":      row["dt_created_at"].strftime("%H:%M"),
+            "maquina":   row["maquina"],
+            "descricao": depara_status.get(int(row["status_cod"]), f"Status {int(row['status_cod'])}"),
+        }
+        for _, row in df_eventos.iterrows()
+    ]
+
     return {
-        "titulo": "Monitoramento de Chão de Fábrica",
-        "oee_global": 78.4,
-        "maquinas_ativas": 28,
-        "maquinas_total": 32,
-        "data_hora": datetime.now().strftime("%d/%m/%Y - %H:%M:%S"),
-        "user_initials": "BG",
-        "eventos_recentes": [
-            {"hora": "14:32", "maquina": "CUSI_02", "descricao": "Parada de setup iniciada"},
-            {"hora": "14:28", "maquina": "MAQ_24",  "descricao": "Retorno de operação"},
-            {"hora": "14:15", "maquina": "MAQ_26",  "descricao": "Falha de comunicação Driver 12"},
-        ],
+        "titulo":          "Monitoramento de Chão de Fábrica",
+        "oee_global":      None,  # preenchido por get_overview_data após calcular as linhas
+        "maquinas_ativas": maquinas_ativas,
+        "maquinas_total":  maquinas_total,
+        "data_hora":       datetime.now().strftime("%d/%m/%Y - %H:%M:%S"),
+        "user_initials":   "BG",
+        "eventos_recentes": eventos,
     }
 
 
 def get_overview_turno() -> dict:
     """Informações do turno atual."""
+    df = run_query("""
+        SELECT TOP 1 tx_name, dt_inicio, dt_fim
+        FROM dbo.tb_turnos
+        WHERE bl_ativo = 1
+          AND dt_inicio <= GETDATE()
+          AND dt_fim    >= GETDATE()
+        ORDER BY dt_inicio
+    """)
+
+    if df.empty:
+        return {"nome": "-", "encerra_em": "-", "progresso_pct": 0}
+
+    row = df.iloc[0]
+    agora     = datetime.now()
+    dt_inicio = row["dt_inicio"]
+    dt_fim    = row["dt_fim"]
+
+    duracao   = (dt_fim - dt_inicio).total_seconds()
+    decorrido = (agora - dt_inicio).total_seconds()
+    progresso = int(100 * decorrido / duracao) if duracao else 0
+
+    restante_s    = max(0, (dt_fim - agora).total_seconds())
+    horas, resto  = divmod(int(restante_s), 3600)
+    encerra_em    = f"{horas:02d}:{resto // 60:02d}h"
+
     return {
-        "nome": "T2",
-        "encerra_em": "04:32h",
-        "progresso_pct": 68,
+        "nome":          row["tx_name"],
+        "encerra_em":    encerra_em,
+        "progresso_pct": min(100, max(0, progresso)),
     }
 
 
 def get_overview_linhas() -> list:
     """Lista de linhas de produção com suas máquinas e métricas."""
-    return [
-        {
-            "id": 1,
-            "nome": "LINHA 505",
-            "meta_hora": 850,
-            "realizado": 812,
-            "realizado_pct": 95,
-            "maquinas": [
-                {
-                    "id": 1, "nome": "CUSI_01", "status": "Produzindo", "op": "OP #9281",
-                    "oee": 29.8, "disponibilidade": 100.0, "qualidade": 100.0, "performance": 29.8,
-                    "produzido": 386, "meta": 597,
-                },
-                {
-                    "id": 2, "nome": "MAQ_34", "status": "Produzindo", "op": None,
-                    "oee": 52.7, "disponibilidade": 58.0, "qualidade": 90.0, "performance": 63.0,
-                    "produzido": 371, "meta": 554,
-                },
-                {
-                    "id": 3, "nome": "MAQ_26", "status": "Produzindo", "op": None,
-                    "oee": 80.3, "disponibilidade": 88.0, "qualidade": 91.0, "performance": 92.0,
-                    "produzido": 568, "meta": 600,
-                },
-                {
-                    "id": 4, "nome": "MAQ_03", "status": "Produzindo", "op": None,
-                    "oee": 74.0, "disponibilidade": 92.0, "qualidade": 79.0, "performance": 85.0,
-                    "produzido": 498, "meta": 530,
-                },
-            ],
-        },
-        {
-            "id": 2,
-            "nome": "LINHA 504",
-            "meta_hora": 1200,
-            "realizado": 1150,
-            "realizado_pct": 98,
-            "maquinas": [
-                {
-                    "id": 5, "nome": "PMAQ_37", "status": "Aguardando Manutentor", "op": None,
-                    "oee": 58.0, "disponibilidade": 86.0, "qualidade": 66.0, "performance": 72.0,
-                    "produzido": 517, "meta": 626,
-                },
-                {
-                    "id": 6, "nome": "MAQ_10", "status": "Parada", "op": None,
-                    "oee": 16.2, "disponibilidade": 17.0, "qualidade": 90.0, "performance": 19.0,
-                    "produzido": 178, "meta": 434,
-                },
-                {
-                    "id": 7, "nome": "MAQ_08", "status": "Produzindo", "op": None,
-                    "oee": 51.0, "disponibilidade": 59.0, "qualidade": 85.0, "performance": 65.0,
-                    "produzido": 252, "meta": 456,
-                },
-                {
-                    "id": 8, "nome": "MAQ_37", "status": "Produzindo", "op": None,
-                    "oee": 73.8, "disponibilidade": 80.0, "qualidade": 91.0, "performance": 83.0,
-                    "produzido": 359, "meta": 534,
-                },
-                {
-                    "id": 9, "nome": "MAQ_28", "status": "Limpeza", "op": None,
-                    "oee": 40.8, "disponibilidade": 64.0, "qualidade": 88.0, "performance": 52.0,
-                    "produzido": 305, "meta": 282,
-                },
-                {
-                    "id": 10, "nome": "MAQ_59", "status": "Máquina em manutenção", "op": None,
-                    "oee": 28.6, "disponibilidade": 53.0, "qualidade": 53.0, "performance": 40.0,
-                    "produzido": 143, "meta": 300,
-                },
-            ],
-        },
-    ]
+    df_linhas = get_lines_df()
+    resultado = []
+
+    for _, linha in df_linhas.iterrows():
+        line_id    = int(linha["id_linha_producao"])
+        df_machines = get_machines_by_line_df(line_id)
+
+        maquinas        = []
+        total_produzido = 0
+        total_meta      = 0
+
+        for _, machine in df_machines.iterrows():
+            machine_id = int(machine["id_ihm"])
+            metrics    = get_metrics_machine(machine_id)
+
+            produzido = metrics["produzido"] if isinstance(metrics["produzido"], (int, float)) else 0
+            meta      = metrics["meta"]      if isinstance(metrics["meta"],      (int, float)) else 0
+            total_produzido += produzido
+            total_meta      += meta
+
+            maquinas.append({
+                "id":              machine_id,
+                "nome":            machine["tx_name"],
+                "status":          metrics["status_maquina"],
+                "op":              None,
+                "oee":             metrics["oee"],
+                "disponibilidade": metrics["disponibilidade"],
+                "qualidade":       metrics["qualidade"],
+                "performance":     metrics["performance"],
+                "produzido":       produzido,
+                "meta":            meta,
+            })
+
+        realizado_pct = int(100 * total_produzido / total_meta) if total_meta else 0
+        resultado.append({
+            "id":            line_id,
+            "nome":          linha["tx_name"],
+            "meta_hora":     total_meta,
+            "realizado":     total_produzido,
+            "realizado_pct": realizado_pct,
+            "maquinas":      maquinas,
+        })
+
+    return resultado
 
 
 def get_overview_data() -> dict:
     """Payload completo da tela de Visão Geral."""
+    linhas = get_overview_linhas()
+    topbar = get_overview_topbar()
+
+    all_oees = [m["oee"] for l in linhas for m in l["maquinas"] if isinstance(m.get("oee"), (int, float))]
+    topbar["oee_global"] = round(sum(all_oees) / len(all_oees), 1) if all_oees else "-"
+
     return {
-        "topbar":      get_overview_topbar(),
+        "topbar":      topbar,
         "turno_atual": get_overview_turno(),
-        "linhas":      get_overview_linhas(),
+        "linhas":      linhas,
     }
 
 
 # =========================
-# DETALHE DE LINHA (MOCK)
+# DETALHE DE LINHA
 # =========================
 
 def get_line_detail(line_id: int) -> dict:
     """Payload completo da tela de Monitoramento de uma Linha específica."""
+    df_linha = run_query("""
+        SELECT id_linha_producao, tx_name
+        FROM dbo.tb_linha_producao
+        WHERE id_linha_producao = :id
+    """, {"id": line_id})
 
-    linhas = {
-        1: {
-            "id": 1,
-            "nome": "Linha 505",
-            "status_geral": "Operação Normal",
-            "ultima_atualizacao": "14:32:05",
-            "kpis": {
-                "oee_global": 78.4,
-                "oee_variacao": +2.1,
-                "producao_hoje": 12450,
-                "producao_meta": 15000,
-                "previsao_termino": "18:30h",
-                "maquinas_ativas": 5,
-                "maquinas_total": 6,
-                "equipe": [
-                    {"iniciais": "AS", "cor": "#f59e0b"},
-                    {"iniciais": "JM", "cor": "#3b82f6"},
-                    {"iniciais": "CR", "cor": "#10b981"},
-                ],
-                "equipe_extras": 1,
-                "supervisor": "R. Santos",
-            },
-            "maquinas": [
-                {
-                    "id": 1,
-                    "nome": "CUSI_02",
-                    "tipo": "Usinagem CNC",
-                    "status": "Produzindo",
-                    "op": "OP #40291",
-                    "peca": "Eixo A-12",
-                    "oee": 88.0,
-                    "disponibilidade": 98.0,
-                    "performance": 90.0,
-                    "qualidade": 100.0,
-                    "produzido": 450,
-                    "rejeitos": 0,
-                    "ciclo_segundos": 42,
-                    "operador": "Ana S.",
-                    "operador_avatar": "AS",
-                    "motivo_parada": None,
-                    "manutencao": None,
-                    "parada_ha": None,
-                },
-                {
-                    "id": 2,
-                    "nome": "MAQ_24",
-                    "tipo": "Prensa Hidr.",
-                    "status": "Alerta",
-                    "op": "OP #40291",
-                    "peca": "Base Z",
-                    "oee": 65.0,
-                    "disponibilidade": 55.0,
-                    "performance": None,
-                    "qualidade": 70.0,
-                    "produzido": 1200,
-                    "rejeitos": 40,
-                    "ciclo_segundos": None,
-                    "operador": "João M.",
-                    "operador_avatar": "JM",
-                    "motivo_parada": None,
-                    "manutencao": None,
-                    "parada_ha": None,
-                },
-                {
-                    "id": 3,
-                    "nome": "MAQ_26",
-                    "tipo": "Injetora Plást.",
-                    "status": "Parada",
-                    "op": None,
-                    "peca": None,
-                    "oee": 0.0,
-                    "disponibilidade": None,
-                    "performance": None,
-                    "qualidade": None,
-                    "produzido": 0,
-                    "rejeitos": 0,
-                    "ciclo_segundos": None,
-                    "operador": None,
-                    "operador_avatar": None,
-                    "motivo_parada": "Aguardando Matéria Prima",
-                    "manutencao": "Não req.",
-                    "parada_ha": "00:47",
-                    "status_parada": "Logística",
-                },
-                {
-                    "id": 4,
-                    "nome": "TORNO_05",
-                    "tipo": "Torno CNC",
-                    "status": "Produzindo",
-                    "op": "OP #40295",
-                    "peca": "Pino B-3",
-                    "oee": 91.0,
-                    "disponibilidade": 95.0,
-                    "performance": 96.0,
-                    "qualidade": 99.0,
-                    "produzido": 780,
-                    "rejeitos": 5,
-                    "ciclo_segundos": 38,
-                    "operador": "Carlos R.",
-                    "operador_avatar": "CR",
-                    "motivo_parada": None,
-                    "manutencao": None,
-                    "parada_ha": None,
-                },
-                {
-                    "id": 5,
-                    "nome": "RET_08",
-                    "tipo": "Retífica Pl.",
-                    "status": "Produzindo",
-                    "op": "OP #40298",
-                    "peca": "Anel C-7",
-                    "oee": 73.0,
-                    "disponibilidade": 80.0,
-                    "performance": 85.0,
-                    "qualidade": 93.0,
-                    "produzido": 340,
-                    "rejeitos": 12,
-                    "ciclo_segundos": 55,
-                    "operador": "Maria L.",
-                    "operador_avatar": "ML",
-                    "motivo_parada": None,
-                    "manutencao": None,
-                    "parada_ha": None,
-                },
-                {
-                    "id": 6,
-                    "nome": "ROBO_12",
-                    "tipo": "Célula Rob.",
-                    "status": "Manutenção",
-                    "op": None,
-                    "peca": None,
-                    "oee": 0.0,
-                    "disponibilidade": None,
-                    "performance": None,
-                    "qualidade": None,
-                    "produzido": 0,
-                    "rejeitos": 0,
-                    "ciclo_segundos": None,
-                    "operador": None,
-                    "operador_avatar": None,
-                    "motivo_parada": "Manutenção Preventiva",
-                    "manutencao": "Em andamento",
-                    "parada_ha": "01:15",
-                    "status_parada": "Manutenção",
-                },
-            ],
+    if df_linha.empty:
+        return {"erro": f"Linha {line_id} não encontrada"}
+
+    nome_linha  = df_linha.iloc[0]["tx_name"]
+    df_machines = get_machines_by_line_df(line_id)
+
+    maquinas         = []
+    total_produzido  = 0
+    total_meta       = 0
+    oees: List[float]         = []
+    maquinas_ativas  = 0
+    operadores_vistos: Dict[str, str] = {}  # nome → cor
+
+    for _, machine in df_machines.iterrows():
+        machine_id = int(machine["id_ihm"])
+        metrics    = get_metrics_machine(machine_id)
+        status     = metrics["status_maquina"]
+
+        produzido = metrics["produzido"] if isinstance(metrics["produzido"], (int, float)) else 0
+        reprovado = metrics["reprovado"] if isinstance(metrics["reprovado"], (int, float)) else 0
+        meta      = metrics["meta"]      if isinstance(metrics["meta"],      (int, float)) else 0
+        oee       = metrics["oee"]       if isinstance(metrics["oee"],       (int, float)) else 0
+
+        total_produzido += produzido
+        total_meta      += meta
+        if isinstance(oee, (int, float)):
+            oees.append(oee)
+        if status not in _STATUS_NAO_PRODUTIVO and status != "-":
+            maquinas_ativas += 1
+
+        # Peça atual
+        peca = get_selected_piece(machine_id)
+        peca = peca if peca != "PEÇA TEMP" else None
+
+        # Operador, manutentor, engenheiro (resolve código → nome)
+        op_nome  = _resolve_nome(metrics.get("operador"),   machine_id, "tb_depara_operador",  "nu_cod_operador",   "tx_operador")
+        man_nome = _resolve_nome(metrics.get("manutentor"), machine_id, "tb_depara_manutentor", "nu_cod_manutentor", "tx_manutentor")
+        eng_nome = _resolve_nome(metrics.get("engenheiro"), machine_id, "tb_depara_engenheiro", "nu_cod_engenheiro", "tx_engenheiro")
+
+        if op_nome and op_nome not in operadores_vistos:
+            operadores_vistos[op_nome] = _CORES_EQUIPE[len(operadores_vistos) % len(_CORES_EQUIPE)]
+
+        # Motivo de parada
+        motivo_parada = None
+        df_mot = run_query("""
+            SELECT TOP 1 lr.nu_valor_bruto
+            FROM dbo.tb_log_registrador lr
+            JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
+            WHERE lr.id_ihm = :id AND r.tx_descricao = 'motivo_parada'
+            ORDER BY lr.dt_created_at DESC
+        """, {"id": machine_id})
+        if not df_mot.empty:
+            motivo_parada = _resolve_nome(
+                df_mot.iloc[0]["nu_valor_bruto"], machine_id,
+                "tb_depara_motivo_parada", "nu_cod_motivo_parada", "tx_motivo_parada",
+            )
+
+        # Tempo parado
+        parada_ha = None
+        if status in _STATUS_NAO_PRODUTIVO:
+            df_parada = run_query("""
+                SELECT TOP 1 lr.dt_created_at
+                FROM dbo.tb_log_registrador lr
+                JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
+                WHERE lr.id_ihm = :id AND r.tx_descricao = 'status_maquina'
+                ORDER BY lr.dt_created_at DESC
+            """, {"id": machine_id})
+            if not df_parada.empty:
+                delta      = datetime.utcnow() - df_parada.iloc[0]["dt_created_at"]
+                h, resto   = divmod(max(0, int(delta.total_seconds())), 3600)
+                parada_ha  = f"{h:02d}:{resto // 60:02d}"
+
+        maquinas.append({
+            "id":              machine_id,
+            "nome":            machine["tx_name"],
+            "tipo":            None,
+            "status":          status,
+            "op":              None,
+            "peca":            peca,
+            "oee":             oee,
+            "disponibilidade": metrics["disponibilidade"],
+            "performance":     metrics["performance"],
+            "qualidade":       metrics["qualidade"],
+            "produzido":       produzido,
+            "rejeitos":        reprovado,
+            "ciclo_segundos":  None,
+            "operador":        op_nome,
+            "operador_avatar": _avatar(op_nome),
+            "manutentor":      man_nome,
+            "engenheiro":      eng_nome,
+            "motivo_parada":   motivo_parada,
+            "manutencao":      man_nome if status == "Máquina em manutenção" else None,
+            "parada_ha":       parada_ha,
+        })
+
+    oee_global = round(sum(oees) / len(oees), 1) if oees else 0
+    equipe = [
+        {"iniciais": _avatar(nome), "cor": cor}
+        for nome, cor in list(operadores_vistos.items())[:5]
+    ]
+
+    return {
+        "id":                 line_id,
+        "nome":               nome_linha,
+        "status_geral":       "Operação Normal",
+        "ultima_atualizacao": datetime.now().strftime("%H:%M:%S"),
+        "kpis": {
+            "oee_global":       oee_global,
+            "oee_variacao":     None,
+            "producao_hoje":    total_produzido,
+            "producao_meta":    total_meta,
+            "previsao_termino": None,
+            "maquinas_ativas":  maquinas_ativas,
+            "maquinas_total":   len(maquinas),
+            "equipe":           equipe,
+            "equipe_extras":    max(0, len(operadores_vistos) - 5),
+            "supervisor":       None,
         },
-        2: {
-            "id": 2,
-            "nome": "Linha 504",
-            "status_geral": "Operação Normal",
-            "ultima_atualizacao": "14:32:05",
-            "kpis": {
-                "oee_global": 62.1,
-                "oee_variacao": -1.3,
-                "producao_hoje": 8900,
-                "producao_meta": 12000,
-                "previsao_termino": "20:10h",
-                "maquinas_ativas": 4,
-                "maquinas_total": 6,
-                "equipe": [
-                    {"iniciais": "PL", "cor": "#8b5cf6"},
-                    {"iniciais": "RS", "cor": "#ef4444"},
-                ],
-                "equipe_extras": 2,
-                "supervisor": "M. Costa",
-            },
-            "maquinas": [
-                {
-                    "id": 5, "nome": "PMAQ_37", "tipo": "Prensa Mec.",
-                    "status": "Alerta", "op": "OP #40300", "peca": "Tampa D-1",
-                    "oee": 58.0, "disponibilidade": 86.0, "performance": 72.0, "qualidade": 66.0,
-                    "produzido": 517, "rejeitos": 30, "ciclo_segundos": 60,
-                    "operador": "Pedro L.", "operador_avatar": "PL",
-                    "motivo_parada": None, "manutencao": None, "parada_ha": None,
-                },
-                {
-                    "id": 6, "nome": "MAQ_10", "tipo": "Fresadora",
-                    "status": "Parada", "op": None, "peca": None,
-                    "oee": 0.0, "disponibilidade": None, "performance": None, "qualidade": None,
-                    "produzido": 0, "rejeitos": 0, "ciclo_segundos": None,
-                    "operador": None, "operador_avatar": None,
-                    "motivo_parada": "Falta de operador", "manutencao": "Não req.",
-                    "parada_ha": "02:00", "status_parada": "RH",
-                },
-                {
-                    "id": 7, "nome": "MAQ_08", "tipo": "CentroUsinagem",
-                    "status": "Produzindo", "op": "OP #40301", "peca": "Flange E-2",
-                    "oee": 51.0, "disponibilidade": 59.0, "performance": 65.0, "qualidade": 85.0,
-                    "produzido": 252, "rejeitos": 8, "ciclo_segundos": 70,
-                    "operador": "Roberta S.", "operador_avatar": "RS",
-                    "motivo_parada": None, "manutencao": None, "parada_ha": None,
-                },
-                {
-                    "id": 8, "nome": "MAQ_37", "tipo": "Torno Conv.",
-                    "status": "Produzindo", "op": "OP #40302", "peca": "Eixo F-5",
-                    "oee": 73.8, "disponibilidade": 80.0, "performance": 83.0, "qualidade": 91.0,
-                    "produzido": 359, "rejeitos": 3, "ciclo_segundos": 45,
-                    "operador": "Pedro L.", "operador_avatar": "PL",
-                    "motivo_parada": None, "manutencao": None, "parada_ha": None,
-                },
-                {
-                    "id": 9, "nome": "MAQ_28", "tipo": "Injetora",
-                    "status": "Limpeza", "op": None, "peca": None,
-                    "oee": 40.8, "disponibilidade": 64.0, "performance": 52.0, "qualidade": 88.0,
-                    "produzido": 305, "rejeitos": 10, "ciclo_segundos": None,
-                    "operador": "Roberta S.", "operador_avatar": "RS",
-                    "motivo_parada": "Limpeza programada", "manutencao": None, "parada_ha": "00:20",
-                    "status_parada": "Qualidade",
-                },
-                {
-                    "id": 10, "nome": "MAQ_59", "tipo": "Retífica Cil.",
-                    "status": "Manutenção", "op": None, "peca": None,
-                    "oee": 0.0, "disponibilidade": None, "performance": None, "qualidade": None,
-                    "produzido": 0, "rejeitos": 0, "ciclo_segundos": None,
-                    "operador": None, "operador_avatar": None,
-                    "motivo_parada": "Troca de ferramental", "manutencao": "Preventiva",
-                    "parada_ha": "00:55", "status_parada": "Manutenção",
-                },
-            ],
-        },
+        "maquinas": maquinas,
     }
-
-    return linhas.get(line_id, {"erro": f"Linha {line_id} não encontrada"})

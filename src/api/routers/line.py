@@ -1,9 +1,16 @@
 import asyncio
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from api.services.queries import get_line_detail
+from api.services.queries import get_line_detail, get_lines_df
 
 router = APIRouter(prefix="/api/lines", tags=["line-detail"])
+
+
+@router.get("")
+def list_lines():
+    """Retorna todas as linhas de produção cadastradas."""
+    df = get_lines_df()
+    return df.rename(columns={"id_linha_producao": "id", "tx_name": "nome"}).to_dict(orient="records")
 
 
 @router.get("/{line_id}/detail")

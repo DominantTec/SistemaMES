@@ -1,13 +1,20 @@
-import { NavLink, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { NavLink } from "react-router-dom";
 import "./Sidebar.css";
 
-const LINHAS = [
-  { id: 1, nome: "Linha 505" },
-  { id: 2, nome: "Linha 504" },
-  { id: 3, nome: "Linha 506" },
-];
+const DEFAULT_API = `http://${window.location.hostname}:8000`;
+const API_BASE = import.meta.env.VITE_API_BASE || DEFAULT_API;
 
 export default function Sidebar() {
+  const [linhas, setLinhas] = useState([]);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/lines`)
+      .then((r) => r.json())
+      .then(setLinhas)
+      .catch(() => {});
+  }, []);
+
   return (
     <aside className="sidebar">
       <div className="sb-header">
@@ -33,7 +40,7 @@ export default function Sidebar() {
 
       <div className="sb-section">
         <div className="sb-section-title">LINHAS DE PRODUÇÃO</div>
-        {LINHAS.map((l) => (
+        {linhas.map((l) => (
           <NavLink
             key={l.id}
             to={`/linha/${l.id}`}
