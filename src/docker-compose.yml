@@ -74,6 +74,18 @@ services:
       - network1
 
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: pcp-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+    networks:
+      - network1
+
 networks:
   network1:
     external: true

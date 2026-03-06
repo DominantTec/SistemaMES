@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from "react-router-dom";
-import "./sidebar.css";
+import "./Sidebar.css";
 
 const LINHAS = [
   { id: 1, nome: "Linha 505" },

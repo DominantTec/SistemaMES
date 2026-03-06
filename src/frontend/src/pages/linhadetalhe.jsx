@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import "./LinhaDetalhe.css";
+import "./linhadetalhe.css";
 
 const DEFAULT_API = `http://${window.location.hostname}:8000`;
 const API_BASE = import.meta.env.VITE_API_BASE || DEFAULT_API;

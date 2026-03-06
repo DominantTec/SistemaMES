@@ -1,4 +1,4 @@
-import "./topbar.css";
+import "./Topbar.css";
 
 export default function Topbar({ title, oeeGlobal, maquinasAtivas, maquinasTotal, dateTimeText, userInitials }) {
   return (
