@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import "./Overview.css";
 
 const DEFAULT_API = `http://${window.location.hostname}:8000`;
@@ -97,7 +98,11 @@ function LineSection({ linha }) {
         </span>
       </div>
       <div className="ov-machine-grid">
-        {linha.maquinas.map((m) => <MachineCard key={m.id} machine={m} />)}
+        {linha.maquinas.map((m) => (
+          <Link key={m.id} to={`/maquina/${m.id}`} style={{ textDecoration: "none", color: "inherit" }}>
+            <MachineCard machine={m} />
+          </Link>
+        ))}
       </div>
     </div>
   );

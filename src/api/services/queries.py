@@ -368,6 +368,119 @@ def get_alerts_ihm(id_ihm: int, data_inicio: Optional[Any] = None, data_fim: Opt
 
 
 # =========================
+# DETALHE DE MÁQUINA
+# =========================
+
+def get_machine_detail(machine_id: int) -> dict:
+    """Payload completo da tela de detalhe de uma máquina específica."""
+    df_ihm = run_query("""
+        SELECT i.id_ihm, i.tx_name, l.tx_name AS linha_nome
+        FROM dbo.tb_ihm i
+        JOIN dbo.tb_linha_producao l ON l.id_linha_producao = i.id_linha_producao
+        WHERE i.id_ihm = :id
+    """, {"id": machine_id})
+
+    if df_ihm.empty:
+        return {"erro": f"Máquina {machine_id} não encontrada"}
+
+    ihm     = df_ihm.iloc[0]
+    metrics = get_metrics_machine(machine_id)
+    peca    = get_selected_piece(machine_id)
+
+    op_nome  = _resolve_nome(metrics.get("operador"),   machine_id, "tb_depara_operador",  "nu_cod_operador",   "tx_operador")
+    man_nome = _resolve_nome(metrics.get("manutentor"), machine_id, "tb_depara_manutentor", "nu_cod_manutentor", "tx_manutentor")
+
+    # --- logs de status para calcular paradas e índices ---
+    depara_status_txt = {
+        0: "Parada", 1: "Passar Padrão", 4: "Limpeza",
+        49: "Produzindo", 50: "Maquina Liberada",
+        51: "Aguardando Manutentor", 52: "Máquina em manutenção",
+        53: "Alteração de Parâmetros",
+    }
+
+    df_logs = run_query("""
+        SELECT lr.dt_created_at, lr.nu_valor_bruto, r.tx_descricao
+        FROM dbo.tb_log_registrador lr
+        JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
+        WHERE lr.id_ihm = :id
+          AND r.tx_descricao IN ('status_maquina', 'motivo_parada')
+        ORDER BY lr.dt_created_at
+    """, {"id": machine_id})
+
+    paradas: List[Dict[str, Any]] = []
+    tempos_parada_s: List[float] = []
+
+    if not df_logs.empty:
+        df_status = df_logs[df_logs["tx_descricao"] == "status_maquina"]
+        df_motivo = df_logs[df_logs["tx_descricao"] == "motivo_parada"]
+        rows      = df_status[["dt_created_at", "nu_valor_bruto"]].values.tolist()
+
+        inicio_parada = None
+        status_ant    = None
+
+        for dt, cod in rows:
+            cod = int(cod)
+            if status_ant == 49 and cod != 49:
+                inicio_parada = dt
+            elif status_ant != 49 and cod == 49 and inicio_parada is not None:
+                dur_s = (dt - inicio_parada).total_seconds()
+                tempos_parada_s.append(dur_s)
+                h, r = divmod(int(dur_s), 3600)
+
+                motivo = None
+                if not df_motivo.empty:
+                    df_m = df_motivo[df_motivo["dt_created_at"] >= inicio_parada]
+                    if not df_m.empty:
+                        motivo = _resolve_nome(
+                            df_m.iloc[0]["nu_valor_bruto"], machine_id,
+                            "tb_depara_motivo_parada", "nu_cod_motivo_parada", "tx_motivo_parada",
+                        )
+
+                paradas.append({
+                    "inicio":  inicio_parada.strftime("%H:%M"),
+                    "motivo":  motivo or depara_status_txt.get(status_ant, "-"),
+                    "duracao": f"{h}h {r // 60:02d}m" if h else f"{r // 60}m",
+                    "status":  depara_status_txt.get(status_ant, "-"),
+                })
+                inicio_parada = None
+            status_ant = cod
+
+    # --- MTBF / MTTR (simplificado a partir dos logs disponíveis) ---
+    def fmt_hm(seconds: float) -> str:
+        h, r = divmod(int(max(0, seconds)), 3600)
+        return f"{h}h {r // 60:02d}m"
+
+    num_paradas = len(paradas)
+    mttr_s = sum(tempos_parada_s) / num_paradas if num_paradas else 0
+
+    if not df_logs.empty and num_paradas:
+        janela_s  = (df_logs["dt_created_at"].max() - df_logs["dt_created_at"].min()).total_seconds()
+        mtbf_s    = (janela_s - sum(tempos_parada_s)) / num_paradas
+    else:
+        mtbf_s = 0
+
+    return {
+        "id":              machine_id,
+        "nome":            ihm["tx_name"],
+        "linha":           ihm["linha_nome"],
+        "status":          metrics["status_maquina"],
+        "peca_atual":      peca if peca != "PEÇA TEMP" else None,
+        "operador":        op_nome,
+        "operador_avatar": _avatar(op_nome),
+        "manutentor":      man_nome,
+        "oee":             metrics["oee"],
+        "disponibilidade": metrics["disponibilidade"],
+        "performance":     metrics["performance"],
+        "qualidade":       metrics["qualidade"],
+        "manutencao": {
+            "mtbf": fmt_hm(mtbf_s),
+            "mttr": fmt_hm(mttr_s),
+            "mtta": None,
+        },
+        "registros_parada": paradas,
+    }
+
+# =========================
 # HELPERS INTERNOS
 # =========================
 
