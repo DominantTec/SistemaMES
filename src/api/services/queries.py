@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, date, time, timedelta
 from typing import List, Dict, Any, Optional
 
 from api.services.db import run_query, run_query_update
@@ -593,6 +593,160 @@ def get_overview_topbar() -> dict:
         "user_initials":   "BG",
         "eventos_recentes": eventos,
     }
+
+
+_DIAS_SEMANA = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
+_DEPARA_STATUS_CFG = {
+    0: "Parada", 4: "Limpeza", 49: "Em Produção",
+    51: "Ag. Manutentor", 52: "Em Manutenção", 53: "Alt. Parâmetros",
+}
+
+
+def get_all_machines() -> list:
+    """Lista todas as IHMs com nome e linha."""
+    df = run_query("""
+        SELECT i.id_ihm, i.tx_name, l.tx_name AS linha_nome
+        FROM dbo.tb_ihm i
+        JOIN dbo.tb_linha_producao l ON l.id_linha_producao = i.id_linha_producao
+        ORDER BY i.id_ihm
+    """)
+    return [
+        {"id": int(r["id_ihm"]), "nome": r["tx_name"], "linha": r["linha_nome"]}
+        for _, r in df.iterrows()
+    ]
+
+
+def get_machine_config_data(machine_id: int) -> dict:
+    """Dados completos para a tela de Configurações de uma máquina."""
+    df_ihm = run_query("""
+        SELECT i.id_ihm, i.tx_name, l.tx_name AS linha_nome, i.id_linha_producao
+        FROM dbo.tb_ihm i
+        JOIN dbo.tb_linha_producao l ON l.id_linha_producao = i.id_linha_producao
+        WHERE i.id_ihm = :id
+    """, {"id": machine_id})
+
+    if df_ihm.empty:
+        return {"erro": f"Máquina {machine_id} não encontrada"}
+
+    ihm = df_ihm.iloc[0]
+
+    df_status = run_query("""
+        SELECT TOP 1 lr.nu_valor_bruto, lr.dt_created_at
+        FROM dbo.tb_log_registrador lr
+        JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
+        WHERE lr.id_ihm = :id AND r.tx_descricao = 'status_maquina'
+        ORDER BY lr.dt_created_at DESC
+    """, {"id": machine_id})
+
+    if not df_status.empty:
+        status_cod = int(df_status.iloc[0]["nu_valor_bruto"])
+        status_txt = _DEPARA_STATUS_CFG.get(status_cod, f"Status {status_cod}")
+        status_desde = df_status.iloc[0]["dt_created_at"].strftime("%H:%M")
+    else:
+        status_txt, status_desde = "-", "-"
+
+    meta = get_meta(machine_id)
+    peca_atual = get_selected_piece(machine_id)
+    pecas = get_possible_pieces(machine_id)
+
+    df_turnos = run_query("""
+        SELECT dt_inicio, dt_fim, bl_ativo
+        FROM dbo.tb_turnos
+        WHERE id_linha_producao = :linha
+        ORDER BY dt_inicio
+    """, {"linha": int(ihm["id_linha_producao"])})
+
+    shifts_by_dow: dict = {}
+    if not df_turnos.empty:
+        for _, t in df_turnos.iterrows():
+            dow = t["dt_inicio"].weekday()
+            if dow not in shifts_by_dow:
+                shifts_by_dow[dow] = {
+                    "inicio": t["dt_inicio"].strftime("%H:%M"),
+                    "fim":    t["dt_fim"].strftime("%H:%M"),
+                    "ativo":  bool(t["bl_ativo"]),
+                }
+
+    calendario = []
+    for i, dia in enumerate(_DIAS_SEMANA):
+        if i in shifts_by_dow:
+            entry = {**shifts_by_dow[i], "dia": dia}
+        else:
+            entry = {"dia": dia, "inicio": "07:00", "fim": "17:00", "ativo": i < 5}
+        calendario.append(entry)
+
+    return {
+        "id":           int(ihm["id_ihm"]),
+        "nome":         ihm["tx_name"],
+        "linha":        ihm["linha_nome"],
+        "id_linha":     int(ihm["id_linha_producao"]),
+        "status":       status_txt,
+        "status_desde": status_desde,
+        "meta":         meta,
+        "peca_atual":   peca_atual,
+        "pecas":        pecas,
+        "calendario":   calendario,
+    }
+
+
+def update_machine_config(machine_id: int, meta: int, peca_nome: str, calendario: list) -> dict:
+    """Salva meta, peça e calendário semanal de uma máquina."""
+    df_regs = run_query("""
+        SELECT id_registrador, tx_descricao
+        FROM tb_registrador
+        WHERE id_ihm = :id AND tx_descricao IN ('meta', 'modelo_peça')
+    """, {"id": machine_id})
+    regs = {r["tx_descricao"]: int(r["id_registrador"]) for _, r in df_regs.iterrows()}
+
+    if "meta" in regs:
+        run_query_update("""
+            INSERT INTO dbo.tb_log_registrador (id_ihm, id_registrador, nu_valor_bruto)
+            VALUES (:id_ihm, :id_reg, :valor)
+        """, {"id_ihm": machine_id, "id_reg": regs["meta"], "valor": meta})
+
+    if "modelo_peça" in regs:
+        df_peca = run_query("""
+            SELECT nu_cod_peca FROM tb_depara_peca
+            WHERE id_ihm = :id AND tx_peca = :nome
+        """, {"id": machine_id, "nome": peca_nome})
+        if not df_peca.empty:
+            cod_peca = int(df_peca.iloc[0]["nu_cod_peca"])
+            run_query_update("""
+                INSERT INTO dbo.tb_log_registrador (id_ihm, id_registrador, nu_valor_bruto)
+                VALUES (:id_ihm, :id_reg, :valor)
+            """, {"id_ihm": machine_id, "id_reg": regs["modelo_peça"], "valor": cod_peca})
+
+    df_ihm = run_query("SELECT id_linha_producao FROM tb_ihm WHERE id_ihm = :id", {"id": machine_id})
+    if not df_ihm.empty:
+        id_linha = int(df_ihm.iloc[0]["id_linha_producao"])
+        run_query_update("DELETE FROM dbo.tb_turnos WHERE id_linha_producao = :linha", {"linha": id_linha})
+
+        dow_map = {d: i for i, d in enumerate(_DIAS_SEMANA)}
+        today = date.today()
+        for entry in calendario:
+            if not entry.get("ativo", False):
+                continue
+            dow_target = dow_map.get(entry["dia"])
+            if dow_target is None:
+                continue
+            days_ahead = (dow_target - today.weekday()) % 7
+            target_date = today + timedelta(days=days_ahead)
+            hi, hm = map(int, entry["inicio"].split(":"))
+            fi, fm = map(int, entry["fim"].split(":"))
+            dt_inicio = datetime.combine(target_date, time(hi, hm))
+            dt_fim_base = datetime.combine(target_date, time(fi, fm))
+            dt_fim = dt_fim_base + timedelta(days=1) if (fi, fm) < (hi, hm) else dt_fim_base
+            run_query_update("""
+                INSERT INTO dbo.tb_turnos (tx_name, dt_inicio, dt_fim, id_linha_producao, bl_ativo)
+                VALUES (:nome, :dt_inicio, :dt_fim, :linha, 1)
+            """, {
+                "nome": f"TURNO_{entry['dia'][:3].upper()}",
+                "dt_inicio": dt_inicio,
+                "dt_fim": dt_fim,
+                "linha": id_linha,
+            })
+
+    return {"ok": True}
 
 
 def get_overview_turno() -> dict:

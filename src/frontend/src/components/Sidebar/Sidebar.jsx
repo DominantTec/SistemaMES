@@ -39,6 +39,17 @@ export default function Sidebar() {
       </nav>
 
       <div className="sb-section">
+        <div className="sb-section-title">GESTÃO</div>
+        <NavLink
+          to="/configuracoes"
+          className={({ isActive }) => "sb-item" + (isActive ? " active" : "")}
+        >
+          <span className="sb-ico">⚙</span>
+          <span>Configurações</span>
+        </NavLink>
+      </div>
+
+      <div className="sb-section">
         <div className="sb-section-title">LINHAS DE PRODUÇÃO</div>
         {linhas.map((l) => (
           <NavLink
