@@ -213,39 +213,39 @@ export default function LinhaDetalhe() {
   const [error, setError]     = useState(null);
   const [metrica, setMetrica] = useState("OEE");
 
-  const wsRef         = useRef(null);
-  const retryRef      = useRef(0);
-  const retryTimerRef = useRef(null);
-  const aliveRef      = useRef(true);
+  const wsRef = useRef(null);
 
   useEffect(() => {
-    aliveRef.current = true;
+    let alive = true;
+    let retryCount = 0;
+    let retryTimer = null;
+
     setData(null);
     setError(null);
 
     fetch(`${API_BASE}/api/lines/${lineId}/detail`)
       .then((r) => r.json())
-      .then(setData)
-      .catch((e) => setError(String(e)));
+      .then((d) => { if (alive) setData(d); })
+      .catch((e) => { if (alive) setError(String(e)); });
 
     const connect = () => {
-      if (!aliveRef.current) return;
+      if (!alive) return;
       const ws = new WebSocket(`${WS_BASE}/api/lines/${lineId}/ws`);
       wsRef.current = ws;
-      ws.onopen    = () => { retryRef.current = 0; };
-      ws.onmessage = (ev) => { try { setData(JSON.parse(ev.data)); } catch {} };
+      ws.onopen    = () => { retryCount = 0; };
+      ws.onmessage = (ev) => { try { if (alive) setData(JSON.parse(ev.data)); } catch {} };
       ws.onclose   = () => {
-        if (!aliveRef.current) return;
-        retryRef.current += 1;
-        const delay = Math.min(1000 * 2 ** (retryRef.current - 1), 10000);
-        retryTimerRef.current = setTimeout(connect, delay);
+        if (!alive) return;
+        retryCount += 1;
+        const delay = Math.min(1000 * 2 ** (retryCount - 1), 10000);
+        retryTimer = setTimeout(connect, delay);
       };
     };
     connect();
 
     return () => {
-      aliveRef.current = false;
-      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      alive = false;
+      if (retryTimer) clearTimeout(retryTimer);
       if (wsRef.current) wsRef.current.close();
     };
   }, [lineId]);
