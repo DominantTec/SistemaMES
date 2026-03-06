@@ -24,6 +24,31 @@ services:
       retries: 10
       start_period: 120s
 
+  # --- SIMULADOR DE MÁQUINAS FANTASMA (Linha 2 – LINHA_SIMULADA) ---
+  # Para desativar: mude SIMULADOR_ENABLED=false no .env
+  simulador:
+    build:
+      network: host
+      context: ./monitoramento
+      dockerfile: Dockerfile
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_DRIVER=${DB_DRIVER}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - SIMULADOR_ENABLED=${SIMULADOR_ENABLED}
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      mssql:
+        condition: service_healthy
+    command: python simulator.py
+    networks:
+      - network1
+
   # --- SEU COLETOR MODBUS - mantém como está ---
   monitoramento:
     build:
