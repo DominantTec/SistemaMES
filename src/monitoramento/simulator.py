@@ -20,7 +20,7 @@ from database import get_connection_db
 # ─── Configurações ────────────────────────────────────────────────────────────
 
 GHOST_IHM_IDS = [3, 4, 5, 6, 7]
-CYCLE_SECONDS  = 30
+CYCLE_SECONDS  = 5
 
 # Códigos de status_maquina (espelham os valores reais da IHM)
 STATUS_PRODUZINDO = 49
@@ -71,7 +71,7 @@ class MachineState:
         self.total_produzido = 0
         self.manutentor      = 0
         self.engenheiro      = 0
-        self.meta            = 500
+        self.meta            = 1000
         self.modelo          = modelos[0] if modelos else 1
 
         self.parada_duracao = 0   # contagem de ciclos no estado atual de parada
@@ -106,7 +106,9 @@ class MachineState:
 
             self.operador, self.status, self.motivo_parada, \
             self.produzido, self.reprovado, self.total_produzido, \
-            self.manutentor, self.engenheiro, self.meta, self.modelo = vals
+            self.manutentor, self.engenheiro, _, _ = vals
+            # meta e modelo não são restaurados do banco — sempre usam o valor
+            # configurado no simulador para evitar herdar valores antigos ou reais
 
             self.prev_values = vals[:]
             logger.info(f"IHM {self.id_ihm}: estado restaurado — status={self.status}, prod={self.produzido}")
@@ -247,6 +249,14 @@ def load_machine(id_ihm, conn_db):
 
     machine = MachineState(id_ihm, reg_ids, operadores, motivos, manutentores, engenheiros, modelos)
     machine.load_from_db(conn_db)
+
+    # Sempre inicia produzindo; as aleatoriedades começam a partir do primeiro ciclo
+    machine.status        = STATUS_PRODUZINDO
+    machine.motivo_parada = 0
+    machine.manutentor    = 0
+    machine.engenheiro    = 0
+    machine.parada_duracao = 0
+
     return machine
 
 

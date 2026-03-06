@@ -235,6 +235,7 @@ def get_metrics_machine(machine_id: int, data_inicio: Optional[Any] = None, data
         lista_qtd_total = []
         lista_produzido = []
         lista_esperado = []
+        lista_duracao_turno = []  # duração total de cada turno (sem capping em agora)
 
         status_antigo = ""
         inicio = None
@@ -249,41 +250,54 @@ def get_metrics_machine(machine_id: int, data_inicio: Optional[Any] = None, data
         fim_qtd_total = None
         fim_teorico = None
 
+        agora = datetime.utcnow()
+
         for _, row in df_registradores.iterrows():
-            working_day = df_shifts[
+            # Filtra o turno exato que contém o timestamp deste registro
+            current_shift = df_shifts[
                 (df_shifts["dt_inicio"].dt.date == row["dt_created_at"].date()) &
-                (df_shifts["id_ihm"] == machine_id)
+                (df_shifts["id_ihm"] == machine_id) &
+                (df_shifts["dt_inicio"] <= row["dt_created_at"]) &
+                (df_shifts["dt_fim"]   >= row["dt_created_at"])
             ]
 
-            if working_day.empty:
+            if current_shift.empty:
                 status_antigo = row.get("status_maquina", status_antigo)
                 continue
 
+            shift_inicio = current_shift["dt_inicio"].to_list()[0]
+            shift_fim    = current_shift["dt_fim"].to_list()[0]
+
             if status_antigo != "Produzindo" and row["status_maquina"] == "Produzindo":
-                if row["dt_created_at"] < working_day["dt_fim"].to_list()[0]:
-                    inicio = working_day["dt_inicio"].to_list()[0] if row["dt_created_at"] < working_day["dt_inicio"].to_list()[0] else row["dt_created_at"]
+                if row["dt_created_at"] < shift_fim:
+                    inicio = shift_inicio if row["dt_created_at"] < shift_inicio else row["dt_created_at"]
                     inicio_qtd_aprovado = row.get("produzido")
                     inicio_qtd_reprovado = row.get("reprovado")
                     inicio_qtd_total = row.get("total_produzido")
-                    inicio_teorico = working_day["dt_inicio"].to_list()[0]
+                    inicio_teorico = shift_inicio
 
             elif (
                 (status_antigo == "Produzindo" and row["status_maquina"] != "Produzindo") or
                 (status_antigo == "Produzindo" and row["status_maquina"] == "Produzindo" and row["dt_created_at"] == last_register["dt_created_at"].to_list()[0])
             ):
-                if row["dt_created_at"] > working_day["dt_inicio"].to_list()[0]:
-                    fim = working_day["dt_fim"].to_list()[0] if row["dt_created_at"] > working_day["dt_fim"].to_list()[0] else row["dt_created_at"]
+                if row["dt_created_at"] > shift_inicio:
+                    fim = shift_fim if row["dt_created_at"] > shift_fim else row["dt_created_at"]
                     fim_qtd_aprovado = row.get("produzido")
                     fim_qtd_reprovado = row.get("reprovado")
                     fim_qtd_total = row.get("total_produzido")
-                    fim_teorico = working_day["dt_fim"].to_list()[0]
+                    fim_teorico = shift_fim
 
             if inicio and fim:
                 if inicio.day == fim.day:
                     if (inicio, fim) not in lista_produzido:
                         lista_produzido.append((inicio, fim))
-                    if (inicio_teorico, fim_teorico) not in lista_esperado:
-                        lista_esperado.append((inicio_teorico, fim_teorico))
+                    # Usa o tempo decorrido até agora (não o turno inteiro)
+                    # para que disponibilidade comece em 100% e só caia em paradas
+                    fim_decorrido = min(fim_teorico, agora)
+                    if (inicio_teorico, fim_decorrido) not in lista_esperado:
+                        lista_esperado.append((inicio_teorico, fim_decorrido))
+                    if (inicio_teorico, fim_teorico) not in lista_duracao_turno:
+                        lista_duracao_turno.append((inicio_teorico, fim_teorico))
 
                     lista_qtd_aprovado.append((inicio_qtd_aprovado, fim_qtd_aprovado))
                     lista_qtd_reprovado.append((inicio_qtd_reprovado, fim_qtd_reprovado))
@@ -303,11 +317,15 @@ def get_metrics_machine(machine_id: int, data_inicio: Optional[Any] = None, data
         reprovado = sum([(b - a) for a, b in lista_qtd_reprovado if a is not None and b is not None])
         total = sum([(b - a) for a, b in lista_qtd_total if a is not None and b is not None])
 
-        disponibilidade = tempo_produzido / tempo_programado if tempo_programado else 0
+        disponibilidade = min(1.0, tempo_produzido / tempo_programado) if tempo_programado else 1.0
 
-        meta = (tempo_programado // 1) if tempo_programado else 1
-        performance = (int(total) / meta) if meta else 0
-        qualidade = (int(produzido) / int(total)) if total else 0
+        meta = get_meta(machine_id)
+        # Meta proporcional ao tempo decorrido: evita OEE=0 no início do turno.
+        # Ex: meta=1000 peças/turno, turno=8h, decorrido=1h → meta_proporcional=125
+        duracao_turno = sum([(b - a).total_seconds() for a, b in lista_duracao_turno])
+        meta_proporcional = meta * (tempo_programado / duracao_turno) if duracao_turno else 0
+        performance = min(1.0, int(total) / meta_proporcional) if meta_proporcional > 0 else 1.0
+        qualidade = min(1.0, int(produzido) / int(total)) if total else 1.0
 
         oee = disponibilidade * performance * qualidade
 
