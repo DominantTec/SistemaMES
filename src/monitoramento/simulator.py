@@ -261,12 +261,13 @@ def load_machine(id_ihm, conn_db):
 
 
 def insert_if_changed(machine, conn_db):
-    """Insere snapshot no banco somente se os valores mudaram desde o último insert."""
+    """Insere snapshot no banco somente se os valores mudaram desde o último insert.
+    Retorna a conexão ativa (pode ser uma nova se houve reconexão)."""
     curr = machine.current_values()
 
     if curr == machine.prev_values:
         logger.info(f"IHM {machine.id_ihm}: sem alteração — registro ignorado.")
-        return
+        return conn_db
 
     insert_sql = f"""
         INSERT INTO tb_log_registrador (id_ihm, id_registrador, nu_valor_bruto)
@@ -285,6 +286,22 @@ def insert_if_changed(machine, conn_db):
         )
     except Exception as e:
         logger.error(f"IHM {machine.id_ihm}: erro ao inserir no banco: {e}")
+        try:
+            conn_db.rollback()
+        except Exception:
+            pass
+        # Conexão pode estar morta — tenta reconectar para o próximo ciclo
+        try:
+            conn_db.close()
+        except Exception:
+            pass
+        try:
+            conn_db = get_connection_db()
+            logger.info("Reconectado ao banco após falha.")
+        except Exception as re:
+            logger.error(f"Falha ao reconectar ao banco: {re}")
+
+    return conn_db
 
 
 # ─── Entry point ──────────────────────────────────────────────────────────────
@@ -313,8 +330,11 @@ def main():
         while True:
             logger.info("=" * 60)
             for machine in machines:
-                machine.tick()
-                insert_if_changed(machine, conn_db)
+                try:
+                    machine.tick()
+                except Exception as e:
+                    logger.error(f"IHM {machine.id_ihm}: erro no tick: {e}")
+                conn_db = insert_if_changed(machine, conn_db)
             time.sleep(CYCLE_SECONDS)
 
     except Exception as e:

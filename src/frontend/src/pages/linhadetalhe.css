@@ -217,6 +217,7 @@
   flex-direction: column;
   gap: 12px;
   transition: box-shadow 0.15s;
+  min-height: 280px;
 }
 .ld-machine-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.07); }
 
@@ -225,8 +226,16 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
+  min-height: 42px;
 }
-.ld-mc-name { font-size: 15px; font-weight: 800; }
+.ld-mc-name {
+  font-size: 15px;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
 .ld-mc-tipo { font-size: 12px; color: var(--muted); margin-top: 2px; }
 
 .ld-mc-badge {
@@ -239,6 +248,8 @@
   border-radius: 999px;
   white-space: nowrap;
   flex-shrink: 0;
+  min-width: 90px;
+  justify-content: center;
 }
 .ld-mc-dot {
   width: 7px; height: 7px;
@@ -252,12 +263,15 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
+  min-height: 52px;
 }
 .ld-mc-oee-val {
   font-size: 36px;
   font-weight: 900;
   letter-spacing: -0.03em;
   line-height: 1;
+  font-variant-numeric: tabular-nums;
+  min-width: 80px;
 }
 .ld-mc-oee-label {
   font-size: 10px;
@@ -266,9 +280,19 @@
   color: var(--muted);
   margin-top: 4px;
 }
-.ld-mc-op-block { text-align: right; }
+.ld-mc-op-block {
+  text-align: right;
+  min-width: 0;
+  overflow: hidden;
+}
 .ld-mc-op { font-size: 12px; color: var(--muted); }
-.ld-mc-peca { font-size: 13px; font-weight: 700; }
+.ld-mc-peca {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .ld-mc-motivo {
   font-size: 12px;
@@ -288,7 +312,7 @@
   background: #f3f4f6; border-radius: 999px; overflow: hidden;
 }
 .ld-bar-fill { height: 100%; border-radius: 999px; transition: width 0.4s; }
-.ld-metric-val { font-size: 12px; font-weight: 700; width: 36px; text-align: right; flex-shrink: 0; }
+.ld-metric-val { font-size: 12px; font-weight: 700; width: 44px; text-align: right; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 
 /* Parada info */
 .ld-mc-parada-info {
@@ -309,11 +333,18 @@
   gap: 16px;
   padding-top: 10px;
   border-top: 1px solid var(--line);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  min-height: 42px;
 }
-.ld-mc-foot-item { display: flex; flex-direction: column; gap: 2px; }
+.ld-mc-foot-item { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
 .ld-mc-foot-label { font-size: 10px; font-weight: 700; letter-spacing: 0.05em; color: var(--muted); }
-.ld-mc-foot-val { font-size: 13px; font-weight: 700; }
+.ld-mc-foot-val {
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .ld-mc-operador { flex-direction: row; align-items: center; gap: 6px; margin-left: auto; }
 
 /* sidebar active fix */
