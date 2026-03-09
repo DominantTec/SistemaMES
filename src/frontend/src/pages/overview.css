@@ -134,6 +134,8 @@
   align-items: center;
   gap: 14px;
   padding: 10px 18px;
+  height: 40px;
+  box-sizing: border-box;
   background: rgba(255,255,255,0.8);
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -152,8 +154,9 @@
 .ov-ticker-items {
   display: flex;
   align-items: center;
-  gap: 28px;
+  gap: 0;
   overflow: hidden;
+  flex: 1;
 }
 
 .ov-ticker-item {
@@ -162,12 +165,17 @@
   gap: 8px;
   font-size: 13px;
   white-space: nowrap;
+  flex: 0 0 auto;
+  width: 260px;
+  overflow: hidden;
 }
 
 .ov-ticker-time {
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   color: var(--text);
+  flex-shrink: 0;
+  width: 38px;
 }
 
 .ov-ticker-machine {
@@ -177,9 +185,17 @@
   padding: 2px 7px;
   border-radius: 5px;
   font-size: 12px;
+  flex-shrink: 0;
 }
 
-.ov-ticker-desc { color: var(--muted); }
+.ov-ticker-desc {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
 
 /* ── Lines ─────────────────────────────────────────────────── */
 .ov-lines {
@@ -279,8 +295,10 @@
   border-radius: 999px;
   white-space: nowrap;
   flex-shrink: 0;
-  min-width: 70px;
+  width: 90px;
   text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ov-machine-op {
