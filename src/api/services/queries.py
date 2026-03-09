@@ -281,7 +281,12 @@ def get_metrics_machine(machine_id: int, data_inicio: Optional[Any] = None, data
                 (status_antigo == "Produzindo" and row["status_maquina"] == "Produzindo" and row["dt_created_at"] == last_register["dt_created_at"].to_list()[0])
             ):
                 if row["dt_created_at"] > shift_inicio:
-                    fim = shift_fim if row["dt_created_at"] > shift_fim else row["dt_created_at"]
+                    # Se ainda está produzindo (último registro), estende até agora
+                    # para que tempo_produzido == tempo_programado e disponibilidade = 100%
+                    if row["status_maquina"] == "Produzindo":
+                        fim = min(shift_fim, agora)
+                    else:
+                        fim = shift_fim if row["dt_created_at"] > shift_fim else row["dt_created_at"]
                     fim_qtd_aprovado = row.get("produzido")
                     fim_qtd_reprovado = row.get("reprovado")
                     fim_qtd_total = row.get("total_produzido")
