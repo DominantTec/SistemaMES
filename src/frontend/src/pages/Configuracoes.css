@@ -362,3 +362,113 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* ── Gestão de Turnos ──────────────────────────────────────── */
+.cfg-card-desc {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.cfg-shift-header {
+  display: grid;
+  grid-template-columns: 80px 1fr 90px 90px 110px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border-radius: 8px;
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.cfg-shift-status-col {
+  text-align: right;
+}
+
+.cfg-shift-row {
+  display: grid;
+  grid-template-columns: 80px 1fr 90px 90px 110px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  transition: background 0.15s;
+}
+
+.cfg-shift-row:hover {
+  background: var(--bg);
+}
+
+.cfg-shift-row--inactive {
+  opacity: 0.45;
+}
+
+.cfg-shift-row--today {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.cfg-shift-row--today:hover {
+  background: #dbeafe;
+}
+
+.cfg-shift-dia {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cfg-dia-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--line);
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.cfg-dia-pill--today {
+  background: var(--brand);
+  color: #fff;
+}
+
+.cfg-hoje-tag {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--brand);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cfg-shift-name-input {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 13px;
+  font: inherit;
+  background: var(--bg);
+  color: var(--text);
+  width: 100%;
+  min-width: 0;
+}
+
+.cfg-shift-name-input:disabled {
+  background: #f3f4f6;
+  color: #9ca3af;
+}
+
+.cfg-shift-name-input::placeholder {
+  color: #9ca3af;
+}

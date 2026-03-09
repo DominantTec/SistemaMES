@@ -7,6 +7,7 @@ const API_BASE = import.meta.env.VITE_API_BASE || DEFAULT_API;
 
 export default function Sidebar() {
   const [linhas, setLinhas] = useState([]);
+  const [turno, setTurno]   = useState(null);
 
   useEffect(() => {
     fetch(`${API_BASE}/api/lines`)
@@ -14,6 +15,21 @@ export default function Sidebar() {
       .then(setLinhas)
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    function fetchTurno() {
+      fetch(`${API_BASE}/api/config/turno/atual`)
+        .then((r) => r.json())
+        .then(setTurno)
+        .catch(() => {});
+    }
+    fetchTurno();
+    const id = setInterval(fetchTurno, 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const emTurno  = turno && turno.nome !== "-";
+  const progresso = turno ? turno.progresso_pct : 0;
 
   return (
     <aside className="sidebar">
@@ -66,10 +82,21 @@ export default function Sidebar() {
       <div className="sb-spacer" />
 
       <div className="sb-card">
-        <div className="sb-card-title">Turno Atual: <strong>T2</strong></div>
-        <div className="sb-card-sub">Encerra em 04:32h</div>
+        {emTurno ? (
+          <>
+            <div className="sb-card-title">
+              Turno Atual: <strong>{turno.nome}</strong>
+            </div>
+            <div className="sb-card-sub">Encerra em {turno.encerra_em}</div>
+          </>
+        ) : (
+          <>
+            <div className="sb-card-title">Turno Atual</div>
+            <div className="sb-card-sub">Nenhum turno ativo</div>
+          </>
+        )}
         <div className="progress">
-          <div className="progress-bar" style={{ width: "68%" }} />
+          <div className="progress-bar" style={{ width: `${progresso}%` }} />
         </div>
       </div>
     </aside>

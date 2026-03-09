@@ -234,7 +234,6 @@ def get_metrics_machine(machine_id: int, data_inicio: Optional[Any] = None, data
         lista_qtd_reprovado = []
         lista_qtd_total = []
         lista_produzido = []
-        lista_esperado = []
         lista_duracao_turno = []  # duração total de cada turno (sem capping em agora)
 
         status_antigo = ""
@@ -242,7 +241,6 @@ def get_metrics_machine(machine_id: int, data_inicio: Optional[Any] = None, data
         inicio_qtd_aprovado = None
         inicio_qtd_reprovado = None
         inicio_qtd_total = None
-        inicio_teorico = None
 
         fim = None
         fim_qtd_aprovado = None
@@ -274,7 +272,6 @@ def get_metrics_machine(machine_id: int, data_inicio: Optional[Any] = None, data
                     inicio_qtd_aprovado = row.get("produzido")
                     inicio_qtd_reprovado = row.get("reprovado")
                     inicio_qtd_total = row.get("total_produzido")
-                    inicio_teorico = shift_inicio
 
             elif (
                 (status_antigo == "Produzindo" and row["status_maquina"] != "Produzindo") or
@@ -296,13 +293,8 @@ def get_metrics_machine(machine_id: int, data_inicio: Optional[Any] = None, data
                 if inicio.day == fim.day:
                     if (inicio, fim) not in lista_produzido:
                         lista_produzido.append((inicio, fim))
-                    # Usa o tempo decorrido até agora (não o turno inteiro)
-                    # para que disponibilidade comece em 100% e só caia em paradas
-                    fim_decorrido = min(fim_teorico, agora)
-                    if (inicio_teorico, fim_decorrido) not in lista_esperado:
-                        lista_esperado.append((inicio_teorico, fim_decorrido))
-                    if (inicio_teorico, fim_teorico) not in lista_duracao_turno:
-                        lista_duracao_turno.append((inicio_teorico, fim_teorico))
+                    if (shift_inicio, shift_fim) not in lista_duracao_turno:
+                        lista_duracao_turno.append((shift_inicio, shift_fim))
 
                     lista_qtd_aprovado.append((inicio_qtd_aprovado, fim_qtd_aprovado))
                     lista_qtd_reprovado.append((inicio_qtd_reprovado, fim_qtd_reprovado))
@@ -310,13 +302,21 @@ def get_metrics_machine(machine_id: int, data_inicio: Optional[Any] = None, data
 
                 inicio_qtd_aprovado = inicio_qtd_reprovado = inicio_qtd_total = None
                 fim_qtd_aprovado = fim_qtd_reprovado = fim_qtd_total = None
-                inicio = inicio_teorico = None
+                inicio = None
                 fim = fim_teorico = None
 
             status_antigo = row["status_maquina"]
 
         tempo_produzido = sum([(b - a).total_seconds() for a, b in lista_produzido])
-        tempo_programado = sum([(b - a).total_seconds() for a, b in lista_esperado])
+
+        # Janela de observação: do primeiro início de produção até agora.
+        # Não usa shift_inicio para evitar que sessões reiniciadas mid-turno
+        # comecem com disponibilidade próxima de 0%.
+        if lista_produzido:
+            observation_start = min(inicio for inicio, _ in lista_produzido)
+            tempo_programado = (agora - observation_start).total_seconds()
+        else:
+            tempo_programado = 0
 
         produzido = sum([(b - a) for a, b in lista_qtd_aprovado if a is not None and b is not None])
         reprovado = sum([(b - a) for a, b in lista_qtd_reprovado if a is not None and b is not None])
@@ -325,10 +325,11 @@ def get_metrics_machine(machine_id: int, data_inicio: Optional[Any] = None, data
         disponibilidade = min(1.0, tempo_produzido / tempo_programado) if tempo_programado else 1.0
 
         meta = get_meta(machine_id)
-        # Meta proporcional ao tempo decorrido: evita OEE=0 no início do turno.
-        # Ex: meta=1000 peças/turno, turno=8h, decorrido=1h → meta_proporcional=125
+        # Performance baseada no ritmo de produção enquanto a máquina estava rodando.
+        # Usa tempo_produzido (não tempo_programado) para que paradas não penalizem
+        # duas vezes (já penalizam a disponibilidade).
         duracao_turno = sum([(b - a).total_seconds() for a, b in lista_duracao_turno])
-        meta_proporcional = meta * (tempo_programado / duracao_turno) if duracao_turno else 0
+        meta_proporcional = meta * (tempo_produzido / duracao_turno) if duracao_turno else 0
         performance = min(1.0, int(total) / meta_proporcional) if meta_proporcional > 0 else 1.0
         qualidade = min(1.0, int(produzido) / int(total)) if total else 1.0
 
@@ -655,7 +656,7 @@ def get_machine_config_data(machine_id: int) -> dict:
     pecas = get_possible_pieces(machine_id)
 
     df_turnos = run_query("""
-        SELECT dt_inicio, dt_fim, bl_ativo
+        SELECT tx_name, dt_inicio, dt_fim, bl_ativo
         FROM dbo.tb_turnos
         WHERE id_linha_producao = :linha
         ORDER BY dt_inicio
@@ -667,6 +668,7 @@ def get_machine_config_data(machine_id: int) -> dict:
             dow = t["dt_inicio"].weekday()
             if dow not in shifts_by_dow:
                 shifts_by_dow[dow] = {
+                    "nome":   t["tx_name"],
                     "inicio": t["dt_inicio"].strftime("%H:%M"),
                     "fim":    t["dt_fim"].strftime("%H:%M"),
                     "ativo":  bool(t["bl_ativo"]),
@@ -677,7 +679,7 @@ def get_machine_config_data(machine_id: int) -> dict:
         if i in shifts_by_dow:
             entry = {**shifts_by_dow[i], "dia": dia}
         else:
-            entry = {"dia": dia, "inicio": "07:00", "fim": "17:00", "ativo": i < 5}
+            entry = {"dia": dia, "nome": f"Turno {i+1}", "inicio": "07:00", "fim": "17:00", "ativo": i < 5}
         calendario.append(entry)
 
     return {
@@ -745,7 +747,7 @@ def update_machine_config(machine_id: int, meta: int, peca_nome: str, calendario
                 INSERT INTO dbo.tb_turnos (tx_name, dt_inicio, dt_fim, id_linha_producao, bl_ativo)
                 VALUES (:nome, :dt_inicio, :dt_fim, :linha, 1)
             """, {
-                "nome": f"TURNO_{entry['dia'][:3].upper()}",
+                "nome": entry.get("nome") or f"TURNO_{entry['dia'][:3].upper()}",
                 "dt_inicio": dt_inicio,
                 "dt_fim": dt_fim,
                 "linha": id_linha,

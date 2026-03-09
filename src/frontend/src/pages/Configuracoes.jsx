@@ -12,6 +12,19 @@ const STATUS_STYLE = {
   "Ag. Manutentor": { color: "#d97706", bg: "#fef3c7" },
 };
 
+const DIAS_SHORT = {
+  "Segunda":  "Seg",
+  "Terça":    "Ter",
+  "Quarta":   "Qua",
+  "Quinta":   "Qui",
+  "Sexta":    "Sex",
+  "Sábado":   "Sáb",
+  "Domingo":  "Dom",
+};
+
+// 0=Monday … 6=Sunday (igual ao Python weekday())
+const TODAY_DOW = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1;
+
 function statusStyle(s) {
   return STATUS_STYLE[s] || { color: "#6b7280", bg: "#f3f4f6" };
 }
@@ -22,7 +35,7 @@ export default function Configuracoes() {
   const [config, setConfig]         = useState(null);
   const [meta, setMeta]             = useState(0);
   const [peca, setPeca]             = useState("");
-  const [calendario, setCalendario] = useState([]);
+  const [turnos, setTurnos]         = useState([]);   // renomeado de calendario
   const [saving, setSaving]         = useState(false);
   const [savedMsg, setSavedMsg]     = useState("");
   const [loading, setLoading]       = useState(false);
@@ -47,14 +60,14 @@ export default function Configuracoes() {
         setConfig(data);
         setMeta(data.meta ?? 0);
         setPeca(data.peca_atual ?? "");
-        setCalendario(data.calendario ?? []);
+        setTurnos(data.calendario ?? []);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [selectedId]);
 
-  function setDiaField(index, field, value) {
-    setCalendario((prev) =>
+  function setTurnoField(index, field, value) {
+    setTurnos((prev) =>
       prev.map((d, i) => (i === index ? { ...d, [field]: value } : d))
     );
   }
@@ -67,7 +80,7 @@ export default function Configuracoes() {
       const res = await fetch(`${API_BASE}/api/config/machines/${selectedId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ meta, peca, calendario }),
+        body: JSON.stringify({ meta, peca, calendario: turnos }),
       });
       if (res.ok) {
         setSavedMsg("Alterações salvas com sucesso!");
@@ -148,63 +161,93 @@ export default function Configuracoes() {
       {config && !loading && (
         <div className="cfg-body">
 
-          {/* Left: Calendar */}
+          {/* Left: Gestão de Turnos */}
           <div className="cfg-left">
             <div className="cfg-card">
               <div className="cfg-card-header">
-                <span className="cfg-card-title">Calendário de Funcionamento</span>
+                <span className="cfg-card-title">Gestão de Turnos</span>
+                <p className="cfg-card-desc">
+                  Defina os horários de funcionamento por dia da semana.
+                  As alterações são aplicadas a toda a linha de produção desta máquina.
+                </p>
               </div>
 
-              <div className="cfg-cal-header-row">
+              {/* Header da tabela */}
+              <div className="cfg-shift-header">
                 <span>Dia</span>
+                <span>Nome do Turno</span>
                 <span>Início</span>
                 <span>Fim</span>
-                <span className="cfg-cal-status-col">Status</span>
+                <span className="cfg-shift-status-col">Status</span>
               </div>
 
-              {calendario.map((dia, i) => (
-                <div
-                  key={dia.dia}
-                  className={`cfg-cal-row${!dia.ativo ? " cfg-cal-row--inactive" : ""}`}
-                >
-                  <span className="cfg-cal-dia">{dia.dia}</span>
+              {turnos.map((turno, i) => {
+                const isToday = i === TODAY_DOW;
+                return (
+                  <div
+                    key={turno.dia}
+                    className={[
+                      "cfg-shift-row",
+                      !turno.ativo ? "cfg-shift-row--inactive" : "",
+                      isToday ? "cfg-shift-row--today" : "",
+                    ].join(" ")}
+                  >
+                    {/* Dia */}
+                    <div className="cfg-shift-dia">
+                      <span className={`cfg-dia-pill${isToday ? " cfg-dia-pill--today" : ""}`}>
+                        {DIAS_SHORT[turno.dia] ?? turno.dia}
+                      </span>
+                      {isToday && <span className="cfg-hoje-tag">hoje</span>}
+                    </div>
 
-                  <input
-                    className="cfg-time-input"
-                    type="time"
-                    value={dia.inicio}
-                    disabled={!dia.ativo}
-                    onChange={(e) => setDiaField(i, "inicio", e.target.value)}
-                  />
+                    {/* Nome */}
+                    <input
+                      className="cfg-shift-name-input"
+                      type="text"
+                      value={turno.nome ?? ""}
+                      disabled={!turno.ativo}
+                      placeholder="Ex: Turno 1"
+                      onChange={(e) => setTurnoField(i, "nome", e.target.value)}
+                    />
 
-                  <span className="cfg-cal-sep">–</span>
+                    {/* Início */}
+                    <input
+                      className="cfg-time-input"
+                      type="time"
+                      value={turno.inicio}
+                      disabled={!turno.ativo}
+                      onChange={(e) => setTurnoField(i, "inicio", e.target.value)}
+                    />
 
-                  <input
-                    className="cfg-time-input"
-                    type="time"
-                    value={dia.fim}
-                    disabled={!dia.ativo}
-                    onChange={(e) => setDiaField(i, "fim", e.target.value)}
-                  />
+                    {/* Fim */}
+                    <input
+                      className="cfg-time-input"
+                      type="time"
+                      value={turno.fim}
+                      disabled={!turno.ativo}
+                      onChange={(e) => setTurnoField(i, "fim", e.target.value)}
+                    />
 
-                  <div className="cfg-toggle-wrap">
-                    <span className="cfg-toggle-label">
-                      {dia.ativo ? "Ativo" : "Inativo"}
-                    </span>
-                    <button
-                      type="button"
-                      className={`cfg-toggle${dia.ativo ? " cfg-toggle--on" : ""}`}
-                      onClick={() => setDiaField(i, "ativo", !dia.ativo)}
-                    >
-                      <span className="cfg-toggle-knob" />
-                    </button>
+                    {/* Toggle */}
+                    <div className="cfg-toggle-wrap">
+                      <span className="cfg-toggle-label">
+                        {turno.ativo ? "Ativo" : "Inativo"}
+                      </span>
+                      <button
+                        type="button"
+                        className={`cfg-toggle${turno.ativo ? " cfg-toggle--on" : ""}`}
+                        onClick={() => setTurnoField(i, "ativo", !turno.ativo)}
+                      >
+                        <span className="cfg-toggle-knob" />
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
-          {/* Right: Context */}
+          {/* Right: Contexto */}
           <div className="cfg-right">
             <div className="cfg-card cfg-ctx-card">
               <div className="cfg-ctx-header">

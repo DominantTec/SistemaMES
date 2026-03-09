@@ -2,7 +2,7 @@ from typing import List
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from api.services.queries import get_all_machines, get_machine_config_data, update_machine_config
+from api.services.queries import get_all_machines, get_machine_config_data, update_machine_config, get_overview_turno
 
 router = APIRouter(prefix="/api/config", tags=["config"])
 
@@ -21,6 +21,7 @@ def get_config(machine_id: int):
 
 class DiaCalendario(BaseModel):
     dia: str
+    nome: str = ""
     inicio: str
     fim: str
     ativo: bool
@@ -30,6 +31,12 @@ class MachineConfigUpdate(BaseModel):
     meta: int
     peca: str
     calendario: List[DiaCalendario]
+
+
+@router.get("/turno/atual")
+def turno_atual():
+    """Retorna informações do turno em andamento para a sidebar."""
+    return get_overview_turno()
 
 
 @router.put("/machines/{machine_id}")
