@@ -588,13 +588,26 @@ def get_overview_topbar() -> dict:
     df_eventos = run_query("""
         SELECT TOP 5
             i.tx_name AS maquina,
-            lr.dt_created_at,
-            lr.nu_valor_bruto AS status_cod
-        FROM dbo.tb_log_registrador lr
-        JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
-        JOIN dbo.tb_ihm i ON i.id_ihm = lr.id_ihm
-        WHERE r.tx_descricao = 'status_maquina'
-        ORDER BY lr.dt_created_at DESC
+            t.dt_created_at,
+            t.nu_valor_bruto AS status_cod
+        FROM (
+            SELECT
+                lr.id_ihm,
+                lr.dt_created_at,
+                lr.nu_valor_bruto,
+                LAG(lr.nu_valor_bruto) OVER (
+                    PARTITION BY lr.id_ihm
+                    ORDER BY lr.dt_created_at
+                ) AS prev_status
+            FROM dbo.tb_log_registrador lr
+            JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
+            WHERE r.tx_descricao = 'status_maquina'
+              AND lr.dt_created_at >= DATEADD(hour, -24, GETDATE())
+        ) t
+        JOIN dbo.tb_ihm i ON i.id_ihm = t.id_ihm
+        WHERE t.prev_status IS NOT NULL
+          AND t.nu_valor_bruto <> t.prev_status
+        ORDER BY t.dt_created_at DESC
     """)
     eventos = [
         {
