@@ -310,7 +310,8 @@
   line-height: 1.1;
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
-  min-width: 64px;
+  width: 96px;
+  flex-shrink: 0;
 }
 
 /* Metric rows */
@@ -350,7 +351,7 @@
 .ov-metric-value {
   font-size: 11px;
   font-weight: 700;
-  width: 42px;
+  width: 52px;
   text-align: right;
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;

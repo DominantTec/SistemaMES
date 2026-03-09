@@ -271,7 +271,8 @@
   letter-spacing: -0.03em;
   line-height: 1;
   font-variant-numeric: tabular-nums;
-  min-width: 80px;
+  width: 110px;
+  flex-shrink: 0;
 }
 .ld-mc-oee-label {
   font-size: 10px;
@@ -312,7 +313,7 @@
   background: #f3f4f6; border-radius: 999px; overflow: hidden;
 }
 .ld-bar-fill { height: 100%; border-radius: 999px; transition: width 0.4s; }
-.ld-metric-val { font-size: 12px; font-weight: 700; width: 44px; text-align: right; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.ld-metric-val { font-size: 12px; font-weight: 700; width: 52px; text-align: right; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 
 /* Parada info */
 .ld-mc-parada-info {
