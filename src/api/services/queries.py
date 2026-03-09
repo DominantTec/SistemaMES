@@ -716,7 +716,6 @@ def update_machine_config(machine_id: int, meta: int, peca_nome: str, calendario
                 VALUES (:id_ihm, :id_reg, :valor)
             """, {"id_ihm": machine_id, "id_reg": regs["modelo_peça"], "valor": cod_peca})
 
-<<<<<<< HEAD
     df_ihm = run_query("SELECT id_linha_producao FROM tb_ihm WHERE id_ihm = :id", {"id": machine_id})
     if not df_ihm.empty:
         id_linha = int(df_ihm.iloc[0]["id_linha_producao"])
