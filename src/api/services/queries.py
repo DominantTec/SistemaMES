@@ -217,15 +217,65 @@ def get_meta_register(machine_id: int) -> int:
         return -1
 
 
-def get_metrics_machine(machine_id: int, data_inicio: Optional[Any] = None, data_fim: Optional[Any] = None) -> Dict[str, Any]:
-    """Retorna as principais informações de uma IHM para um dado periodo de tempo."""
-    try:
-        df_registradores = get_machine_timeline(machine_id, data_inicio=data_inicio, data_fim=data_fim)
-        df_shifts = get_machine_shifts(machine_id, data_inicio=data_inicio, data_fim=data_fim)
+def _get_current_shift_window(machine_id: int, agora: datetime):
+    """Retorna (dt_inicio, dt_fim) do turno ativo agora para a máquina.
+    Se não houver turno ativo, usa o turno mais recente que terminou hoje.
+    Se não houver nenhum turno hoje, retorna (início do dia, agora)."""
+    df = run_query("""
+        SELECT TOP 1 t.dt_inicio, t.dt_fim
+        FROM dbo.tb_turnos t
+        JOIN dbo.tb_ihm i ON i.id_linha_producao = t.id_linha_producao
+        WHERE i.id_ihm = :id
+          AND t.dt_inicio <= :agora
+          AND t.dt_fim    >= :agora
+        ORDER BY t.dt_inicio
+    """, {"id": machine_id, "agora": agora})
 
-        # Filtra apenas registros que têm status_maquina válido.
-        # Registros de meta/peça inseridos pela tela de config têm NaN no status
-        # e corrompem o cálculo se incluídos.
+    if not df.empty:
+        return df.iloc[0]["dt_inicio"], df.iloc[0]["dt_fim"]
+
+    # Último turno que terminou hoje
+    df2 = run_query("""
+        SELECT TOP 1 t.dt_inicio, t.dt_fim
+        FROM dbo.tb_turnos t
+        JOIN dbo.tb_ihm i ON i.id_linha_producao = t.id_linha_producao
+        WHERE i.id_ihm   = :id
+          AND t.dt_fim   <= :agora
+          AND t.dt_inicio >= :inicio_dia
+        ORDER BY t.dt_fim DESC
+    """, {"id": machine_id, "agora": agora,
+          "inicio_dia": datetime.combine(agora.date(), time(0, 0))})
+
+    if not df2.empty:
+        return df2.iloc[0]["dt_inicio"], df2.iloc[0]["dt_fim"]
+
+    # Fallback: início do dia até agora
+    return datetime.combine(agora.date(), time(0, 0)), agora
+
+
+def get_metrics_machine(machine_id: int, data_inicio: Optional[Any] = None, data_fim: Optional[Any] = None) -> Dict[str, Any]:
+    """Retorna as principais informações de uma IHM para o turno atual (ou período informado)."""
+    try:
+        agora = datetime.utcnow()
+
+        # Quando não há filtro de data, calcula apenas para o turno atual.
+        # Isso evita acumular histórico de dias/turnos anteriores no OEE.
+        if not data_inicio or not data_fim:
+            data_inicio, data_fim = _get_current_shift_window(machine_id, agora)
+
+        shift_inicio  = data_inicio
+        shift_fim_ref = data_fim   # limite teórico do turno
+        # Para turno ainda em andamento, o teto real é agora
+        fim_efetivo   = min(shift_fim_ref, agora)
+        duracao_turno = (fim_efetivo - shift_inicio).total_seconds()
+
+        # Limita os registros a agora — registros futuros (init.sql com timestamps
+        # adiantados) criariam intervalos negativos de produção.
+        data_fim_registros = min(shift_fim_ref, agora)
+        df_registradores = get_machine_timeline(machine_id, data_inicio=shift_inicio, data_fim=data_fim_registros)
+        df_shifts        = get_machine_shifts(machine_id,   data_inicio=shift_inicio, data_fim=shift_fim_ref)
+
+        # Remove linhas sem status (registros de meta/peça salvos pela UI)
         if "status_maquina" in df_registradores.columns:
             df_registradores = df_registradores[df_registradores["status_maquina"].notna()].copy()
 
@@ -233,151 +283,114 @@ def get_metrics_machine(machine_id: int, data_inicio: Optional[Any] = None, data
             return {
                 "status_maquina": "-", "oee": "-", "disponibilidade": "-",
                 "performance": "-", "qualidade": "-", "meta": "-",
-                "produzido": "-", "reprovado": "-", "total": "-",
+                "produzido": "-", "reprovado": "-", "total_produzido": "-",
                 "operador": "-", "manutentor": "-", "engenheiro": "-",
             }
 
-        first_register = df_registradores[df_registradores["dt_created_at"] == df_registradores["dt_created_at"].min()]
-        last_register  = df_registradores[df_registradores["dt_created_at"] == df_registradores["dt_created_at"].max()]
+        last_register = df_registradores[df_registradores["dt_created_at"] == df_registradores["dt_created_at"].max()]
 
-        status    = last_register["status_maquina"].to_list()[0] if "status_maquina" in last_register.columns else "-"
-        operador  = last_register["operador"].to_list()[0]       if "operador"       in last_register.columns else "-"
-        manutentor = last_register["manutentor"].to_list()[0]    if "manutentor"     in last_register.columns else "-"
-        engenheiro = last_register["engenheiro"].to_list()[0]    if "engenheiro"     in last_register.columns else "-"
+        status     = last_register["status_maquina"].to_list()[0] if "status_maquina" in last_register.columns else "-"
+        operador   = last_register["operador"].to_list()[0]       if "operador"       in last_register.columns else "-"
+        manutentor = last_register["manutentor"].to_list()[0]     if "manutentor"     in last_register.columns else "-"
+        engenheiro = last_register["engenheiro"].to_list()[0]     if "engenheiro"     in last_register.columns else "-"
 
-        lista_qtd_aprovado = []
-        lista_qtd_reprovado = []
-        lista_qtd_total = []
-        lista_produzido = []
-        lista_duracao_turno = []  # duração total de cada turno (sem capping em agora)
+        # ── Calcula intervalos de produção dentro do turno ──────────────────
+        lista_produzido:    list = []
+        lista_qtd_aprovado:  list = []
+        lista_qtd_reprovado: list = []
+        lista_qtd_total:     list = []
 
-        status_antigo = ""
-        inicio = None
-        inicio_qtd_aprovado = None
+        status_antigo        = ""
+        inicio               = None
+        inicio_qtd_aprovado  = None
         inicio_qtd_reprovado = None
-        inicio_qtd_total = None
-
-        fim = None
-        fim_qtd_aprovado = None
-        fim_qtd_reprovado = None
-        fim_qtd_total = None
-        fim_teorico = None
-
-        agora = datetime.utcnow()
+        inicio_qtd_total     = None
 
         for _, row in df_registradores.iterrows():
-            # Filtra o turno exato que contém o timestamp deste registro
-            current_shift = df_shifts[
-                (df_shifts["dt_inicio"].dt.date == row["dt_created_at"].date()) &
-                (df_shifts["id_ihm"] == machine_id) &
-                (df_shifts["dt_inicio"] <= row["dt_created_at"]) &
-                (df_shifts["dt_fim"]   >= row["dt_created_at"])
-            ]
+            st = row["status_maquina"]
 
-            if current_shift.empty:
-                status_antigo = row.get("status_maquina", status_antigo)
-                continue
+            # Entrada em produção
+            if status_antigo != "Produzindo" and st == "Produzindo":
+                inicio               = max(shift_inicio, row["dt_created_at"])
+                inicio_qtd_aprovado  = row.get("produzido")
+                inicio_qtd_reprovado = row.get("reprovado")
+                inicio_qtd_total     = row.get("total_produzido")
 
-            shift_inicio = current_shift["dt_inicio"].to_list()[0]
-            shift_fim    = current_shift["dt_fim"].to_list()[0]
+            # Saída de produção
+            elif status_antigo == "Produzindo" and st != "Produzindo":
+                if inicio is not None:
+                    lista_produzido.append((inicio, min(row["dt_created_at"], shift_fim_ref)))
+                    lista_qtd_aprovado.append((inicio_qtd_aprovado,   row.get("produzido")))
+                    lista_qtd_reprovado.append((inicio_qtd_reprovado, row.get("reprovado")))
+                    lista_qtd_total.append((inicio_qtd_total,          row.get("total_produzido")))
+                    inicio = None
 
-            if status_antigo != "Produzindo" and row["status_maquina"] == "Produzindo":
-                if row["dt_created_at"] < shift_fim:
-                    inicio = shift_inicio if row["dt_created_at"] < shift_inicio else row["dt_created_at"]
-                    inicio_qtd_aprovado = row.get("produzido")
-                    inicio_qtd_reprovado = row.get("reprovado")
-                    inicio_qtd_total = row.get("total_produzido")
+            status_antigo = st
 
-            elif (
-                (status_antigo == "Produzindo" and row["status_maquina"] != "Produzindo") or
-                (status_antigo == "Produzindo" and row["status_maquina"] == "Produzindo" and row["dt_created_at"] == last_register["dt_created_at"].to_list()[0])
-            ):
-                if row["dt_created_at"] > shift_inicio:
-                    # Se ainda está produzindo (último registro), estende até agora
-                    # para que tempo_produzido == tempo_programado e disponibilidade = 100%
-                    if row["status_maquina"] == "Produzindo":
-                        fim = min(shift_fim, agora)
-                    else:
-                        fim = shift_fim if row["dt_created_at"] > shift_fim else row["dt_created_at"]
-                    fim_qtd_aprovado = row.get("produzido")
-                    fim_qtd_reprovado = row.get("reprovado")
-                    fim_qtd_total = row.get("total_produzido")
-                    fim_teorico = shift_fim
+        # Fecha sessão ainda aberta no fim do loop (máquina ainda produzindo).
+        # Usa os valores do último registro como fim — sem isso total=0 e performance=0%.
+        if inicio is not None and fim_efetivo > inicio:
+            def _col(col):
+                return last_register[col].to_list()[0] if col in last_register.columns else None
+            lista_produzido.append((inicio, fim_efetivo))
+            lista_qtd_aprovado.append((inicio_qtd_aprovado,  _col("produzido")))
+            lista_qtd_reprovado.append((inicio_qtd_reprovado, _col("reprovado")))
+            lista_qtd_total.append((inicio_qtd_total,         _col("total_produzido")))
 
-            if inicio and fim:
-                if inicio.day == fim.day:
-                    if (inicio, fim) not in lista_produzido:
-                        lista_produzido.append((inicio, fim))
-                    if (shift_inicio, shift_fim) not in lista_duracao_turno:
-                        lista_duracao_turno.append((shift_inicio, shift_fim))
+        # ── Métricas de tempo ────────────────────────────────────────────────
+        tempo_produzido = sum((b - a).total_seconds() for a, b in lista_produzido)
 
-                    lista_qtd_aprovado.append((inicio_qtd_aprovado, fim_qtd_aprovado))
-                    lista_qtd_reprovado.append((inicio_qtd_reprovado, fim_qtd_reprovado))
-                    lista_qtd_total.append((inicio_qtd_total, fim_qtd_total))
-
-                inicio_qtd_aprovado = inicio_qtd_reprovado = inicio_qtd_total = None
-                fim_qtd_aprovado = fim_qtd_reprovado = fim_qtd_total = None
-                inicio = None
-                fim = fim_teorico = None
-
-            status_antigo = row["status_maquina"]
-
-        tempo_produzido = sum([(b - a).total_seconds() for a, b in lista_produzido])
-
-        # Janela de observação: do primeiro início de produção até agora.
-        # Não usa shift_inicio para evitar que sessões reiniciadas mid-turno
-        # comecem com disponibilidade próxima de 0%.
+        # Disponibilidade: janela de observação a partir do primeiro evento de
+        # produção no turno. Isso garante que a máquina comece em 100% e só
+        # diminua quando houver paradas. Quando não há produção registrada,
+        # retorna 100% (aguardando início de ciclo).
         if lista_produzido:
             observation_start = min(inicio for inicio, _ in lista_produzido)
-            tempo_programado = (agora - observation_start).total_seconds()
+            tempo_programado  = (fim_efetivo - observation_start).total_seconds()
+            disponibilidade   = min(1.0, tempo_produzido / tempo_programado) if tempo_programado > 0 else 1.0
         else:
-            tempo_programado = 0
+            disponibilidade = 1.0  # sem produção registrada ainda → 100%
 
-        produzido = sum([(b - a) for a, b in lista_qtd_aprovado if a is not None and b is not None])
-        reprovado = sum([(b - a) for a, b in lista_qtd_reprovado if a is not None and b is not None])
-        total = sum([(b - a) for a, b in lista_qtd_total if a is not None and b is not None])
-
-        disponibilidade = min(1.0, tempo_produzido / tempo_programado) if tempo_programado else 1.0
+        produzido = sum((b - a) for a, b in lista_qtd_aprovado  if a is not None and b is not None)
+        reprovado = sum((b - a) for a, b in lista_qtd_reprovado if a is not None and b is not None)
+        total     = sum((b - a) for a, b in lista_qtd_total      if a is not None and b is not None)
 
         meta = get_meta(machine_id)
-        # Performance baseada no ritmo de produção enquanto a máquina estava rodando.
-        # Usa tempo_produzido (não tempo_programado) para que paradas não penalizem
-        # duas vezes (já penalizam a disponibilidade).
-        duracao_turno = sum([(b - a).total_seconds() for a, b in lista_duracao_turno])
-        meta_proporcional = meta * (tempo_produzido / duracao_turno) if duracao_turno else 0
-        performance = min(1.0, int(total) / meta_proporcional) if meta_proporcional > 0 else 1.0
-        qualidade = min(1.0, int(produzido) / int(total)) if total else 1.0
+
+        # Performance: usa a mesma janela de observação da disponibilidade.
+        # A meta esperada cresce a partir do primeiro evento de produção,
+        # garantindo que inicia em 100% e cai se o ritmo ficar abaixo da meta.
+        if lista_produzido:
+            total_shift_s = (shift_fim_ref - shift_inicio).total_seconds()
+            observation_elapsed = (fim_efetivo - observation_start).total_seconds()
+            meta_proporcional = meta * (observation_elapsed / total_shift_s) if total_shift_s > 0 else 0
+            performance = min(1.0, int(total) / meta_proporcional) if meta_proporcional > 0 else 1.0
+        else:
+            performance = 1.0  # sem produção registrada ainda → 100%
+        qualidade   = min(1.0, int(produzido) / int(total))    if total            else 1.0
 
         oee = disponibilidade * performance * qualidade
 
         return {
-            "status_maquina": status,
-            "oee": round(100 * oee, 2),
+            "status_maquina":  status,
+            "oee":             round(100 * oee,             2),
             "disponibilidade": round(100 * disponibilidade, 2),
-            "performance": round(100 * performance, 2),
-            "qualidade": round(100 * qualidade, 2),
-            "meta": meta,
-            "produzido": produzido,
-            "reprovado": reprovado,
+            "performance":     round(100 * performance,     2),
+            "qualidade":       round(100 * qualidade,       2),
+            "meta":            meta,
+            "produzido":       produzido,
+            "reprovado":       reprovado,
             "total_produzido": total,
-            "operador": operador,
-            "manutentor": manutentor,
-            "engenheiro": engenheiro,
+            "operador":        operador,
+            "manutentor":      manutentor,
+            "engenheiro":      engenheiro,
         }
     except Exception:
         return {
-            "status_maquina": "-",
-            "oee": "-",
-            "disponibilidade": "-",
-            "performance": "-",
-            "qualidade": "-",
-            "meta": "-",
-            "produzido": "-",
-            "reprovado": "-",
-            "total_produzido": "-",
-            "operador": "-",
-            "manutentor": "-",
-            "engenheiro": "-",
+            "status_maquina": "-", "oee": "-", "disponibilidade": "-",
+            "performance": "-", "qualidade": "-", "meta": "-",
+            "produzido": "-", "reprovado": "-", "total_produzido": "-",
+            "operador": "-", "manutentor": "-", "engenheiro": "-",
         }
 
 
