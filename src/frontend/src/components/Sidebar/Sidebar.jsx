@@ -28,8 +28,11 @@ export default function Sidebar() {
     return () => clearInterval(id);
   }, []);
 
-  const emTurno  = turno && turno.nome !== "-";
+  const emTurno   = turno && turno.nome !== "-";
   const progresso = turno ? turno.progresso_pct : 0;
+  const barColor  = progresso < 40 ? "#22c55e"
+                  : progresso < 75 ? "#f59e0b"
+                  : "#ef4444";
 
   return (
     <aside className="sidebar">
@@ -96,7 +99,7 @@ export default function Sidebar() {
           </>
         )}
         <div className="progress">
-          <div className="progress-bar" style={{ width: `${progresso}%` }} />
+          <div className="progress-bar" style={{ width: `${progresso}%`, background: barColor }} />
         </div>
       </div>
     </aside>

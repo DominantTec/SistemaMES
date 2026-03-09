@@ -651,7 +651,7 @@ def get_all_machines() -> list:
 
 
 def get_line_shifts(line_id: int) -> dict:
-    """Retorna nome da linha e calendário de turnos para a tela de configuração."""
+    """Retorna nome da linha e lista de turnos configurados (um por template único dia+hora)."""
     df_linha = run_query("""
         SELECT id_linha_producao, tx_name
         FROM dbo.tb_linha_producao
@@ -670,43 +670,46 @@ def get_line_shifts(line_id: int) -> dict:
         ORDER BY dt_inicio
     """, {"linha": line_id})
 
-    shifts_by_dow: dict = {}
+    # Deduplica por (dia_semana, inicio, fim) — múltiplos turnos por dia são permitidos
+    seen: set = set()
+    turnos: list = []
     if not df_turnos.empty:
         for _, t in df_turnos.iterrows():
-            dow = t["dt_inicio"].weekday()
-            if dow not in shifts_by_dow:
-                shifts_by_dow[dow] = {
-                    "nome":   t["tx_name"],
-                    "inicio": t["dt_inicio"].strftime("%H:%M"),
-                    "fim":    t["dt_fim"].strftime("%H:%M"),
+            dow  = t["dt_inicio"].weekday()
+            ini  = t["dt_inicio"].strftime("%H:%M")
+            fim_ = t["dt_fim"].strftime("%H:%M")
+            key  = (dow, ini, fim_)
+            if key not in seen:
+                seen.add(key)
+                turnos.append({
+                    "dia":   _DIAS_SEMANA[dow],
+                    "nome":  t["tx_name"],
+                    "inicio": ini,
+                    "fim":    fim_,
                     "ativo":  bool(t["bl_ativo"]),
-                }
+                })
 
-    calendario = []
-    for i, dia in enumerate(_DIAS_SEMANA):
-        if i in shifts_by_dow:
-            entry = {**shifts_by_dow[i], "dia": dia}
-        else:
-            entry = {"dia": dia, "nome": f"Turno {i+1}", "inicio": "07:00", "fim": "17:00", "ativo": i < 5}
-        calendario.append(entry)
+    # Ordenar por dia-da-semana e depois por horário de início
+    dow_order = {d: i for i, d in enumerate(_DIAS_SEMANA)}
+    turnos.sort(key=lambda x: (dow_order.get(x["dia"], 99), x["inicio"]))
 
     return {
-        "id":        line_id,
-        "nome":      nome_linha,
-        "calendario": calendario,
+        "id":     line_id,
+        "nome":   nome_linha,
+        "turnos": turnos,   # lista vazia se nenhum turno configurado
     }
 
 
-def update_line_shifts(line_id: int, calendario: list) -> dict:
-    """Salva o calendário de turnos de uma linha de produção."""
+def update_line_shifts(line_id: int, turnos: list) -> dict:
+    """Salva a lista de turnos de uma linha, criando ocorrências para 5 semanas passadas + 1 futura."""
     dow_map = {d: i for i, d in enumerate(_DIAS_SEMANA)}
-    today = date.today()
+    today       = date.today()
     range_start = today - timedelta(weeks=5)
     range_end   = today + timedelta(weeks=1)
 
     run_query_update("DELETE FROM dbo.tb_turnos WHERE id_linha_producao = :linha", {"linha": line_id})
 
-    for entry in calendario:
+    for entry in turnos:
         if not entry.get("ativo", False):
             continue
         dow_target = dow_map.get(entry["dia"])
@@ -717,12 +720,12 @@ def update_line_shifts(line_id: int, calendario: list) -> dict:
         nome_turno = entry.get("nome") or f"TURNO_{entry['dia'][:3].upper()}"
 
         days_to_first = (dow_target - range_start.weekday()) % 7
-        occurrence = range_start + timedelta(days=days_to_first)
+        occurrence    = range_start + timedelta(days=days_to_first)
 
         while occurrence <= range_end:
-            dt_inicio = datetime.combine(occurrence, time(hi, hm))
+            dt_inicio   = datetime.combine(occurrence, time(hi, hm))
             dt_fim_base = datetime.combine(occurrence, time(fi, fm))
-            dt_fim = dt_fim_base + timedelta(days=1) if (fi, fm) < (hi, hm) else dt_fim_base
+            dt_fim      = dt_fim_base + timedelta(days=1) if (fi, fm) < (hi, hm) else dt_fim_base
             run_query_update("""
                 INSERT INTO dbo.tb_turnos (tx_name, dt_inicio, dt_fim, id_linha_producao, bl_ativo)
                 VALUES (:nome, :dt_inicio, :dt_fim, :linha, 1)

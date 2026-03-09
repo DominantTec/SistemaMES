@@ -330,18 +330,28 @@ SET IDENTITY_INSERT dbo.tb_registrador OFF;
 GO
 
 -- -------------------------------------------------------
--- Turnos (T1/T2/T3 para hoje, para as duas linhas)
+-- Turnos: T1/T2/T3 para cada dia da semana, 5 semanas
+-- passadas + 1 futura, para as duas linhas.
 -- -------------------------------------------------------
-INSERT INTO dbo.tb_turnos (tx_name, dt_inicio, dt_fim, id_linha_producao, bl_ativo)
-SELECT turno, dt_inicio, dt_fim, linha, 1
-FROM (VALUES
-    (N'T1', DATEADD(hour,  6, CAST(CAST(GETDATE() AS DATE) AS DATETIME2(0))), DATEADD(hour, 14, CAST(CAST(GETDATE() AS DATE) AS DATETIME2(0))), 1),
-    (N'T2', DATEADD(hour, 14, CAST(CAST(GETDATE() AS DATE) AS DATETIME2(0))), DATEADD(hour, 22, CAST(CAST(GETDATE() AS DATE) AS DATETIME2(0))), 1),
-    (N'T3', DATEADD(hour, 22, CAST(CAST(GETDATE() AS DATE) AS DATETIME2(0))), DATEADD(hour, 30, CAST(CAST(GETDATE() AS DATE) AS DATETIME2(0))), 1),
-    (N'T1', DATEADD(hour,  6, CAST(CAST(GETDATE() AS DATE) AS DATETIME2(0))), DATEADD(hour, 14, CAST(CAST(GETDATE() AS DATE) AS DATETIME2(0))), 2),
-    (N'T2', DATEADD(hour, 14, CAST(CAST(GETDATE() AS DATE) AS DATETIME2(0))), DATEADD(hour, 22, CAST(CAST(GETDATE() AS DATE) AS DATETIME2(0))), 2),
-    (N'T3', DATEADD(hour, 22, CAST(CAST(GETDATE() AS DATE) AS DATETIME2(0))), DATEADD(hour, 30, CAST(CAST(GETDATE() AS DATE) AS DATETIME2(0))), 2)
-) AS t(turno, dt_inicio, dt_fim, linha);
+DECLARE @seed_start DATE = DATEADD(week, -5, CAST(GETDATE() AS DATE));
+DECLARE @seed_end   DATE = DATEADD(week,  1, CAST(GETDATE() AS DATE));
+DECLARE @d          DATE = @seed_start;
+
+WHILE @d <= @seed_end
+BEGIN
+    DECLARE @base DATETIME2(0) = CAST(@d AS DATETIME2(0));
+
+    INSERT INTO dbo.tb_turnos (tx_name, dt_inicio, dt_fim, id_linha_producao, bl_ativo)
+    VALUES
+      (N'T1', DATEADD(hour,  6, @base), DATEADD(hour, 14, @base), 1, 1),
+      (N'T2', DATEADD(hour, 14, @base), DATEADD(hour, 22, @base), 1, 1),
+      (N'T3', DATEADD(hour, 22, @base), DATEADD(hour, 30, @base), 1, 1),
+      (N'T1', DATEADD(hour,  6, @base), DATEADD(hour, 14, @base), 2, 1),
+      (N'T2', DATEADD(hour, 14, @base), DATEADD(hour, 22, @base), 2, 1),
+      (N'T3', DATEADD(hour, 22, @base), DATEADD(hour, 30, @base), 2, 1);
+
+    SET @d = DATEADD(day, 1, @d);
+END
 GO
 
 -- -------------------------------------------------------

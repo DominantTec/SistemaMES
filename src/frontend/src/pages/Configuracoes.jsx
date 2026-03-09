@@ -12,15 +12,16 @@ const STATUS_STYLE = {
   "Ag. Manutentor": { color: "#d97706", bg: "#fef3c7" },
 };
 
-const DIAS_SHORT = {
-  "Segunda": "Seg", "Terça": "Ter", "Quarta": "Qua",
-  "Quinta": "Qui", "Sexta": "Sex", "Sábado": "Sáb", "Domingo": "Dom",
-};
-
-const TODAY_DOW = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1;
+const DIAS_SEMANA = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"];
+const DIAS_SHORT  = { "Segunda": "Seg", "Terça": "Ter", "Quarta": "Qua", "Quinta": "Qui", "Sexta": "Sex", "Sábado": "Sáb", "Domingo": "Dom" };
+const TODAY_NAME  = DIAS_SEMANA[new Date().getDay() === 0 ? 6 : new Date().getDay() - 1];
 
 function statusStyle(s) {
   return STATUS_STYLE[s] || { color: "#6b7280", bg: "#f3f4f6" };
+}
+
+function novoTurno() {
+  return { dia: "Segunda", nome: "", inicio: "07:00", fim: "15:00", ativo: true };
 }
 
 /* ── Seção: Gestão de Turnos (por linha) ─────────────────── */
@@ -44,13 +45,21 @@ function GestaoTurnos() {
     setLoading(true);
     fetch(`${API_BASE}/api/config/lines/${selectedId}/turnos`)
       .then((r) => r.json())
-      .then((data) => setTurnos(data.calendario ?? []))
+      .then((data) => setTurnos(data.turnos ?? []))
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [selectedId]);
 
-  function setTurnoField(index, field, value) {
-    setTurnos((prev) => prev.map((d, i) => (i === index ? { ...d, [field]: value } : d)));
+  function setField(index, field, value) {
+    setTurnos((prev) => prev.map((t, i) => (i === index ? { ...t, [field]: value } : t)));
+  }
+
+  function addTurno() {
+    setTurnos((prev) => [...prev, novoTurno()]);
+  }
+
+  function removeTurno(index) {
+    setTurnos((prev) => prev.filter((_, i) => i !== index));
   }
 
   async function handleSave() {
@@ -80,7 +89,8 @@ function GestaoTurnos() {
           </div>
         </div>
         <p className="cfg-card-desc">
-          Turnos são definidos por linha de produção. Todas as máquinas de uma linha seguem o mesmo calendário.
+          Turnos são definidos por linha de produção. Você pode ter múltiplos turnos por dia.
+          Todas as máquinas da linha seguem o mesmo calendário.
         </p>
       </div>
 
@@ -93,36 +103,95 @@ function GestaoTurnos() {
 
       {loading && <div className="cfg-loading"><div className="cfg-spinner" /> Carregando...</div>}
 
-      {!loading && turnos.length > 0 && (
+      {!loading && (
         <>
+          {/* Header */}
           <div className="cfg-shift-header">
             <span>Dia</span>
             <span>Nome do Turno</span>
             <span>Início</span>
             <span>Fim</span>
             <span className="cfg-shift-status-col">Status</span>
+            <span />
           </div>
 
+          {/* Lista de turnos */}
+          {turnos.length === 0 && (
+            <div className="cfg-shift-empty">
+              Nenhum turno configurado. Clique em "Adicionar Turno" para começar.
+            </div>
+          )}
+
           {turnos.map((turno, i) => {
-            const isToday = i === TODAY_DOW;
+            const isToday = turno.dia === TODAY_NAME;
             return (
-              <div key={turno.dia} className={["cfg-shift-row", !turno.ativo ? "cfg-shift-row--inactive" : "", isToday ? "cfg-shift-row--today" : ""].join(" ")}>
+              <div
+                key={i}
+                className={["cfg-shift-row", !turno.ativo ? "cfg-shift-row--inactive" : "", isToday ? "cfg-shift-row--today" : ""].join(" ")}
+              >
+                {/* Dia */}
                 <div className="cfg-shift-dia">
-                  <span className={`cfg-dia-pill${isToday ? " cfg-dia-pill--today" : ""}`}>{DIAS_SHORT[turno.dia] ?? turno.dia}</span>
+                  <select
+                    className="cfg-dia-select"
+                    value={turno.dia}
+                    onChange={(e) => setField(i, "dia", e.target.value)}
+                  >
+                    {DIAS_SEMANA.map((d) => (
+                      <option key={d} value={d}>{DIAS_SHORT[d]}</option>
+                    ))}
+                  </select>
                   {isToday && <span className="cfg-hoje-tag">hoje</span>}
                 </div>
-                <input className="cfg-shift-name-input" type="text" value={turno.nome ?? ""} disabled={!turno.ativo} placeholder="Ex: Turno 1" onChange={(e) => setTurnoField(i, "nome", e.target.value)} />
-                <input className="cfg-time-input" type="time" value={turno.inicio} disabled={!turno.ativo} onChange={(e) => setTurnoField(i, "inicio", e.target.value)} />
-                <input className="cfg-time-input" type="time" value={turno.fim} disabled={!turno.ativo} onChange={(e) => setTurnoField(i, "fim", e.target.value)} />
+
+                {/* Nome */}
+                <input
+                  className="cfg-shift-name-input"
+                  type="text"
+                  value={turno.nome ?? ""}
+                  placeholder="Ex: Manhã"
+                  onChange={(e) => setField(i, "nome", e.target.value)}
+                />
+
+                {/* Início */}
+                <input
+                  className="cfg-time-input"
+                  type="time"
+                  value={turno.inicio}
+                  onChange={(e) => setField(i, "inicio", e.target.value)}
+                />
+
+                {/* Fim */}
+                <input
+                  className="cfg-time-input"
+                  type="time"
+                  value={turno.fim}
+                  onChange={(e) => setField(i, "fim", e.target.value)}
+                />
+
+                {/* Toggle */}
                 <div className="cfg-toggle-wrap">
                   <span className="cfg-toggle-label">{turno.ativo ? "Ativo" : "Inativo"}</span>
-                  <button type="button" className={`cfg-toggle${turno.ativo ? " cfg-toggle--on" : ""}`} onClick={() => setTurnoField(i, "ativo", !turno.ativo)}>
+                  <button
+                    type="button"
+                    className={`cfg-toggle${turno.ativo ? " cfg-toggle--on" : ""}`}
+                    onClick={() => setField(i, "ativo", !turno.ativo)}
+                  >
                     <span className="cfg-toggle-knob" />
                   </button>
                 </div>
+
+                {/* Remover */}
+                <button type="button" className="cfg-remove-btn" onClick={() => removeTurno(i)} title="Remover turno">
+                  ✕
+                </button>
               </div>
             );
           })}
+
+          {/* Botão adicionar */}
+          <button type="button" className="cfg-add-btn" onClick={addTurno}>
+            + Adicionar Turno
+          </button>
         </>
       )}
     </div>

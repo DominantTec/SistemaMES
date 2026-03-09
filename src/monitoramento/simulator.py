@@ -106,15 +106,35 @@ class MachineState:
 
             self.operador, self.status, self.motivo_parada, \
             self.produzido, self.reprovado, self.total_produzido, \
-            self.manutentor, self.engenheiro, _, _ = vals
-            # meta e modelo não são restaurados do banco — sempre usam o valor
-            # configurado no simulador para evitar herdar valores antigos ou reais
+            self.manutentor, self.engenheiro, _, self.modelo = vals
 
             self.prev_values = vals[:]
             logger.info(f"IHM {self.id_ihm}: estado restaurado — status={self.status}, prod={self.produzido}")
 
         except Exception as e:
             logger.warning(f"IHM {self.id_ihm}: falha ao restaurar estado do banco: {e}")
+
+        # Sempre busca a meta mais recente do banco (pode ter sido atualizada pelo usuário)
+        self.refresh_meta(conn_db)
+
+    def refresh_meta(self, conn_db):
+        """Lê a meta mais recente do banco para respeitar mudanças feitas pelo usuário."""
+        try:
+            cursor = conn_db.cursor()
+            cursor.execute(f"""
+                SELECT TOP 1 nu_valor_bruto
+                FROM tb_log_registrador
+                WHERE id_registrador = (
+                    SELECT id_registrador FROM tb_registrador
+                    WHERE id_ihm = {self.id_ihm} AND tx_descricao = 'meta'
+                )
+                ORDER BY dt_created_at DESC
+            """)
+            row = cursor.fetchone()
+            if row and int(row[0]) > 0:
+                self.meta = int(row[0])
+        except Exception as e:
+            logger.warning(f"IHM {self.id_ihm}: falha ao ler meta do banco: {e}")
 
     # ── Lógica de simulação ──────────────────────────────────────────────────
 
@@ -330,6 +350,9 @@ def main():
         while True:
             logger.info("=" * 60)
             for machine in machines:
+                # Relê a meta do banco a cada ciclo para respeitar mudanças
+                # feitas pelo usuário na tela de Configurações
+                machine.refresh_meta(conn_db)
                 try:
                     machine.tick()
                 except Exception as e:
