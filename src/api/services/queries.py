@@ -1,5 +1,6 @@
 from datetime import datetime, date, time, timedelta
 from typing import List, Dict, Any, Optional
+import pandas as pd
 
 from api.services.db import run_query, run_query_update
 
@@ -222,13 +223,27 @@ def get_metrics_machine(machine_id: int, data_inicio: Optional[Any] = None, data
         df_registradores = get_machine_timeline(machine_id, data_inicio=data_inicio, data_fim=data_fim)
         df_shifts = get_machine_shifts(machine_id, data_inicio=data_inicio, data_fim=data_fim)
 
-        first_register = df_registradores[df_registradores["dt_created_at"] == df_registradores["dt_created_at"].min()]
-        last_register = df_registradores[df_registradores["dt_created_at"] == df_registradores["dt_created_at"].max()]
+        # Filtra apenas registros que têm status_maquina válido.
+        # Registros de meta/peça inseridos pela tela de config têm NaN no status
+        # e corrompem o cálculo se incluídos.
+        if "status_maquina" in df_registradores.columns:
+            df_registradores = df_registradores[df_registradores["status_maquina"].notna()].copy()
 
-        status = last_register["status_maquina"].to_list()[0] if "status_maquina" in last_register.columns else "-"
-        operador = last_register["operador"].to_list()[0] if "operador" in last_register.columns else "-"
-        manutentor = last_register["manutentor"].to_list()[0] if "manutentor" in last_register.columns else "-"
-        engenheiro = last_register["engenheiro"].to_list()[0] if "engenheiro" in last_register.columns else "-"
+        if df_registradores.empty:
+            return {
+                "status_maquina": "-", "oee": "-", "disponibilidade": "-",
+                "performance": "-", "qualidade": "-", "meta": "-",
+                "produzido": "-", "reprovado": "-", "total": "-",
+                "operador": "-", "manutentor": "-", "engenheiro": "-",
+            }
+
+        first_register = df_registradores[df_registradores["dt_created_at"] == df_registradores["dt_created_at"].min()]
+        last_register  = df_registradores[df_registradores["dt_created_at"] == df_registradores["dt_created_at"].max()]
+
+        status    = last_register["status_maquina"].to_list()[0] if "status_maquina" in last_register.columns else "-"
+        operador  = last_register["operador"].to_list()[0]       if "operador"       in last_register.columns else "-"
+        manutentor = last_register["manutentor"].to_list()[0]    if "manutentor"     in last_register.columns else "-"
+        engenheiro = last_register["engenheiro"].to_list()[0]    if "engenheiro"     in last_register.columns else "-"
 
         lista_qtd_aprovado = []
         lista_qtd_reprovado = []
@@ -730,28 +745,38 @@ def update_machine_config(machine_id: int, meta: int, peca_nome: str, calendario
 
         dow_map = {d: i for i, d in enumerate(_DIAS_SEMANA)}
         today = date.today()
+        # Cobre 5 semanas passadas + 1 semana futura para não quebrar dados históricos
+        range_start = today - timedelta(weeks=5)
+        range_end   = today + timedelta(weeks=1)
+
         for entry in calendario:
             if not entry.get("ativo", False):
                 continue
             dow_target = dow_map.get(entry["dia"])
             if dow_target is None:
                 continue
-            days_ahead = (dow_target - today.weekday()) % 7
-            target_date = today + timedelta(days=days_ahead)
             hi, hm = map(int, entry["inicio"].split(":"))
             fi, fm = map(int, entry["fim"].split(":"))
-            dt_inicio = datetime.combine(target_date, time(hi, hm))
-            dt_fim_base = datetime.combine(target_date, time(fi, fm))
-            dt_fim = dt_fim_base + timedelta(days=1) if (fi, fm) < (hi, hm) else dt_fim_base
-            run_query_update("""
-                INSERT INTO dbo.tb_turnos (tx_name, dt_inicio, dt_fim, id_linha_producao, bl_ativo)
-                VALUES (:nome, :dt_inicio, :dt_fim, :linha, 1)
-            """, {
-                "nome": entry.get("nome") or f"TURNO_{entry['dia'][:3].upper()}",
-                "dt_inicio": dt_inicio,
-                "dt_fim": dt_fim,
-                "linha": id_linha,
-            })
+            nome_turno = entry.get("nome") or f"TURNO_{entry['dia'][:3].upper()}"
+
+            # Primeira ocorrência desse dia da semana dentro do range
+            days_to_first = (dow_target - range_start.weekday()) % 7
+            occurrence = range_start + timedelta(days=days_to_first)
+
+            while occurrence <= range_end:
+                dt_inicio = datetime.combine(occurrence, time(hi, hm))
+                dt_fim_base = datetime.combine(occurrence, time(fi, fm))
+                dt_fim = dt_fim_base + timedelta(days=1) if (fi, fm) < (hi, hm) else dt_fim_base
+                run_query_update("""
+                    INSERT INTO dbo.tb_turnos (tx_name, dt_inicio, dt_fim, id_linha_producao, bl_ativo)
+                    VALUES (:nome, :dt_inicio, :dt_fim, :linha, 1)
+                """, {
+                    "nome":     nome_turno,
+                    "dt_inicio": dt_inicio,
+                    "dt_fim":    dt_fim,
+                    "linha":     id_linha,
+                })
+                occurrence += timedelta(weeks=1)
 
     return {"ok": True}
 
