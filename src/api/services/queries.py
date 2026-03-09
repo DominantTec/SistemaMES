@@ -650,6 +650,93 @@ def get_all_machines() -> list:
     ]
 
 
+def get_line_shifts(line_id: int) -> dict:
+    """Retorna nome da linha e calendário de turnos para a tela de configuração."""
+    df_linha = run_query("""
+        SELECT id_linha_producao, tx_name
+        FROM dbo.tb_linha_producao
+        WHERE id_linha_producao = :id
+    """, {"id": line_id})
+
+    if df_linha.empty:
+        return {"erro": f"Linha {line_id} não encontrada"}
+
+    nome_linha = df_linha.iloc[0]["tx_name"]
+
+    df_turnos = run_query("""
+        SELECT tx_name, dt_inicio, dt_fim, bl_ativo
+        FROM dbo.tb_turnos
+        WHERE id_linha_producao = :linha
+        ORDER BY dt_inicio
+    """, {"linha": line_id})
+
+    shifts_by_dow: dict = {}
+    if not df_turnos.empty:
+        for _, t in df_turnos.iterrows():
+            dow = t["dt_inicio"].weekday()
+            if dow not in shifts_by_dow:
+                shifts_by_dow[dow] = {
+                    "nome":   t["tx_name"],
+                    "inicio": t["dt_inicio"].strftime("%H:%M"),
+                    "fim":    t["dt_fim"].strftime("%H:%M"),
+                    "ativo":  bool(t["bl_ativo"]),
+                }
+
+    calendario = []
+    for i, dia in enumerate(_DIAS_SEMANA):
+        if i in shifts_by_dow:
+            entry = {**shifts_by_dow[i], "dia": dia}
+        else:
+            entry = {"dia": dia, "nome": f"Turno {i+1}", "inicio": "07:00", "fim": "17:00", "ativo": i < 5}
+        calendario.append(entry)
+
+    return {
+        "id":        line_id,
+        "nome":      nome_linha,
+        "calendario": calendario,
+    }
+
+
+def update_line_shifts(line_id: int, calendario: list) -> dict:
+    """Salva o calendário de turnos de uma linha de produção."""
+    dow_map = {d: i for i, d in enumerate(_DIAS_SEMANA)}
+    today = date.today()
+    range_start = today - timedelta(weeks=5)
+    range_end   = today + timedelta(weeks=1)
+
+    run_query_update("DELETE FROM dbo.tb_turnos WHERE id_linha_producao = :linha", {"linha": line_id})
+
+    for entry in calendario:
+        if not entry.get("ativo", False):
+            continue
+        dow_target = dow_map.get(entry["dia"])
+        if dow_target is None:
+            continue
+        hi, hm = map(int, entry["inicio"].split(":"))
+        fi, fm = map(int, entry["fim"].split(":"))
+        nome_turno = entry.get("nome") or f"TURNO_{entry['dia'][:3].upper()}"
+
+        days_to_first = (dow_target - range_start.weekday()) % 7
+        occurrence = range_start + timedelta(days=days_to_first)
+
+        while occurrence <= range_end:
+            dt_inicio = datetime.combine(occurrence, time(hi, hm))
+            dt_fim_base = datetime.combine(occurrence, time(fi, fm))
+            dt_fim = dt_fim_base + timedelta(days=1) if (fi, fm) < (hi, hm) else dt_fim_base
+            run_query_update("""
+                INSERT INTO dbo.tb_turnos (tx_name, dt_inicio, dt_fim, id_linha_producao, bl_ativo)
+                VALUES (:nome, :dt_inicio, :dt_fim, :linha, 1)
+            """, {
+                "nome":      nome_turno,
+                "dt_inicio": dt_inicio,
+                "dt_fim":    dt_fim,
+                "linha":     line_id,
+            })
+            occurrence += timedelta(weeks=1)
+
+    return {"ok": True}
+
+
 def get_machine_config_data(machine_id: int) -> dict:
     """Dados completos para a tela de Configurações de uma máquina."""
     df_ihm = run_query("""
@@ -683,33 +770,6 @@ def get_machine_config_data(machine_id: int) -> dict:
     peca_atual = get_selected_piece(machine_id)
     pecas = get_possible_pieces(machine_id)
 
-    df_turnos = run_query("""
-        SELECT tx_name, dt_inicio, dt_fim, bl_ativo
-        FROM dbo.tb_turnos
-        WHERE id_linha_producao = :linha
-        ORDER BY dt_inicio
-    """, {"linha": int(ihm["id_linha_producao"])})
-
-    shifts_by_dow: dict = {}
-    if not df_turnos.empty:
-        for _, t in df_turnos.iterrows():
-            dow = t["dt_inicio"].weekday()
-            if dow not in shifts_by_dow:
-                shifts_by_dow[dow] = {
-                    "nome":   t["tx_name"],
-                    "inicio": t["dt_inicio"].strftime("%H:%M"),
-                    "fim":    t["dt_fim"].strftime("%H:%M"),
-                    "ativo":  bool(t["bl_ativo"]),
-                }
-
-    calendario = []
-    for i, dia in enumerate(_DIAS_SEMANA):
-        if i in shifts_by_dow:
-            entry = {**shifts_by_dow[i], "dia": dia}
-        else:
-            entry = {"dia": dia, "nome": f"Turno {i+1}", "inicio": "07:00", "fim": "17:00", "ativo": i < 5}
-        calendario.append(entry)
-
     return {
         "id":           int(ihm["id_ihm"]),
         "nome":         ihm["tx_name"],
@@ -720,12 +780,11 @@ def get_machine_config_data(machine_id: int) -> dict:
         "meta":         meta,
         "peca_atual":   peca_atual,
         "pecas":        pecas,
-        "calendario":   calendario,
     }
 
 
-def update_machine_config(machine_id: int, meta: int, peca_nome: str, calendario: list) -> dict:
-    """Salva meta, peça e calendário semanal de uma máquina."""
+def update_machine_config(machine_id: int, meta: int, peca_nome: str) -> dict:
+    """Salva meta e peça de uma máquina."""
     df_regs = run_query("""
         SELECT id_registrador, tx_descricao
         FROM tb_registrador
@@ -750,46 +809,6 @@ def update_machine_config(machine_id: int, meta: int, peca_nome: str, calendario
                 INSERT INTO dbo.tb_log_registrador (id_ihm, id_registrador, nu_valor_bruto)
                 VALUES (:id_ihm, :id_reg, :valor)
             """, {"id_ihm": machine_id, "id_reg": regs["modelo_peça"], "valor": cod_peca})
-
-    df_ihm = run_query("SELECT id_linha_producao FROM tb_ihm WHERE id_ihm = :id", {"id": machine_id})
-    if not df_ihm.empty:
-        id_linha = int(df_ihm.iloc[0]["id_linha_producao"])
-        run_query_update("DELETE FROM dbo.tb_turnos WHERE id_linha_producao = :linha", {"linha": id_linha})
-
-        dow_map = {d: i for i, d in enumerate(_DIAS_SEMANA)}
-        today = date.today()
-        # Cobre 5 semanas passadas + 1 semana futura para não quebrar dados históricos
-        range_start = today - timedelta(weeks=5)
-        range_end   = today + timedelta(weeks=1)
-
-        for entry in calendario:
-            if not entry.get("ativo", False):
-                continue
-            dow_target = dow_map.get(entry["dia"])
-            if dow_target is None:
-                continue
-            hi, hm = map(int, entry["inicio"].split(":"))
-            fi, fm = map(int, entry["fim"].split(":"))
-            nome_turno = entry.get("nome") or f"TURNO_{entry['dia'][:3].upper()}"
-
-            # Primeira ocorrência desse dia da semana dentro do range
-            days_to_first = (dow_target - range_start.weekday()) % 7
-            occurrence = range_start + timedelta(days=days_to_first)
-
-            while occurrence <= range_end:
-                dt_inicio = datetime.combine(occurrence, time(hi, hm))
-                dt_fim_base = datetime.combine(occurrence, time(fi, fm))
-                dt_fim = dt_fim_base + timedelta(days=1) if (fi, fm) < (hi, hm) else dt_fim_base
-                run_query_update("""
-                    INSERT INTO dbo.tb_turnos (tx_name, dt_inicio, dt_fim, id_linha_producao, bl_ativo)
-                    VALUES (:nome, :dt_inicio, :dt_fim, :linha, 1)
-                """, {
-                    "nome":     nome_turno,
-                    "dt_inicio": dt_inicio,
-                    "dt_fim":    dt_fim,
-                    "linha":     id_linha,
-                })
-                occurrence += timedelta(weeks=1)
 
     return {"ok": True}
 

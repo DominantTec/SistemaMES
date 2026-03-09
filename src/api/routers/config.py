@@ -2,7 +2,10 @@ from typing import List
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from api.services.queries import get_all_machines, get_machine_config_data, update_machine_config, get_overview_turno
+from api.services.queries import (
+    get_all_machines, get_machine_config_data, update_machine_config,
+    get_overview_turno, get_line_shifts, update_line_shifts, get_lines_df,
+)
 
 router = APIRouter(prefix="/api/config", tags=["config"])
 
@@ -30,7 +33,6 @@ class DiaCalendario(BaseModel):
 class MachineConfigUpdate(BaseModel):
     meta: int
     peca: str
-    calendario: List[DiaCalendario]
 
 
 @router.get("/turno/atual")
@@ -41,10 +43,24 @@ def turno_atual():
 
 @router.put("/machines/{machine_id}")
 def save_config(machine_id: int, body: MachineConfigUpdate):
-    """Salva meta, peça e calendário de funcionamento."""
-    return update_machine_config(
-        machine_id,
-        body.meta,
-        body.peca,
-        [d.model_dump() for d in body.calendario],
-    )
+    """Salva meta e peça de uma máquina."""
+    return update_machine_config(machine_id, body.meta, body.peca)
+
+
+@router.get("/lines")
+def list_lines():
+    """Lista todas as linhas de produção."""
+    df = get_lines_df()
+    return [{"id": int(r["id_linha_producao"]), "nome": r["tx_name"]} for _, r in df.iterrows()]
+
+
+@router.get("/lines/{line_id}/turnos")
+def get_line_turnos(line_id: int):
+    """Retorna o calendário de turnos de uma linha."""
+    return get_line_shifts(line_id)
+
+
+@router.put("/lines/{line_id}/turnos")
+def save_line_turnos(line_id: int, body: list[DiaCalendario]):
+    """Salva o calendário de turnos de uma linha."""
+    return update_line_shifts(line_id, [d.model_dump() for d in body])
