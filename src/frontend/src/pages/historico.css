@@ -1,0 +1,429 @@
+/* ============================================================
+   Historico.css
+   ============================================================ */
+
+.hi-root {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+}
+
+/* ── Filter card ─────────────────────────────────────────── */
+.hi-filter-card {
+  background: rgba(255,255,255,0.9);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.hi-filter-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.hi-page-title {
+  margin: 0 0 2px;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.hi-page-sub {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.hi-filter-shortcuts {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.hi-shortcut {
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #f9fafb;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.hi-shortcut:hover {
+  background: #f3f4f6;
+  color: var(--text);
+}
+
+.hi-shortcut--active {
+  background: var(--brand);
+  color: #fff;
+  border-color: var(--brand);
+}
+
+.hi-filter-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.hi-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.hi-filter-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.hi-filter-input {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 14px;
+  background: var(--bg);
+  color: var(--text);
+  min-width: 200px;
+}
+
+.hi-filter-sep {
+  font-size: 18px;
+  color: var(--muted);
+  padding-bottom: 8px;
+}
+
+.hi-buscar-btn {
+  padding: 9px 24px;
+  background: var(--brand);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.15s;
+}
+
+.hi-buscar-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ── Estado ──────────────────────────────────────────────── */
+.hi-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 40px;
+  color: var(--muted);
+  font-size: 14px;
+  justify-content: center;
+}
+
+.hi-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--line);
+  border-top-color: var(--brand);
+  border-radius: 50%;
+  animation: hi-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes hi-spin { to { transform: rotate(360deg); } }
+
+.hi-error {
+  padding: 16px 20px;
+  background: #fee2e2;
+  color: #dc2626;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.hi-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 60px 40px;
+  color: var(--muted);
+}
+
+.hi-empty-icon { font-size: 40px; }
+.hi-empty-text { font-size: 14px; text-align: center; }
+
+/* ── Período banner ──────────────────────────────────────── */
+.hi-periodo-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 20px;
+  background: rgba(255,255,255,0.85);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  flex-wrap: wrap;
+}
+
+.hi-periodo-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.hi-periodo-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.hi-periodo-range {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.hi-periodo-oee {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.hi-periodo-oee-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.hi-periodo-oee-val {
+  font-size: 28px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Lines ───────────────────────────────────────────────── */
+.hi-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+}
+
+.hi-line-section {
+  background: rgba(255,255,255,0.75);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.hi-line-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.hi-line-badge {
+  background: var(--brand);
+  color: #fff;
+  font-weight: 700;
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+
+.hi-line-meta {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.hi-line-meta strong { color: var(--text); font-weight: 700; }
+
+/* ── Machine Grid ────────────────────────────────────────── */
+.hi-machine-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+/* ── Machine Card ────────────────────────────────────────── */
+.hi-machine-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 220px;
+}
+
+.hi-machine-status-bar {
+  height: 5px;
+  flex-shrink: 0;
+}
+
+.hi-machine-body {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+
+.hi-machine-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.hi-machine-name {
+  font-weight: 800;
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.hi-machine-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hi-oee-block {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.hi-oee-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.hi-oee-value {
+  font-size: 26px;
+  font-weight: 900;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.hi-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.hi-metric-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hi-metric-label {
+  font-size: 11px;
+  color: var(--muted);
+  width: 30px;
+  flex-shrink: 0;
+}
+
+.hi-bar-track {
+  flex: 1;
+  height: 7px;
+  background: #f3f4f6;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.hi-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+}
+
+.hi-metric-value {
+  font-size: 11px;
+  font-weight: 700;
+  width: 52px;
+  text-align: right;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.hi-prod-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+  margin-top: 2px;
+}
+
+.hi-prod-label {
+  font-size: 11px;
+  color: var(--muted);
+  width: 30px;
+  flex-shrink: 0;
+}
+
+.hi-prod-value {
+  font-size: 13px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.hi-prod-value strong {
+  font-weight: 800;
+  font-size: 15px;
+}
+
+.hi-prod-meta {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}

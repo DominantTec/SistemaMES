@@ -56,6 +56,14 @@ export default function Sidebar() {
           <span>Ordens em Aberto</span>
         </button>
 
+        <NavLink
+          to="/historico"
+          className={({ isActive }) => "sb-item" + (isActive ? " active" : "")}
+        >
+          <span className="sb-ico">📊</span>
+          <span>Histórico</span>
+        </NavLink>
+
         <a
           href="/painel"
           target="_blank"

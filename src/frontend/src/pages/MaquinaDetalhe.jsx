@@ -57,6 +57,77 @@ function MtbfRow({ label, value }) {
   );
 }
 
+function parseHM(str) {
+  if (!str || str === "-") return 0;
+  const m = str.match(/(\d+)h\s*(\d+)m/);
+  return m ? parseInt(m[1]) * 3600 + parseInt(m[2]) * 60 : 0;
+}
+
+function DonutChart({ mtbf, mttr }) {
+  const vMtbf = parseHM(mtbf);
+  const vMttr = parseHM(mttr);
+  const total  = vMtbf + vMttr;
+
+  if (total === 0) return (
+    <div className="md-donut-empty">Sem dados suficientes para o gráfico</div>
+  );
+
+  const SIZE  = 150;
+  const THICK = 28;
+  const r     = (SIZE - THICK) / 2;
+  const circ  = 2 * Math.PI * r;
+
+  const pctMtbf = vMtbf / total;
+  const pctMttr = vMttr / total;
+
+  const segments = [
+    { pct: pctMtbf, color: "#16a34a", label: "MTBF", value: mtbf },
+    { pct: pctMttr, color: "#dc2626", label: "MTTR", value: mttr },
+  ];
+
+  let cumAngle = -90;
+  return (
+    <div className="md-donut-wrap">
+      <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`}>
+        {segments.map((seg, i) => {
+          const dash   = seg.pct * circ;
+          const gap    = circ - dash;
+          const rotate = cumAngle;
+          cumAngle += seg.pct * 360;
+          return (
+            <circle
+              key={i}
+              cx={SIZE / 2} cy={SIZE / 2} r={r}
+              fill="none"
+              stroke={seg.color}
+              strokeWidth={THICK}
+              strokeDasharray={`${dash} ${gap}`}
+              strokeLinecap="butt"
+              transform={`rotate(${rotate} ${SIZE / 2} ${SIZE / 2})`}
+            />
+          );
+        })}
+        <text x={SIZE / 2} y={SIZE / 2 - 6}  textAnchor="middle" className="md-donut-pct" fill="#111827">
+          {Math.round(pctMtbf * 100)}%
+        </text>
+        <text x={SIZE / 2} y={SIZE / 2 + 12} textAnchor="middle" className="md-donut-sub" fill="#6b7280">
+          operando
+        </text>
+      </svg>
+
+      <div className="md-donut-legend">
+        {segments.map((seg) => (
+          <div key={seg.label} className="md-donut-legend-item">
+            <span className="md-donut-legend-dot" style={{ background: seg.color }} />
+            <span className="md-donut-legend-label">{seg.label}</span>
+            <span className="md-donut-legend-val">{seg.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function MaquinaDetalhe() {
   const { machineId } = useParams();
   const [data, setData]   = useState(null);
@@ -155,9 +226,10 @@ export default function MaquinaDetalhe() {
         {/* Índices de Manutenção */}
         <div className="md-card md-maintenance">
           <div className="md-card-title">Índices de Manutenção</div>
-          <MtbfRow label="MTBF (Médio entre falhas)"    value={data.manutencao?.mtbf} />
-          <MtbfRow label="MTTR (Médio para reparo)"     value={data.manutencao?.mttr} />
+          <MtbfRow label="MTBF (Médio entre falhas)"     value={data.manutencao?.mtbf} />
+          <MtbfRow label="MTTR (Médio para reparo)"      value={data.manutencao?.mttr} />
           <MtbfRow label="MTTA (Médio para atendimento)" value={data.manutencao?.mtta} />
+          <DonutChart mtbf={data.manutencao?.mtbf} mttr={data.manutencao?.mttr} />
         </div>
 
         {/* Registros de Paradas */}

@@ -926,6 +926,63 @@ def get_overview_data() -> dict:
     }
 
 
+def get_historico_data(data_inicio: datetime, data_fim: datetime) -> dict:
+    """Payload histórico para um período arbitrário."""
+    df_linhas = get_lines_df()
+    linhas = []
+
+    for _, linha in df_linhas.iterrows():
+        line_id     = int(linha["id_linha_producao"])
+        df_machines = get_machines_by_line_df(line_id)
+
+        maquinas        = []
+        total_produzido = 0
+        total_meta      = 0
+
+        for _, machine in df_machines.iterrows():
+            machine_id = int(machine["id_ihm"])
+            metrics    = get_metrics_machine(machine_id, data_inicio=data_inicio, data_fim=data_fim)
+
+            produzido = metrics["produzido"] if isinstance(metrics["produzido"], (int, float)) else 0
+            meta      = metrics["meta"]      if isinstance(metrics["meta"],      (int, float)) else 0
+            total_produzido += produzido
+            total_meta      += meta
+
+            maquinas.append({
+                "id":              machine_id,
+                "nome":            machine["tx_name"],
+                "status":          metrics["status_maquina"],
+                "oee":             metrics["oee"],
+                "disponibilidade": metrics["disponibilidade"],
+                "qualidade":       metrics["qualidade"],
+                "performance":     metrics["performance"],
+                "produzido":       produzido,
+                "meta":            meta,
+            })
+
+        realizado_pct = int(100 * total_produzido / total_meta) if total_meta else 0
+        linhas.append({
+            "id":            line_id,
+            "nome":          linha["tx_name"],
+            "realizado":     total_produzido,
+            "meta_total":    total_meta,
+            "realizado_pct": realizado_pct,
+            "maquinas":      maquinas,
+        })
+
+    all_oees = [m["oee"] for l in linhas for m in l["maquinas"] if isinstance(m.get("oee"), (int, float))]
+    oee_global = round(sum(all_oees) / len(all_oees), 1) if all_oees else None
+
+    return {
+        "oee_global": oee_global,
+        "periodo": {
+            "inicio": data_inicio.strftime("%d/%m/%Y %H:%M"),
+            "fim":    data_fim.strftime("%d/%m/%Y %H:%M"),
+        },
+        "linhas": linhas,
+    }
+
+
 # =========================
 # DETALHE DE LINHA
 # =========================

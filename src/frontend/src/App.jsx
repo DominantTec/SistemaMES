@@ -5,6 +5,7 @@ import LinhaDetalhe from "./pages/linhadetalhe";
 import MaquinaDetalhe from "./pages/MaquinaDetalhe";
 import Configuracoes from "./pages/Configuracoes";
 import Painel from "./pages/Painel";
+import Historico from "./pages/Historico";
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
               <Route path="/linha/:lineId" element={<LinhaDetalhe />} />
               <Route path="/maquina/:machineId" element={<MaquinaDetalhe />} />
               <Route path="/configuracoes" element={<Configuracoes />} />
+              <Route path="/historico" element={<Historico />} />
             </Routes>
           </AppLayout>
         } />
