@@ -55,6 +55,16 @@ export default function Sidebar() {
           <span className="sb-ico">≡</span>
           <span>Ordens em Aberto</span>
         </button>
+
+        <a
+          href="/painel"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="sb-item"
+        >
+          <span className="sb-ico">📺</span>
+          <span>Painel TV</span>
+        </a>
       </nav>
 
       <div className="sb-section">
