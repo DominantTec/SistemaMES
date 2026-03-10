@@ -5,14 +5,16 @@ import LinhaDetalhe from "./pages/linhadetalhe";
 import MaquinaDetalhe from "./pages/MaquinaDetalhe";
 import Configuracoes from "./pages/Configuracoes";
 import Painel from "./pages/Painel";
+import PainelMES from "./pages/PainelMES";
 import Historico from "./pages/Historico";
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Painel TV — sem sidebar, tela cheia */}
-        <Route path="/painel" element={<Painel />} />
+        {/* Painéis TV — sem sidebar, tela cheia */}
+        <Route path="/painel"     element={<Painel />} />
+        <Route path="/painel-mes" element={<PainelMES />} />
 
         {/* Rotas normais com sidebar */}
         <Route path="/*" element={

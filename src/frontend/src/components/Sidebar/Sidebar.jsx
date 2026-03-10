@@ -65,7 +65,7 @@ export default function Sidebar() {
         </NavLink>
 
         <a
-          href="/painel"
+          href="/painel-mes"
           target="_blank"
           rel="noopener noreferrer"
           className="sb-item"
@@ -73,6 +73,11 @@ export default function Sidebar() {
           <span className="sb-ico">📺</span>
           <span>Painel TV</span>
         </a>
+
+        <span className="sb-item sb-item--disabled">
+          <span className="sb-ico">🖥️</span>
+          <span>Painel TV (antigo) <span className="sb-soon">em breve</span></span>
+        </span>
       </nav>
 
       <div className="sb-section">

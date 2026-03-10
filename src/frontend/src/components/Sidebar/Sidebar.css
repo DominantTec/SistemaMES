@@ -107,6 +107,23 @@
   display: inline-block;
 }
 
+.sb-item--disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.sb-soon {
+  font-size: 10px;
+  font-weight: 700;
+  background: #e5e7eb;
+  color: #6b7280;
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
 .sb-spacer{ flex: 1; }
 
 .sb-card{

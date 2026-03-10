@@ -1,0 +1,308 @@
+/* ============================================================
+   PainelMES.css — Tela MES para TV / Chão de Fábrica
+   ============================================================ */
+
+.mes-root {
+  display: flex;
+  min-height: 100vh;
+  background: #fff;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  color: #111;
+}
+
+/* ── Loading / Error ─────────────────────────────────────── */
+.mes-loading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 60px;
+  color: #6b7280;
+  font-size: 16px;
+  justify-content: center;
+  width: 100%;
+}
+.mes-spinner {
+  width: 22px; height: 22px;
+  border: 3px solid #e5e7eb;
+  border-top-color: #1e3a8a;
+  border-radius: 50%;
+  animation: mes-spin 0.7s linear infinite;
+}
+@keyframes mes-spin { to { transform: rotate(360deg); } }
+.mes-error {
+  padding: 40px; color: #dc2626; font-size: 16px;
+}
+
+/* ── Sidebar vertical ────────────────────────────────────── */
+.mes-sidebar {
+  width: 44px;
+  flex-shrink: 0;
+  background: #1e3a8a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mes-sidebar-label {
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  white-space: nowrap;
+}
+
+/* ── Conteúdo principal ──────────────────────────────────── */
+.mes-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 0;
+}
+
+/* ── Navegação ───────────────────────────────────────────── */
+.mes-nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  background: #f8fafc;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.mes-nav-btn {
+  width: 32px; height: 32px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  color: #1e3a8a;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background 0.15s;
+}
+.mes-nav-btn:hover:not(:disabled) { background: #dbeafe; }
+.mes-nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.mes-nav-num {
+  font-size: 20px;
+  font-weight: 900;
+  color: #1e3a8a;
+  min-width: 28px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.mes-nav-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1e3a8a;
+}
+
+.mes-nav-meta {
+  font-size: 13px;
+  color: #64748b;
+  margin-left: 8px;
+}
+
+/* ── Tabela de máquinas ──────────────────────────────────── */
+.mes-table-wrap {
+  overflow-x: auto;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.mes-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.mes-th {
+  background: #1e3a8a;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 10px 14px;
+  text-align: center;
+  white-space: nowrap;
+  border-right: 1px solid #2d4da0;
+}
+.mes-th:last-child { border-right: none; }
+.mes-th--name { text-align: left; }
+
+.mes-row {
+  border-bottom: 1px solid #e2e8f0;
+  transition: background 0.15s;
+}
+.mes-row:hover { background: #f8fafc; }
+.mes-row--alert {
+  background: #fffbeb;
+}
+.mes-row--alert:hover { background: #fef9c3; }
+.mes-row--stopped {
+  background: #fee2e2;
+}
+.mes-row--stopped:hover { background: #fecaca; }
+
+.mes-td {
+  padding: 12px 14px;
+  vertical-align: middle;
+  border-right: 1px solid #f1f5f9;
+}
+.mes-td:last-child { border-right: none; }
+
+.mes-td--name {
+  font-weight: 700;
+  font-size: 15px;
+  color: #1e293b;
+  white-space: nowrap;
+}
+
+.mes-td--metric {
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* Dots */
+.mes-dot {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.mes-dot--green   { background: #16a34a; }
+.mes-dot--yellow  { background: #d97706; }
+.mes-dot--red     { background: #dc2626; }
+.mes-dot--neutral { background: #9ca3af; }
+
+/* Values */
+.mes-val {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  vertical-align: middle;
+}
+.mes-val--green   { color: #16a34a; }
+.mes-val--yellow  { color: #d97706; }
+.mes-val--red     { color: #dc2626; }
+.mes-val--neutral { color: #6b7280; }
+
+/* Status badge */
+.mes-td--status { text-align: center; }
+
+.mes-status-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.mes-status-badge--ok   { background: #dcfce7; color: #16a34a; }
+.mes-status-badge--stop { background: #fee2e2; color: #dc2626; }
+
+.mes-empty {
+  text-align: center;
+  color: #9ca3af;
+  padding: 32px;
+  font-size: 13px;
+}
+
+/* ── Painel de turnos ────────────────────────────────────── */
+.mes-turn-panel {
+  background: #fefce8;
+  border-top: 2px solid #fde68a;
+  padding: 16px 20px;
+  flex-shrink: 0;
+}
+
+.mes-turn-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.mes-turn-th {
+  font-size: 12px;
+  font-weight: 700;
+  color: #92400e;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 6px 16px 10px;
+  text-align: center;
+  border-bottom: 2px solid #fde68a;
+}
+.mes-turn-th--label { text-align: left; width: 120px; }
+
+.mes-turn-row { border-bottom: 1px solid #fde68a; }
+.mes-turn-row:last-child { border-bottom: none; }
+
+.mes-turn-td {
+  padding: 10px 16px;
+  font-weight: 600;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: #1e293b;
+}
+.mes-turn-td--label {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #92400e;
+}
+.mes-turn-td--empty { color: #9ca3af; font-weight: 400; }
+
+/* Progress bar na célula */
+.mes-prog-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mes-prog-track {
+  position: relative;
+  width: 100%;
+  max-width: 200px;
+  height: 28px;
+  background: #e5e7eb;
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+}
+
+.mes-prog-fill {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  background: #16a34a;
+  border-radius: 6px;
+  transition: width 0.5s ease;
+}
+
+.mes-prog-label {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  text-align: center;
+  font-weight: 700;
+  font-size: 14px;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+}
+
+/* Delta colorido */
+.mes-delta { font-weight: 700; }
+.mes-delta--green   { color: #16a34a; }
+.mes-delta--red     { color: #dc2626; }
+.mes-delta--neutral { color: #6b7280; }
