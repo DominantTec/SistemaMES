@@ -52,7 +52,6 @@ function Clock() {
 
 function MachineCard({ machine }) {
   const st  = getStatus(machine.status);
-  const oc  = oeeColor(machine.oee);
   const pct = machine.meta > 0
     ? Math.min(100, Math.round(100 * machine.produzido / machine.meta))
     : 0;
@@ -68,12 +67,6 @@ function MachineCard({ machine }) {
           <span className="pn-card-badge" style={{ color: st.color, background: st.bg }}>
             {st.label}
           </span>
-        </div>
-
-        {/* OEE grande */}
-        <div className="pn-card-oee" style={{ color: oc }}>
-          {machine.oee !== "-" ? `${machine.oee}%` : "—"}
-          <span className="pn-card-oee-label">OEE</span>
         </div>
 
         {/* Barra de produção */}
