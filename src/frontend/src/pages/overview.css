@@ -204,6 +204,8 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  width: 100%;
+  min-width: 0;
 }
 
 .ov-line-section {
@@ -211,6 +213,10 @@
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 16px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .ov-line-header {
@@ -242,6 +248,8 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 12px;
+  width: 100%;
+  min-width: 0;
 }
 
 /* ── Machine Card ──────────────────────────────────────────── */
