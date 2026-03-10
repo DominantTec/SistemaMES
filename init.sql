@@ -241,8 +241,8 @@ SET IDENTITY_INSERT dbo.tb_ihm ON;
 
 INSERT INTO dbo.tb_ihm (id_ihm, tx_ip_address, tx_port_number, id_linha_producao, tx_name) VALUES
 -- Linha 1 – reais (altere os IPs para os endereços reais do DIACom)
-(1, '192.168.1.1', '502', 1, N'CUSI_02'),
-(2, '192.168.1.2', '502', 1, N'MAQ_24'),
+(1, '192.168.1.1', '502', 1, N'ACM 1'),
+(2, '192.168.1.2', '502', 1, N'ACM 2'),
 -- Linha 2 – fantasmas (IPs não usados; simulação feita pelo simulator.py)
 (3, '127.0.0.1', '5020', 2, N'TRATAMENTO 1'),
 (4, '127.0.0.1', '5021', 2, N'PRIMER 1'),
