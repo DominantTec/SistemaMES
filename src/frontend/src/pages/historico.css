@@ -248,8 +248,16 @@
 .hi-line-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 14px;
   margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.hi-line-header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .hi-line-badge {
@@ -426,4 +434,46 @@
   font-size: 12px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+/* ── Gauge ───────────────────────────────────────────────── */
+.hi-gauge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.hi-gauge-pct {
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.hi-gauge-sub {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.hi-gauge-unit {
+  color: #9ca3af;
+}
+
+/* ── Período banner — gauge central ─────────────────────── */
+.hi-periodo-gauge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.hi-periodo-gauge-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  text-transform: uppercase;
 }

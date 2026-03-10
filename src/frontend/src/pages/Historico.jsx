@@ -97,16 +97,89 @@ function MachineCard({ machine }) {
   );
 }
 
+/* ── Gauge velocímetro ───────────────────────────────────── */
+function GaugeChart({ produzido, meta, size = 170 }) {
+  const raw  = meta > 0 ? (produzido / meta) * 100 : 0;
+  const pct  = Math.min(raw, 100);                 // arco visual (máx 100%)
+  const disp = Math.round(raw);                    // texto pode passar de 100%
+
+  const cx = 100, cy = 90, r = 73, sw = 11;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const px    = (d) => cx + r * Math.cos(toRad(d));
+  const py    = (d) => cy - r * Math.sin(toRad(d));
+
+  // Arco de fundo: 180° → 0° passando pelo topo (sweep=0 = anti-horário = para cima)
+  const trackD = `M ${px(180)} ${py(180)} A ${r} ${r} 0 0 0 ${px(0)} ${py(0)}`;
+
+  // Arco de preenchimento
+  const fillAngle = 180 - Math.min(pct, 99.99) / 100 * 180;
+  const fillD = pct > 0.01
+    ? `M ${px(180)} ${py(180)} A ${r} ${r} 0 0 0 ${px(fillAngle)} ${py(fillAngle)}`
+    : null;
+
+  // Ponteiro
+  const needleLen = r - sw - 5;
+  const needleAng = 180 - pct / 100 * 180;
+  const ntx = cx + needleLen * Math.cos(toRad(needleAng));
+  const nty = cy - needleLen * Math.sin(toRad(needleAng));
+
+  const color = disp >= 75 ? "#16a34a" : disp >= 50 ? "#d97706" : "#dc2626";
+
+  return (
+    <div className="hi-gauge">
+      <svg viewBox="0 0 200 110" width={size} style={{ display: "block" }}>
+        {/* Ticks decorativos */}
+        {[0, 25, 50, 75, 100].map((t) => {
+          const a = 180 - t / 100 * 180;
+          const r1 = r + sw / 2 + 3, r2 = r + sw / 2 + 9;
+          return (
+            <line key={t}
+              x1={cx + r1 * Math.cos(toRad(a))} y1={cy - r1 * Math.sin(toRad(a))}
+              x2={cx + r2 * Math.cos(toRad(a))} y2={cy - r2 * Math.sin(toRad(a))}
+              stroke="#d1d5db" strokeWidth={t === 0 || t === 100 ? 2 : 1.5}
+            />
+          );
+        })}
+        {/* Trilho */}
+        <path d={trackD} fill="none" stroke="#e5e7eb" strokeWidth={sw} strokeLinecap="round" />
+        {/* Preenchimento */}
+        {fillD && (
+          <path d={fillD} fill="none" stroke={color} strokeWidth={sw} strokeLinecap="round" />
+        )}
+        {/* Ponteiro */}
+        <line x1={cx} y1={cy} x2={ntx} y2={nty}
+              stroke={color} strokeWidth={2.5} strokeLinecap="round" />
+        <circle cx={cx} cy={cy} r={5} fill={color} />
+        <circle cx={cx} cy={cy} r={2.5} fill="#fff" />
+        {/* Rótulos min/max */}
+        <text x="18" y={cy + 18} fontSize="9" fill="#9ca3af"
+              fontFamily="system-ui" textAnchor="middle">0</text>
+        <text x="182" y={cy + 18} fontSize="9" fill="#9ca3af"
+              fontFamily="system-ui" textAnchor="middle">{meta}</text>
+      </svg>
+      <div className="hi-gauge-pct" style={{ color }}>{disp}%</div>
+      <div className="hi-gauge-sub">
+        <span style={{ fontWeight: 700, color }}>{produzido}</span>
+        {" / "}{meta}
+        <span className="hi-gauge-unit"> un</span>
+      </div>
+    </div>
+  );
+}
+
 function LineSection({ linha }) {
   return (
     <div className="hi-line-section">
       <div className="hi-line-header">
-        <span className="hi-line-badge">{linha.nome}</span>
-        <span className="hi-line-meta">
-          Produzido: <strong>{linha.realizado} un ({linha.realizado_pct}%)</strong>
-          {" • "}
-          Meta: <strong>{linha.meta_total} un</strong>
-        </span>
+        <div className="hi-line-header-left">
+          <span className="hi-line-badge">{linha.nome}</span>
+          <span className="hi-line-meta">
+            Produzido: <strong>{linha.realizado} un ({linha.realizado_pct}%)</strong>
+            {" • "}
+            Meta: <strong>{linha.meta_total} un</strong>
+          </span>
+        </div>
+        <GaugeChart produzido={linha.realizado} meta={linha.meta_total} />
       </div>
       <div className="hi-machine-grid">
         {linha.maquinas.map((m) => (
@@ -259,31 +332,39 @@ export default function Historico() {
       )}
 
       {/* ── Resultados ──────────────────────────────────────── */}
-      {data && !loading && (
-        <>
-          {/* Banner do período */}
-          <div className="hi-periodo-banner">
-            <div className="hi-periodo-info">
-              <span className="hi-periodo-label">Período consultado</span>
-              <span className="hi-periodo-range">{data.periodo.inicio} → {data.periodo.fim}</span>
+      {data && !loading && (() => {
+        const totalProd = data.linhas.reduce((s, l) => s + (l.realizado ?? 0), 0);
+        const totalMeta = data.linhas.reduce((s, l) => s + (l.meta_total ?? 0), 0);
+        return (
+          <>
+            {/* Banner do período */}
+            <div className="hi-periodo-banner">
+              <div className="hi-periodo-info">
+                <span className="hi-periodo-label">Período consultado</span>
+                <span className="hi-periodo-range">{data.periodo.inicio} → {data.periodo.fim}</span>
+              </div>
+              <div className="hi-periodo-gauge">
+                <span className="hi-periodo-gauge-label">Produção Total</span>
+                <GaugeChart produzido={totalProd} meta={totalMeta} size={200} />
+              </div>
+              <div className="hi-periodo-oee">
+                <span className="hi-periodo-oee-label">OEE Global do Período</span>
+                <span
+                  className="hi-periodo-oee-val"
+                  style={{ color: oeeColor(data.oee_global) }}
+                >
+                  {data.oee_global !== null ? `${data.oee_global}%` : "—"}
+                </span>
+              </div>
             </div>
-            <div className="hi-periodo-oee">
-              <span className="hi-periodo-oee-label">OEE Global do Período</span>
-              <span
-                className="hi-periodo-oee-val"
-                style={{ color: oeeColor(data.oee_global) }}
-              >
-                {data.oee_global !== null ? `${data.oee_global}%` : "—"}
-              </span>
-            </div>
-          </div>
 
-          {/* Linhas */}
-          <div className="hi-lines">
-            {data.linhas.map((l) => <LineSection key={l.id} linha={l} />)}
-          </div>
-        </>
-      )}
+            {/* Linhas */}
+            <div className="hi-lines">
+              {data.linhas.map((l) => <LineSection key={l.id} linha={l} />)}
+            </div>
+          </>
+        );
+      })()}
 
       {/* ── Empty state ─────────────────────────────────────── */}
       {!data && !loading && !error && (
