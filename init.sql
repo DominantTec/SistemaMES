@@ -213,8 +213,8 @@ GO
 /* =========================================================
    POPULANDO TABELAS
    =========================================================
-   Linha 1 – LINHA_505   : 2 IHMs reais (DIACom)     → id_ihm 1, 2
-   Linha 2 – LINHA_SIMULADA : 5 IHMs fantasma (sim)  → id_ihm 3..7
+   Linha 1 – LINHA ACM     : 2 IHMs reais (DIACom)     → id_ihm 1, 2
+   Linha 2 – LINHA PINTURA : 5 IHMs fantasma (sim)  → id_ihm 3..7
    ========================================================= */
 
 USE MES_Core;
@@ -226,16 +226,16 @@ GO
 SET IDENTITY_INSERT dbo.tb_linha_producao ON;
 
 INSERT INTO dbo.tb_linha_producao (id_linha_producao, tx_name) VALUES
-(1, N'LINHA_505'),       -- máquinas reais, conectadas via DIACom
-(2, N'LINHA_SIMULADA');  -- máquinas fantasma, alimentadas pelo simulator.py
+(1, N'LINHA ACM'),       -- máquinas reais, conectadas via DIACom
+(2, N'LINHA PINTURA');   -- máquinas fantasma, alimentadas pelo simulator.py
 
 SET IDENTITY_INSERT dbo.tb_linha_producao OFF;
 GO
 
 -- -------------------------------------------------------
 -- IHMs
--- LINHA_505 (real): ajuste os IPs/portas conforme o DIACom
--- LINHA_SIMULADA (fantasma): IPs fictícios, não são acessados via Modbus
+-- LINHA ACM (real): ajuste os IPs/portas conforme o DIACom
+-- LINHA PINTURA (fantasma): IPs fictícios, não são acessados via Modbus
 -- -------------------------------------------------------
 SET IDENTITY_INSERT dbo.tb_ihm ON;
 
@@ -244,11 +244,11 @@ INSERT INTO dbo.tb_ihm (id_ihm, tx_ip_address, tx_port_number, id_linha_producao
 (1, '192.168.1.1', '502', 1, N'CUSI_02'),
 (2, '192.168.1.2', '502', 1, N'MAQ_24'),
 -- Linha 2 – fantasmas (IPs não usados; simulação feita pelo simulator.py)
-(3, '127.0.0.1', '5020', 2, N'SIM_01'),
-(4, '127.0.0.1', '5021', 2, N'SIM_02'),
-(5, '127.0.0.1', '5022', 2, N'SIM_03'),
-(6, '127.0.0.1', '5023', 2, N'SIM_04'),
-(7, '127.0.0.1', '5024', 2, N'SIM_05');
+(3, '127.0.0.1', '5020', 2, N'TRATAMENTO 1'),
+(4, '127.0.0.1', '5021', 2, N'PRIMER 1'),
+(5, '127.0.0.1', '5022', 2, N'PINTURA 1'),
+(6, '127.0.0.1', '5023', 2, N'PINTURA 2'),
+(7, '127.0.0.1', '5024', 2, N'ESTUFA 1');
 
 SET IDENTITY_INSERT dbo.tb_ihm OFF;
 GO
