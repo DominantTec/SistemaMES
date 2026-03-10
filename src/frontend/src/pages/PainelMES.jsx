@@ -20,13 +20,12 @@ function deltaColor(val) {
   return n >= 0 ? "green" : "red";
 }
 
-function pctDot(val) {
-  return <span className={`mes-dot mes-dot--${pctColor(val)}`} />;
-}
-
-function deltaDot(val) {
-  return <span className={`mes-dot mes-dot--${deltaColor(val)}`} />;
-}
+const COLOR_BG = {
+  green:   "#bbf7d0",
+  yellow:  "#fef08a",
+  red:     "#fecaca",
+  neutral: undefined,
+};
 
 function fmt(v, suffix = "") {
   if (v === null || v === undefined || v === "-") return "—";
@@ -54,45 +53,35 @@ function MaquinaRow({ machine, metaHora, isWorst }) {
     <tr className={`mes-row${isStopped ? " mes-row--stopped" : isWorst ? " mes-row--alert" : ""}`}>
       <td className="mes-td mes-td--name">{machine.nome}</td>
 
-      <td className="mes-td mes-td--metric">
-        {pctDot(machine.performance)}
-        <span className={`mes-val mes-val--${pctColor(machine.performance)}`}>
-          {fmt(machine.performance, "%")}
-        </span>
+      <td className="mes-td mes-td--metric"
+          style={{ background: isStopped ? undefined : COLOR_BG[pctColor(machine.performance)] }}>
+        <span className="mes-val">{fmt(machine.performance, "%")}</span>
       </td>
 
-      <td className="mes-td mes-td--metric">
-        {pctDot(machine.disponibilidade)}
-        <span className={`mes-val mes-val--${pctColor(machine.disponibilidade)}`}>
-          {fmt(machine.disponibilidade, "%")}
-        </span>
+      <td className="mes-td mes-td--metric"
+          style={{ background: isStopped ? undefined : COLOR_BG[pctColor(machine.disponibilidade)] }}>
+        <span className="mes-val">{fmt(machine.disponibilidade, "%")}</span>
       </td>
 
-      <td className="mes-td mes-td--metric">
-        {pctDot(machine.qualidade)}
-        <span className={`mes-val mes-val--${pctColor(machine.qualidade)}`}>
-          {fmt(machine.qualidade, "%")}
-        </span>
+      <td className="mes-td mes-td--metric"
+          style={{ background: isStopped ? undefined : COLOR_BG[pctColor(machine.qualidade)] }}>
+        <span className="mes-val">{fmt(machine.qualidade, "%")}</span>
       </td>
 
-      <td className="mes-td mes-td--metric">
-        {pctDot(machine.oee)}
-        <span className={`mes-val mes-val--${pctColor(machine.oee)}`}>
-          {fmt(machine.oee, "%")}
-        </span>
+      <td className="mes-td mes-td--metric"
+          style={{ background: isStopped ? undefined : COLOR_BG[pctColor(machine.oee)] }}>
+        <span className="mes-val">{fmt(machine.oee, "%")}</span>
       </td>
 
-      <td className="mes-td mes-td--metric">
-        {deltaDot(pcHora)}
-        <span className={`mes-val mes-val--${deltaColor(pcHora)}`}>
+      <td className="mes-td mes-td--metric"
+          style={{ background: isStopped ? undefined : COLOR_BG[deltaColor(pcHora)] }}>
+        <span className="mes-val">
           {pcHora !== null ? (pcHora >= 0 ? `+${pcHora}` : pcHora) : "—"}
         </span>
       </td>
 
       <td className="mes-td mes-td--metric">
-        <span className="mes-val mes-val--neutral">
-          {acumulado !== null ? acumulado : "—"}
-        </span>
+        <span className="mes-val">{acumulado !== null ? acumulado : "—"}</span>
       </td>
 
       <td className="mes-td mes-td--status">

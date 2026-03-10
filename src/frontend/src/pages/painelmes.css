@@ -190,11 +190,8 @@
   font-variant-numeric: tabular-nums;
   font-size: 14px;
   vertical-align: middle;
+  color: #111;
 }
-.mes-val--green   { color: #16a34a; }
-.mes-val--yellow  { color: #d97706; }
-.mes-val--red     { color: #dc2626; }
-.mes-val--neutral { color: #6b7280; }
 
 /* Status badge */
 .mes-td--status { text-align: center; }
