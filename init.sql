@@ -242,7 +242,7 @@ SET IDENTITY_INSERT dbo.tb_ihm ON;
 INSERT INTO dbo.tb_ihm (id_ihm, tx_ip_address, tx_port_number, id_linha_producao, tx_name) VALUES
 -- Linha 1 – reais (altere os IPs para os endereços reais do DIACom)
 (1, '192.168.1.1', '502', 1, N'ACM 1'),
-(2, '192.168.1.2', '502', 1, N'ACM 2'),
+-- (2, '192.168.1.2', '502', 1, N'ACM 2'),  -- IHM 2 desativada temporariamente
 -- Linha 2 – fantasmas (IPs não usados; simulação feita pelo simulator.py)
 (3, '127.0.0.1', '5020', 2, N'TRATAMENTO 1'),
 (4, '127.0.0.1', '5021', 2, N'PRIMER 1'),
@@ -262,7 +262,7 @@ SET IDENTITY_INSERT dbo.tb_ftp_needed ON;
 
 INSERT INTO dbo.tb_ftp_needed (id_ftp_needed, id_ihm, bl_needed) VALUES
 (1, 1, 1),
-(2, 2, 1),
+-- (2, 2, 1),  -- IHM 2 desativada temporariamente
 (3, 3, 0),
 (4, 4, 0),
 (5, 5, 0),
@@ -289,12 +289,12 @@ INSERT INTO dbo.tb_registrador (id_registrador, nu_endereco, tx_descricao, id_ih
 (5,  201, N'reprovado',       1), (6,  202, N'total_produzido', 1),
 (7,  300, N'manutentor',      1), (8,  301, N'engenheiro',      1),
 (9,  400, N'meta',            1), (10, 401, N'modelo_peça',     1),
--- IHM 2 – MAQ_24 (real)
-(11, 0,   N'operador',        2), (12, 100, N'status_maquina',  2),
-(13, 101, N'motivo_parada',   2), (14, 200, N'produzido',       2),
-(15, 201, N'reprovado',       2), (16, 202, N'total_produzido', 2),
-(17, 300, N'manutentor',      2), (18, 301, N'engenheiro',      2),
-(19, 400, N'meta',            2), (20, 401, N'modelo_peça',     2),
+-- IHM 2 – MAQ_24 (real) -- desativada temporariamente
+-- (11, 0,   N'operador',        2), (12, 100, N'status_maquina',  2),
+-- (13, 101, N'motivo_parada',   2), (14, 200, N'produzido',       2),
+-- (15, 201, N'reprovado',       2), (16, 202, N'total_produzido', 2),
+-- (17, 300, N'manutentor',      2), (18, 301, N'engenheiro',      2),
+-- (19, 400, N'meta',            2), (20, 401, N'modelo_peça',     2),
 -- IHM 3 – SIM_01 (fantasma)
 (21, 0,   N'operador',        3), (22, 100, N'status_maquina',  3),
 (23, 101, N'motivo_parada',   3), (24, 200, N'produzido',       3),
@@ -360,7 +360,7 @@ GO
 INSERT INTO dbo.tb_depara_peca (nu_cod_peca, tx_peca, id_ihm) VALUES
 -- Linha real
 (1, N'Eixo A-12',  1),
-(1, N'Base Z',     2),
+-- (1, N'Base Z',     2),  -- IHM 2 desativada temporariamente
 -- Linha simulada (2 modelos por IHM para permitir troca durante simulação)
 (1, N'Corpo X-7',  3), (2, N'Pino B-3',   3),
 (1, N'Anel C-7',   4), (2, N'Suporte L',  4),
@@ -375,7 +375,7 @@ GO
 INSERT INTO dbo.tb_depara_operador (nu_cod_operador, tx_operador, id_ihm) VALUES
 -- Linha real
 (1, N'Ana S.',      1), (2, N'João M.',    1),
-(1, N'João M.',     2),
+-- (1, N'João M.',     2),  -- IHM 2 desativada temporariamente
 -- Linha simulada (múltiplos por IHM para rodízio na simulação)
 (1, N'Lucas F.',    3), (2, N'Fernanda K.', 3), (3, N'Bruno S.',   3),
 (1, N'Ricardo A.',  4), (2, N'Sandra M.',   4),
@@ -390,7 +390,7 @@ GO
 INSERT INTO dbo.tb_depara_manutentor (nu_cod_manutentor, tx_manutentor, id_ihm) VALUES
 -- Linha real
 (1, N'Marcos T.',   1),
-(1, N'Marcos T.',   2),
+-- (1, N'Marcos T.',   2),  -- IHM 2 desativada temporariamente
 -- Linha simulada
 (1, N'Lucas P.',    3),
 (1, N'Lucas P.',    4),
@@ -405,7 +405,7 @@ GO
 INSERT INTO dbo.tb_depara_engenheiro (nu_cod_engenheiro, tx_engenheiro, id_ihm) VALUES
 -- Linha real
 (1, N'Dr. Silva',    1),
-(1, N'Dr. Silva',    2),
+-- (1, N'Dr. Silva',    2),  -- IHM 2 desativada temporariamente
 -- Linha simulada
 (1, N'Eng. Costa',   3),
 (1, N'Eng. Costa',   4),
@@ -422,7 +422,7 @@ INSERT INTO dbo.tb_depara_motivo_parada (nu_cod_motivo_parada, tx_motivo_parada,
 (1, N'Aguardando Matéria Prima', 1), (2, N'Falta de operador',     1),
 (3, N'Manutenção Preventiva',    1), (4, N'Limpeza programada',    1),
 (5, N'Troca de ferramental',     1),
-(1, N'Aguardando Matéria Prima', 2), (2, N'Falta de operador',     2),
+-- (1, N'Aguardando Matéria Prima', 2), (2, N'Falta de operador',     2),  -- IHM 2 desativada temporariamente
 -- Linha simulada (mesmo conjunto para todas as IHMs fantasma)
 (1, N'Aguardando Matéria Prima', 3), (2, N'Falta de operador',     3),
 (3, N'Manutenção Preventiva',    3), (4, N'Limpeza programada',    3),
@@ -472,25 +472,25 @@ INSERT INTO dbo.tb_log_registrador (id_ihm, id_registrador, nu_valor_bruto, dt_c
 (1, 7,  0,   DATEADD(hour, 7, @t0)),      (1, 8,  0,   DATEADD(hour, 7, @t0)),
 (1, 9,  600, DATEADD(hour, 7, @t0)),      (1, 10, 1,   DATEADD(hour, 7, @t0));
 
--- ── IHM 2 (MAQ_24) – Parada no início, volta depois ───────────────────────
-INSERT INTO dbo.tb_log_registrador (id_ihm, id_registrador, nu_valor_bruto, dt_created_at) VALUES
-(2, 11, 0,   @t0),                        (2, 12, 0,   @t0),  -- Parada (sem operador)
-(2, 13, 2,   @t0),                        (2, 14, 0,   @t0),
-(2, 15, 0,   @t0),                        (2, 16, 0,   @t0),
-(2, 17, 0,   @t0),                        (2, 18, 0,   @t0),
-(2, 19, 600, @t0),                        (2, 20, 1,   @t0),
-
-(2, 11, 1,   DATEADD(hour, 3, @t0)),      (2, 12, 49,  DATEADD(hour, 3, @t0)),  -- Voltou a produzir
-(2, 13, 0,   DATEADD(hour, 3, @t0)),      (2, 14, 0,   DATEADD(hour, 3, @t0)),
-(2, 15, 0,   DATEADD(hour, 3, @t0)),      (2, 16, 0,   DATEADD(hour, 3, @t0)),
-(2, 17, 0,   DATEADD(hour, 3, @t0)),      (2, 18, 0,   DATEADD(hour, 3, @t0)),
-(2, 19, 600, DATEADD(hour, 3, @t0)),      (2, 20, 1,   DATEADD(hour, 3, @t0)),
-
-(2, 11, 1,   DATEADD(hour, 7, @t0)),      (2, 12, 49,  DATEADD(hour, 7, @t0)),
-(2, 13, 0,   DATEADD(hour, 7, @t0)),      (2, 14, 312, DATEADD(hour, 7, @t0)),
-(2, 15, 8,   DATEADD(hour, 7, @t0)),      (2, 16, 320, DATEADD(hour, 7, @t0)),
-(2, 17, 0,   DATEADD(hour, 7, @t0)),      (2, 18, 0,   DATEADD(hour, 7, @t0)),
-(2, 19, 600, DATEADD(hour, 7, @t0)),      (2, 20, 1,   DATEADD(hour, 7, @t0));
+-- ── IHM 2 (MAQ_24) – desativada temporariamente ───────────────────────────
+-- INSERT INTO dbo.tb_log_registrador (id_ihm, id_registrador, nu_valor_bruto, dt_created_at) VALUES
+-- (2, 11, 0,   @t0),                        (2, 12, 0,   @t0),  -- Parada (sem operador)
+-- (2, 13, 2,   @t0),                        (2, 14, 0,   @t0),
+-- (2, 15, 0,   @t0),                        (2, 16, 0,   @t0),
+-- (2, 17, 0,   @t0),                        (2, 18, 0,   @t0),
+-- (2, 19, 600, @t0),                        (2, 20, 1,   @t0),
+--
+-- (2, 11, 1,   DATEADD(hour, 3, @t0)),      (2, 12, 49,  DATEADD(hour, 3, @t0)),  -- Voltou a produzir
+-- (2, 13, 0,   DATEADD(hour, 3, @t0)),      (2, 14, 0,   DATEADD(hour, 3, @t0)),
+-- (2, 15, 0,   DATEADD(hour, 3, @t0)),      (2, 16, 0,   DATEADD(hour, 3, @t0)),
+-- (2, 17, 0,   DATEADD(hour, 3, @t0)),      (2, 18, 0,   DATEADD(hour, 3, @t0)),
+-- (2, 19, 600, DATEADD(hour, 3, @t0)),      (2, 20, 1,   DATEADD(hour, 3, @t0)),
+--
+-- (2, 11, 1,   DATEADD(hour, 7, @t0)),      (2, 12, 49,  DATEADD(hour, 7, @t0)),
+-- (2, 13, 0,   DATEADD(hour, 7, @t0)),      (2, 14, 312, DATEADD(hour, 7, @t0)),
+-- (2, 15, 8,   DATEADD(hour, 7, @t0)),      (2, 16, 320, DATEADD(hour, 7, @t0)),
+-- (2, 17, 0,   DATEADD(hour, 7, @t0)),      (2, 18, 0,   DATEADD(hour, 7, @t0)),
+-- (2, 19, 600, DATEADD(hour, 7, @t0)),      (2, 20, 1,   DATEADD(hour, 7, @t0));
 
 -- ── IHM 3 (SIM_01) – Produzindo (estado inicial para o simulador) ──────────
 INSERT INTO dbo.tb_log_registrador (id_ihm, id_registrador, nu_valor_bruto, dt_created_at) VALUES
