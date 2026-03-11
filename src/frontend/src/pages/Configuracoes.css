@@ -1,0 +1,576 @@
+/* ============================================================
+   Configuracoes.css
+   ============================================================ */
+
+.cfg-root {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+  max-width: 1400px;
+}
+
+/* ── Topbar ────────────────────────────────────────────────── */
+.cfg-topbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.cfg-page-title {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.cfg-page-sub {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.cfg-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.cfg-saved-msg {
+  font-size: 13px;
+  color: #16a34a;
+}
+
+.cfg-save-btn {
+  background: var(--brand);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cfg-save-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ── Cards ─────────────────────────────────────────────────── */
+.cfg-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 20px 24px;
+}
+
+.cfg-card-header {
+  margin-bottom: 16px;
+}
+
+.cfg-card-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* ── Machine selector ──────────────────────────────────────── */
+.cfg-selector-card {
+  display: flex;
+  align-items: flex-end;
+  gap: 40px;
+  flex-wrap: wrap;
+}
+
+.cfg-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 280px;
+}
+
+.cfg-label {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.cfg-select {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-size: 14px;
+  font: inherit;
+  background: var(--bg);
+  color: var(--text);
+  min-width: 240px;
+}
+
+.cfg-status-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cfg-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cfg-status-badge {
+  border-radius: 20px;
+  padding: 4px 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cfg-status-desde {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ── Loading ───────────────────────────────────────────────── */
+.cfg-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 4px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.cfg-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--line);
+  border-top-color: var(--brand);
+  border-radius: 50%;
+  animation: cfg-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes cfg-spin { to { transform: rotate(360deg); } }
+
+/* ── Body layout ───────────────────────────────────────────── */
+.cfg-body {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  gap: 16px;
+  align-items: start;
+}
+
+/* ── Calendar ──────────────────────────────────────────────── */
+.cfg-cal-header-row {
+  display: grid;
+  grid-template-columns: 110px 90px 12px 90px 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 0 0 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.cfg-cal-status-col {
+  text-align: right;
+}
+
+.cfg-cal-row {
+  display: grid;
+  grid-template-columns: 110px 90px 12px 90px 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.cfg-cal-row:last-child {
+  border-bottom: none;
+}
+
+.cfg-cal-row--inactive {
+  opacity: 0.45;
+}
+
+.cfg-cal-dia {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.cfg-time-input {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 14px;
+  font: inherit;
+  background: var(--bg);
+  color: var(--text);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.cfg-time-input:disabled {
+  background: #f3f4f6;
+  color: #9ca3af;
+}
+
+.cfg-cal-sep {
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* ── Toggle ────────────────────────────────────────────────── */
+.cfg-toggle-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.cfg-toggle-label {
+  font-size: 13px;
+  color: var(--muted);
+  min-width: 44px;
+  text-align: right;
+}
+
+.cfg-toggle {
+  position: relative;
+  width: 42px;
+  height: 24px;
+  border-radius: 999px;
+  background: #d1d5db;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.cfg-toggle--on {
+  background: var(--brand);
+}
+
+.cfg-toggle-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  transition: left 0.2s;
+  display: block;
+}
+
+.cfg-toggle--on .cfg-toggle-knob {
+  left: 21px;
+}
+
+/* ── Right panel ───────────────────────────────────────────── */
+.cfg-ctx-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.cfg-ctx-header {
+  margin-bottom: 20px;
+}
+
+.cfg-ctx-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+}
+
+.cfg-ctx-section:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.cfg-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* ── Meta control ──────────────────────────────────────────── */
+.cfg-meta-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cfg-meta-btn {
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.cfg-meta-btn:hover {
+  background: #e5e7eb;
+}
+
+.cfg-meta-input {
+  flex: 1;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 16px;
+  font-weight: 600;
+  font: inherit;
+  text-align: center;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.cfg-ajustar-btn {
+  margin-top: 4px;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  font-size: 14px;
+  font-weight: 600;
+  font: inherit;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.cfg-ajustar-btn:hover {
+  background: var(--bg);
+}
+
+.cfg-ajustar-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ── Gestão de Turnos ──────────────────────────────────────── */
+.cfg-card-desc {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.cfg-shift-header {
+  display: grid;
+  grid-template-columns: 110px minmax(0,1fr) 100px 100px 130px 40px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border-radius: 8px;
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.cfg-shift-status-col {
+  text-align: right;
+}
+
+.cfg-shift-row {
+  display: grid;
+  grid-template-columns: 110px minmax(0,1fr) 100px 100px 130px 40px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  transition: background 0.15s;
+}
+
+.cfg-shift-row:hover {
+  background: var(--bg);
+}
+
+.cfg-shift-row--inactive {
+  opacity: 0.45;
+}
+
+.cfg-shift-row--today {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.cfg-shift-row--today:hover {
+  background: #dbeafe;
+}
+
+.cfg-shift-dia {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cfg-dia-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--line);
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.cfg-dia-pill--today {
+  background: var(--brand);
+  color: #fff;
+}
+
+.cfg-hoje-tag {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--brand);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cfg-shift-name-input {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 13px;
+  font: inherit;
+  background: var(--bg);
+  color: var(--text);
+  width: 100%;
+  min-width: 0;
+}
+
+.cfg-shift-name-input:disabled {
+  background: #f3f4f6;
+  color: #9ca3af;
+}
+
+.cfg-shift-name-input::placeholder {
+  color: #9ca3af;
+}
+
+/* ── Layout duas colunas ───────────────────────────────────── */
+.cfg-two-col {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 16px;
+  align-items: start;
+}
+
+/* ── Card header com botão inline ──────────────────────────── */
+.cfg-card-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.cfg-card-header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+/* ── Params card sections ──────────────────────────────────── */
+.cfg-params-card .cfg-ctx-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+}
+
+/* ── Shift row extras ──────────────────────────────────────── */
+.cfg-dia-select {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 8px;
+  font-size: 13px;
+  font: inherit;
+  background: var(--bg);
+  color: var(--text);
+  width: 100%;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.cfg-shift-empty {
+  padding: 24px 12px;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  margin: 4px 0;
+}
+
+.cfg-add-btn {
+  margin-top: 8px;
+  padding: 9px 16px;
+  background: transparent;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  width: 100%;
+  transition: background 0.15s, color 0.15s;
+}
+
+.cfg-add-btn:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.cfg-remove-btn {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  justify-self: center;
+  transition: background 0.15s, color 0.15s;
+}
+
+.cfg-remove-btn:hover {
+  background: #fee2e2;
+  color: #dc2626;
+  border-color: #fca5a5;
+}

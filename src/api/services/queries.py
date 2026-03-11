@@ -1,4 +1,6 @@
+from datetime import datetime, date, time, timedelta
 from typing import List, Dict, Any, Optional
+import pandas as pd
 
 from api.services.db import run_query, run_query_update
 
@@ -79,7 +81,6 @@ def get_machine_timeline(machine_id: int, data_inicio: Optional[Any] = None, dat
             53: "Alteração de Parâmetros",
         }
 
-        # Só mapeia se existir
         if "status_maquina" in df_registradores.columns:
             df_registradores["status_maquina"] = df_registradores["status_maquina"].map(depara_status_maquina)
 
@@ -216,138 +217,901 @@ def get_meta_register(machine_id: int) -> int:
         return -1
 
 
-def get_metrics_machine(machine_id: int, data_inicio: Optional[Any] = None, data_fim: Optional[Any] = None) -> Dict[str, Any]:
-    """Retorna as principais informações de uma IHM para um dado periodo de tempo."""
-    try:
-        df_registradores = get_machine_timeline(machine_id, data_inicio=data_inicio, data_fim=data_fim)
-        df_shifts = get_machine_shifts(machine_id, data_inicio=data_inicio, data_fim=data_fim)
+def _get_current_shift_window(machine_id: int, agora: datetime):
+    """Retorna (dt_inicio, dt_fim) do turno ativo agora para a máquina.
+    Se não houver turno ativo, usa o turno mais recente que terminou hoje.
+    Se não houver nenhum turno hoje, retorna (início do dia, agora)."""
+    df = run_query("""
+        SELECT TOP 1 t.dt_inicio, t.dt_fim
+        FROM dbo.tb_turnos t
+        JOIN dbo.tb_ihm i ON i.id_linha_producao = t.id_linha_producao
+        WHERE i.id_ihm = :id
+          AND t.dt_inicio <= :agora
+          AND t.dt_fim    >= :agora
+        ORDER BY t.dt_inicio
+    """, {"id": machine_id, "agora": agora})
 
-        first_register = df_registradores[df_registradores["dt_created_at"] == df_registradores["dt_created_at"].min()]
+    if not df.empty:
+        return df.iloc[0]["dt_inicio"], df.iloc[0]["dt_fim"]
+
+    # Último turno que terminou hoje
+    df2 = run_query("""
+        SELECT TOP 1 t.dt_inicio, t.dt_fim
+        FROM dbo.tb_turnos t
+        JOIN dbo.tb_ihm i ON i.id_linha_producao = t.id_linha_producao
+        WHERE i.id_ihm   = :id
+          AND t.dt_fim   <= :agora
+          AND t.dt_inicio >= :inicio_dia
+        ORDER BY t.dt_fim DESC
+    """, {"id": machine_id, "agora": agora,
+          "inicio_dia": datetime.combine(agora.date(), time(0, 0))})
+
+    if not df2.empty:
+        return df2.iloc[0]["dt_inicio"], df2.iloc[0]["dt_fim"]
+
+    # Fallback: início do dia até agora
+    return datetime.combine(agora.date(), time(0, 0)), agora
+
+
+def get_metrics_machine(machine_id: int, data_inicio: Optional[Any] = None, data_fim: Optional[Any] = None) -> Dict[str, Any]:
+    """Retorna as principais informações de uma IHM para o turno atual (ou período informado)."""
+    try:
+        agora = datetime.utcnow()
+
+        # Quando não há filtro de data, calcula apenas para o turno atual.
+        # Isso evita acumular histórico de dias/turnos anteriores no OEE.
+        if not data_inicio or not data_fim:
+            data_inicio, data_fim = _get_current_shift_window(machine_id, agora)
+
+        shift_inicio  = data_inicio
+        shift_fim_ref = data_fim   # limite teórico do turno
+        # Para turno ainda em andamento, o teto real é agora
+        fim_efetivo   = min(shift_fim_ref, agora)
+        duracao_turno = (fim_efetivo - shift_inicio).total_seconds()
+
+        # Limita os registros a agora — registros futuros (init.sql com timestamps
+        # adiantados) criariam intervalos negativos de produção.
+        data_fim_registros = min(shift_fim_ref, agora)
+        df_registradores = get_machine_timeline(machine_id, data_inicio=shift_inicio, data_fim=data_fim_registros)
+        df_shifts        = get_machine_shifts(machine_id,   data_inicio=shift_inicio, data_fim=shift_fim_ref)
+
+        # Remove linhas sem status (registros de meta/peça salvos pela UI)
+        if "status_maquina" in df_registradores.columns:
+            df_registradores = df_registradores[df_registradores["status_maquina"].notna()].copy()
+
+        if df_registradores.empty:
+            return {
+                "status_maquina": "-", "oee": "-", "disponibilidade": "-",
+                "performance": "-", "qualidade": "-", "meta": "-",
+                "produzido": "-", "reprovado": "-", "total_produzido": "-",
+                "operador": "-", "manutentor": "-", "engenheiro": "-",
+            }
+
         last_register = df_registradores[df_registradores["dt_created_at"] == df_registradores["dt_created_at"].max()]
 
-        status = last_register["status_maquina"].to_list()[0] if "status_maquina" in last_register.columns else "-"
-        operador = last_register["operador"].to_list()[0] if "operador" in last_register.columns else "-"
-        manutentor = last_register["manutentor"].to_list()[0] if "manutentor" in last_register.columns else "-"
-        engenheiro = last_register["engenheiro"].to_list()[0] if "engenheiro" in last_register.columns else "-"
+        status     = last_register["status_maquina"].to_list()[0] if "status_maquina" in last_register.columns else "-"
+        operador   = last_register["operador"].to_list()[0]       if "operador"       in last_register.columns else "-"
+        manutentor = last_register["manutentor"].to_list()[0]     if "manutentor"     in last_register.columns else "-"
+        engenheiro = last_register["engenheiro"].to_list()[0]     if "engenheiro"     in last_register.columns else "-"
 
-        lista_qtd_aprovado = []
-        lista_qtd_reprovado = []
-        lista_qtd_total = []
-        lista_produzido = []
-        lista_esperado = []
+        # ── Calcula intervalos de produção dentro do turno ──────────────────
+        lista_produzido:    list = []
+        lista_qtd_aprovado:  list = []
+        lista_qtd_reprovado: list = []
+        lista_qtd_total:     list = []
 
-        status_antigo = ""
-        inicio = None
-        inicio_qtd_aprovado = None
+        status_antigo        = ""
+        inicio               = None
+        inicio_qtd_aprovado  = None
         inicio_qtd_reprovado = None
-        inicio_qtd_total = None
-        inicio_teorico = None
-
-        fim = None
-        fim_qtd_aprovado = None
-        fim_qtd_reprovado = None
-        fim_qtd_total = None
-        fim_teorico = None
+        inicio_qtd_total     = None
 
         for _, row in df_registradores.iterrows():
-            working_day = df_shifts[
-                (df_shifts["dt_inicio"].dt.date == row["dt_created_at"].date()) &
-                (df_shifts["id_ihm"] == machine_id)
-            ]
+            st = row["status_maquina"]
 
-            # evita quebrar se não achou turno
-            if working_day.empty:
-                status_antigo = row.get("status_maquina", status_antigo)
-                continue
+            # Entrada em produção
+            if status_antigo != "Produzindo" and st == "Produzindo":
+                inicio               = max(shift_inicio, row["dt_created_at"])
+                inicio_qtd_aprovado  = row.get("produzido")
+                inicio_qtd_reprovado = row.get("reprovado")
+                inicio_qtd_total     = row.get("total_produzido")
 
-            if status_antigo != "Produzindo" and row["status_maquina"] == "Produzindo":
-                if row["dt_created_at"] < working_day["dt_fim"].to_list()[0]:
-                    inicio = working_day["dt_inicio"].to_list()[0] if row["dt_created_at"] < working_day["dt_inicio"].to_list()[0] else row["dt_created_at"]
-                    inicio_qtd_aprovado = row.get("produzido")
-                    inicio_qtd_reprovado = row.get("reprovado")
-                    inicio_qtd_total = row.get("total_produzido")
-                    inicio_teorico = working_day["dt_inicio"].to_list()[0]
+            # Saída de produção
+            elif status_antigo == "Produzindo" and st != "Produzindo":
+                if inicio is not None:
+                    lista_produzido.append((inicio, min(row["dt_created_at"], shift_fim_ref)))
+                    lista_qtd_aprovado.append((inicio_qtd_aprovado,   row.get("produzido")))
+                    lista_qtd_reprovado.append((inicio_qtd_reprovado, row.get("reprovado")))
+                    lista_qtd_total.append((inicio_qtd_total,          row.get("total_produzido")))
+                    inicio = None
 
-            elif (
-                (status_antigo == "Produzindo" and row["status_maquina"] != "Produzindo") or
-                (status_antigo == "Produzindo" and row["status_maquina"] == "Produzindo" and row["dt_created_at"] == last_register["dt_created_at"].to_list()[0])
-            ):
-                if row["dt_created_at"] > working_day["dt_inicio"].to_list()[0]:
-                    fim = working_day["dt_fim"].to_list()[0] if row["dt_created_at"] > working_day["dt_fim"].to_list()[0] else row["dt_created_at"]
-                    fim_qtd_aprovado = row.get("produzido")
-                    fim_qtd_reprovado = row.get("reprovado")
-                    fim_qtd_total = row.get("total_produzido")
-                    fim_teorico = working_day["dt_fim"].to_list()[0]
+            status_antigo = st
 
-            if inicio and fim:
-                if inicio.day == fim.day:
-                    if (inicio, fim) not in lista_produzido:
-                        lista_produzido.append((inicio, fim))
-                    if (inicio_teorico, fim_teorico) not in lista_esperado:
-                        lista_esperado.append((inicio_teorico, fim_teorico))
+        # Fecha sessão ainda aberta no fim do loop (máquina ainda produzindo).
+        # Usa os valores do último registro como fim — sem isso total=0 e performance=0%.
+        if inicio is not None and fim_efetivo > inicio:
+            def _col(col):
+                return last_register[col].to_list()[0] if col in last_register.columns else None
+            lista_produzido.append((inicio, fim_efetivo))
+            lista_qtd_aprovado.append((inicio_qtd_aprovado,  _col("produzido")))
+            lista_qtd_reprovado.append((inicio_qtd_reprovado, _col("reprovado")))
+            lista_qtd_total.append((inicio_qtd_total,         _col("total_produzido")))
 
-                    lista_qtd_aprovado.append((inicio_qtd_aprovado, fim_qtd_aprovado))
-                    lista_qtd_reprovado.append((inicio_qtd_reprovado, fim_qtd_reprovado))
-                    lista_qtd_total.append((inicio_qtd_total, fim_qtd_total))
+        # ── Métricas de tempo ────────────────────────────────────────────────
+        tempo_produzido = sum((b - a).total_seconds() for a, b in lista_produzido)
 
-                inicio_qtd_aprovado = inicio_qtd_reprovado = inicio_qtd_total = None
-                fim_qtd_aprovado = fim_qtd_reprovado = fim_qtd_total = None
-                inicio = inicio_teorico = None
-                fim = fim_teorico = None
+        # Disponibilidade: janela de observação a partir do primeiro evento de
+        # produção no turno. Isso garante que a máquina comece em 100% e só
+        # diminua quando houver paradas. Quando não há produção registrada,
+        # retorna 100% (aguardando início de ciclo).
+        if lista_produzido:
+            observation_start = min(inicio for inicio, _ in lista_produzido)
+            tempo_programado  = (fim_efetivo - observation_start).total_seconds()
+            disponibilidade   = min(1.0, tempo_produzido / tempo_programado) if tempo_programado > 0 else 1.0
+        else:
+            disponibilidade = 1.0  # sem produção registrada ainda → 100%
 
-            status_antigo = row["status_maquina"]
+        produzido = sum((b - a) for a, b in lista_qtd_aprovado  if a is not None and b is not None)
+        reprovado = sum((b - a) for a, b in lista_qtd_reprovado if a is not None and b is not None)
+        total     = sum((b - a) for a, b in lista_qtd_total      if a is not None and b is not None)
 
-        tempo_produzido = sum([(b - a).total_seconds() for a, b in lista_produzido])
-        tempo_programado = sum([(b - a).total_seconds() for a, b in lista_esperado])
+        meta = get_meta(machine_id)
 
-        produzido = sum([(b - a) for a, b in lista_qtd_aprovado if a is not None and b is not None])
-        reprovado = sum([(b - a) for a, b in lista_qtd_reprovado if a is not None and b is not None])
-        total = sum([(b - a) for a, b in lista_qtd_total if a is not None and b is not None])
-
-        disponibilidade = tempo_produzido / tempo_programado if tempo_programado else 0
-
-        meta = (tempo_programado // 1) if tempo_programado else 1
-        performance = (int(total) / meta) if meta else 0
-        qualidade = (int(produzido) / int(total)) if total else 0
+        # Performance: usa a mesma janela de observação da disponibilidade.
+        # A meta esperada cresce a partir do primeiro evento de produção,
+        # garantindo que inicia em 100% e cai se o ritmo ficar abaixo da meta.
+        if lista_produzido:
+            total_shift_s = (shift_fim_ref - shift_inicio).total_seconds()
+            observation_elapsed = (fim_efetivo - observation_start).total_seconds()
+            meta_proporcional = meta * (observation_elapsed / total_shift_s) if total_shift_s > 0 else 0
+            performance = min(1.0, int(total) / meta_proporcional) if meta_proporcional > 0 else 1.0
+        else:
+            performance = 1.0  # sem produção registrada ainda → 100%
+        qualidade   = min(1.0, int(produzido) / int(total))    if total            else 1.0
 
         oee = disponibilidade * performance * qualidade
 
         return {
-            "status_maquina": status,
-            "oee": round(100 * oee, 2),
+            "status_maquina":  status,
+            "oee":             round(100 * oee,             2),
             "disponibilidade": round(100 * disponibilidade, 2),
-            "performance": round(100 * performance, 2),
-            "qualidade": round(100 * qualidade, 2),
-            "meta": meta,
-            "produzido": produzido,
-            "reprovado": reprovado,
+            "performance":     round(100 * performance,     2),
+            "qualidade":       round(100 * qualidade,       2),
+            "meta":            meta,
+            "produzido":       produzido,
+            "reprovado":       reprovado,
             "total_produzido": total,
-            "operador": operador,
-            "manutentor": manutentor,
-            "engenheiro": engenheiro,
+            "operador":        operador,
+            "manutentor":      manutentor,
+            "engenheiro":      engenheiro,
         }
     except Exception:
         return {
-            "status_maquina": "-",
-            "oee": "-",
-            "disponibilidade": "-",
-            "performance": "-",
-            "qualidade": "-",
-            "meta": "-",
-            "produzido": "-",
-            "reprovado": "-",
-            "total_produzido": "-",
-            "operador": "-",
-            "manutentor": "-",
-            "engenheiro": "-",
+            "status_maquina": "-", "oee": "-", "disponibilidade": "-",
+            "performance": "-", "qualidade": "-", "meta": "-",
+            "produzido": "-", "reprovado": "-", "total_produzido": "-",
+            "operador": "-", "manutentor": "-", "engenheiro": "-",
         }
 
 
 def get_alerts_ihm(id_ihm: int, data_inicio: Optional[Any] = None, data_fim: Optional[Any] = None) -> List[Dict[str, Any]]:
-    """Retorna os alertas de uma IHM para um dado periodo de tempo."""
-    # Mantido como stub (como estava)
-    return [
-        {"dt_created_at": "2024-01-01 08:00:00", "tx_descricao": "alerta_1", "nu_valor_bruto": 1},
-        {"dt_created_at": "2024-01-01 09:00:00", "tx_descricao": "alerta_2", "nu_valor_bruto": 1},
-        {"dt_created_at": "2024-01-01 10:00:00", "tx_descricao": "alerta_3", "nu_valor_bruto": 1},
+    """Retorna mudanças de status e motivo de parada de uma IHM."""
+    params: Dict[str, Any] = {"id_ihm": id_ihm}
+    filtro_data = ""
+    if data_inicio and data_fim:
+        filtro_data = "AND lr.dt_created_at >= :data_inicio AND lr.dt_created_at <= :data_fim"
+        params["data_inicio"] = data_inicio
+        params["data_fim"] = data_fim
+
+    df = run_query(f"""
+        SELECT TOP 50
+            lr.dt_created_at,
+            r.tx_descricao,
+            lr.nu_valor_bruto
+        FROM dbo.tb_log_registrador lr
+        JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
+        WHERE lr.id_ihm = :id_ihm
+          AND r.tx_descricao IN ('status_maquina', 'motivo_parada')
+          {filtro_data}
+        ORDER BY lr.dt_created_at DESC
+    """, params)
+
+    return df.to_dict(orient="records")
+
+
+# =========================
+# DETALHE DE MÁQUINA
+# =========================
+
+def get_machine_detail(machine_id: int) -> dict:
+    """Payload completo da tela de detalhe de uma máquina específica."""
+    df_ihm = run_query("""
+        SELECT i.id_ihm, i.tx_name, l.tx_name AS linha_nome
+        FROM dbo.tb_ihm i
+        JOIN dbo.tb_linha_producao l ON l.id_linha_producao = i.id_linha_producao
+        WHERE i.id_ihm = :id
+    """, {"id": machine_id})
+
+    if df_ihm.empty:
+        return {"erro": f"Máquina {machine_id} não encontrada"}
+
+    ihm     = df_ihm.iloc[0]
+    metrics = get_metrics_machine(machine_id)
+    peca    = get_selected_piece(machine_id)
+
+    op_nome  = _resolve_nome(metrics.get("operador"),   machine_id, "tb_depara_operador",  "nu_cod_operador",   "tx_operador")
+    man_nome = _resolve_nome(metrics.get("manutentor"), machine_id, "tb_depara_manutentor", "nu_cod_manutentor", "tx_manutentor")
+
+    # --- logs de status para calcular paradas e índices ---
+    depara_status_txt = {
+        0: "Parada", 1: "Passar Padrão", 4: "Limpeza",
+        49: "Produzindo", 50: "Maquina Liberada",
+        51: "Aguardando Manutentor", 52: "Máquina em manutenção",
+        53: "Alteração de Parâmetros",
+    }
+
+    df_logs = run_query("""
+        SELECT lr.dt_created_at, lr.nu_valor_bruto, r.tx_descricao
+        FROM dbo.tb_log_registrador lr
+        JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
+        WHERE lr.id_ihm = :id
+          AND r.tx_descricao IN ('status_maquina', 'motivo_parada')
+        ORDER BY lr.dt_created_at
+    """, {"id": machine_id})
+
+    paradas: List[Dict[str, Any]] = []
+    tempos_parada_s: List[float] = []
+
+    if not df_logs.empty:
+        df_status = df_logs[df_logs["tx_descricao"] == "status_maquina"]
+        df_motivo = df_logs[df_logs["tx_descricao"] == "motivo_parada"]
+        rows      = df_status[["dt_created_at", "nu_valor_bruto"]].values.tolist()
+
+        inicio_parada = None
+        status_ant    = None
+
+        for dt, cod in rows:
+            cod = int(cod)
+            if status_ant == 49 and cod != 49:
+                inicio_parada = dt
+            elif status_ant != 49 and cod == 49 and inicio_parada is not None:
+                dur_s = (dt - inicio_parada).total_seconds()
+                tempos_parada_s.append(dur_s)
+                h, r = divmod(int(dur_s), 3600)
+
+                motivo = None
+                if not df_motivo.empty:
+                    df_m = df_motivo[df_motivo["dt_created_at"] >= inicio_parada]
+                    if not df_m.empty:
+                        motivo = _resolve_nome(
+                            df_m.iloc[0]["nu_valor_bruto"], machine_id,
+                            "tb_depara_motivo_parada", "nu_cod_motivo_parada", "tx_motivo_parada",
+                        )
+
+                paradas.append({
+                    "inicio":  inicio_parada.strftime("%H:%M"),
+                    "motivo":  motivo or depara_status_txt.get(status_ant, "-"),
+                    "duracao": f"{h}h {r // 60:02d}m" if h else f"{r // 60}m",
+                    "status":  depara_status_txt.get(status_ant, "-"),
+                })
+                inicio_parada = None
+            status_ant = cod
+
+    # --- MTBF / MTTR (simplificado a partir dos logs disponíveis) ---
+    def fmt_hm(seconds: float) -> str:
+        h, r = divmod(int(max(0, seconds)), 3600)
+        return f"{h}h {r // 60:02d}m"
+
+    num_paradas = len(paradas)
+    mttr_s = sum(tempos_parada_s) / num_paradas if num_paradas else 0
+
+    if not df_logs.empty and num_paradas:
+        janela_s  = (df_logs["dt_created_at"].max() - df_logs["dt_created_at"].min()).total_seconds()
+        mtbf_s    = (janela_s - sum(tempos_parada_s)) / num_paradas
+    else:
+        mtbf_s = 0
+
+    return {
+        "id":              machine_id,
+        "nome":            ihm["tx_name"],
+        "linha":           ihm["linha_nome"],
+        "status":          metrics["status_maquina"],
+        "peca_atual":      peca if peca != "PEÇA TEMP" else None,
+        "operador":        op_nome,
+        "operador_avatar": _avatar(op_nome),
+        "manutentor":      man_nome,
+        "oee":             metrics["oee"],
+        "disponibilidade": metrics["disponibilidade"],
+        "performance":     metrics["performance"],
+        "qualidade":       metrics["qualidade"],
+        "manutencao": {
+            "mtbf": fmt_hm(mtbf_s),
+            "mttr": fmt_hm(mttr_s),
+            "mtta": None,
+        },
+        "registros_parada": paradas,
+    }
+
+# =========================
+# HELPERS INTERNOS
+# =========================
+
+_CORES_EQUIPE = ["#f59e0b", "#3b82f6", "#10b981", "#8b5cf6", "#ef4444"]
+_STATUS_NAO_PRODUTIVO = {"Parada", "Máquina em manutenção", "Limpeza", "Aguardando Manutentor"}
+
+
+def _resolve_nome(codigo: Any, id_ihm: int, tabela: str, col_cod: str, col_nome: str) -> Optional[str]:
+    """Resolve um código numérico para nome via tabela de de-para."""
+    try:
+        cod = int(float(codigo))
+        if cod == 0:
+            return None
+        df = run_query(f"""
+            SELECT {col_nome} FROM dbo.{tabela}
+            WHERE id_ihm = :id AND {col_cod} = :cod
+        """, {"id": id_ihm, "cod": cod})
+        return df[col_nome].iloc[0] if not df.empty else None
+    except Exception:
+        return None
+
+
+def _avatar(nome: Optional[str]) -> Optional[str]:
+    """Gera as iniciais de um nome para avatar."""
+    if not nome:
+        return None
+    return "".join(p[0].upper() for p in str(nome).split() if p)[:2]
+
+
+# =========================
+# VISÃO GERAL
+# =========================
+
+def get_overview_topbar() -> dict:
+    """KPIs globais e eventos recentes para a topbar da Visão Geral."""
+    maquinas_total = int(run_query("SELECT COUNT(*) AS total FROM dbo.tb_ihm")["total"].iloc[0])
+
+    # Último status de cada IHM
+    df_status = run_query("""
+        SELECT lr.id_ihm, lr.nu_valor_bruto AS status
+        FROM dbo.tb_log_registrador lr
+        JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
+        INNER JOIN (
+            SELECT lr2.id_ihm, MAX(lr2.dt_created_at) AS max_dt
+            FROM dbo.tb_log_registrador lr2
+            JOIN dbo.tb_registrador r2 ON r2.id_registrador = lr2.id_registrador
+            WHERE r2.tx_descricao = 'status_maquina'
+            GROUP BY lr2.id_ihm
+        ) latest ON latest.id_ihm = lr.id_ihm AND lr.dt_created_at = latest.max_dt
+        WHERE r.tx_descricao = 'status_maquina'
+    """)
+
+    status_inativos = {0, 52}
+    maquinas_ativas = (
+        int(df_status[~df_status["status"].isin(status_inativos)]["id_ihm"].nunique())
+        if not df_status.empty else 0
+    )
+
+    # Eventos recentes: últimas mudanças de status
+    depara_status = {
+        0: "Máquina parada",       1: "Passando padrão",
+        4: "Iniciou limpeza",     49: "Entrou em produção",
+        50: "Máquina liberada",   51: "Aguardando manutentor",
+        52: "Entrou em manutenção", 53: "Alteração de parâmetros",
+    }
+    df_eventos = run_query("""
+        SELECT TOP 5
+            i.tx_name AS maquina,
+            t.dt_created_at,
+            t.nu_valor_bruto AS status_cod
+        FROM (
+            SELECT
+                lr.id_ihm,
+                lr.dt_created_at,
+                lr.nu_valor_bruto,
+                LAG(lr.nu_valor_bruto) OVER (
+                    PARTITION BY lr.id_ihm
+                    ORDER BY lr.dt_created_at
+                ) AS prev_status
+            FROM dbo.tb_log_registrador lr
+            JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
+            WHERE r.tx_descricao = 'status_maquina'
+              AND lr.dt_created_at >= DATEADD(hour, -24, GETDATE())
+        ) t
+        JOIN dbo.tb_ihm i ON i.id_ihm = t.id_ihm
+        WHERE t.prev_status IS NOT NULL
+          AND t.nu_valor_bruto <> t.prev_status
+        ORDER BY t.dt_created_at DESC
+    """)
+    eventos = [
+        {
+            "hora":      row["dt_created_at"].strftime("%H:%M"),
+            "maquina":   row["maquina"],
+            "descricao": depara_status.get(int(row["status_cod"]), f"Status {int(row['status_cod'])}"),
+        }
+        for _, row in df_eventos.iterrows()
     ]
+
+    return {
+        "titulo":          "Monitoramento de Chão de Fábrica",
+        "oee_global":      None,  # preenchido por get_overview_data após calcular as linhas
+        "maquinas_ativas": maquinas_ativas,
+        "maquinas_total":  maquinas_total,
+        "data_hora":       datetime.now().strftime("%d/%m/%Y - %H:%M:%S"),
+        "user_initials":   "BG",
+        "eventos_recentes": eventos,
+    }
+
+
+_DIAS_SEMANA = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
+_DEPARA_STATUS_CFG = {
+    0: "Parada", 4: "Limpeza", 49: "Em Produção",
+    51: "Ag. Manutentor", 52: "Em Manutenção", 53: "Alt. Parâmetros",
+}
+
+
+def get_all_machines() -> list:
+    """Lista todas as IHMs com nome e linha."""
+    df = run_query("""
+        SELECT i.id_ihm, i.tx_name, l.tx_name AS linha_nome
+        FROM dbo.tb_ihm i
+        JOIN dbo.tb_linha_producao l ON l.id_linha_producao = i.id_linha_producao
+        ORDER BY i.id_ihm
+    """)
+    return [
+        {"id": int(r["id_ihm"]), "nome": r["tx_name"], "linha": r["linha_nome"]}
+        for _, r in df.iterrows()
+    ]
+
+
+def get_line_shifts(line_id: int) -> dict:
+    """Retorna nome da linha e lista de turnos configurados (um por template único dia+hora)."""
+    df_linha = run_query("""
+        SELECT id_linha_producao, tx_name
+        FROM dbo.tb_linha_producao
+        WHERE id_linha_producao = :id
+    """, {"id": line_id})
+
+    if df_linha.empty:
+        return {"erro": f"Linha {line_id} não encontrada"}
+
+    nome_linha = df_linha.iloc[0]["tx_name"]
+
+    df_turnos = run_query("""
+        SELECT tx_name, dt_inicio, dt_fim, bl_ativo
+        FROM dbo.tb_turnos
+        WHERE id_linha_producao = :linha
+        ORDER BY dt_inicio
+    """, {"linha": line_id})
+
+    # Deduplica por (dia_semana, inicio, fim) — múltiplos turnos por dia são permitidos
+    seen: set = set()
+    turnos: list = []
+    if not df_turnos.empty:
+        for _, t in df_turnos.iterrows():
+            dow  = t["dt_inicio"].weekday()
+            ini  = t["dt_inicio"].strftime("%H:%M")
+            fim_ = t["dt_fim"].strftime("%H:%M")
+            key  = (dow, ini, fim_)
+            if key not in seen:
+                seen.add(key)
+                turnos.append({
+                    "dia":   _DIAS_SEMANA[dow],
+                    "nome":  t["tx_name"],
+                    "inicio": ini,
+                    "fim":    fim_,
+                    "ativo":  bool(t["bl_ativo"]),
+                })
+
+    # Ordenar por dia-da-semana e depois por horário de início
+    dow_order = {d: i for i, d in enumerate(_DIAS_SEMANA)}
+    turnos.sort(key=lambda x: (dow_order.get(x["dia"], 99), x["inicio"]))
+
+    return {
+        "id":     line_id,
+        "nome":   nome_linha,
+        "turnos": turnos,   # lista vazia se nenhum turno configurado
+    }
+
+
+def update_line_shifts(line_id: int, turnos: list) -> dict:
+    """Salva a lista de turnos de uma linha, criando ocorrências para 5 semanas passadas + 1 futura."""
+    dow_map = {d: i for i, d in enumerate(_DIAS_SEMANA)}
+    today       = date.today()
+    range_start = today - timedelta(weeks=5)
+    range_end   = today + timedelta(weeks=1)
+
+    run_query_update("DELETE FROM dbo.tb_turnos WHERE id_linha_producao = :linha", {"linha": line_id})
+
+    for entry in turnos:
+        if not entry.get("ativo", False):
+            continue
+        dow_target = dow_map.get(entry["dia"])
+        if dow_target is None:
+            continue
+        hi, hm = map(int, entry["inicio"].split(":"))
+        fi, fm = map(int, entry["fim"].split(":"))
+        nome_turno = entry.get("nome") or f"TURNO_{entry['dia'][:3].upper()}"
+
+        days_to_first = (dow_target - range_start.weekday()) % 7
+        occurrence    = range_start + timedelta(days=days_to_first)
+
+        while occurrence <= range_end:
+            dt_inicio   = datetime.combine(occurrence, time(hi, hm))
+            dt_fim_base = datetime.combine(occurrence, time(fi, fm))
+            dt_fim      = dt_fim_base + timedelta(days=1) if (fi, fm) < (hi, hm) else dt_fim_base
+            run_query_update("""
+                INSERT INTO dbo.tb_turnos (tx_name, dt_inicio, dt_fim, id_linha_producao, bl_ativo)
+                VALUES (:nome, :dt_inicio, :dt_fim, :linha, 1)
+            """, {
+                "nome":      nome_turno,
+                "dt_inicio": dt_inicio,
+                "dt_fim":    dt_fim,
+                "linha":     line_id,
+            })
+            occurrence += timedelta(weeks=1)
+
+    return {"ok": True}
+
+
+def get_machine_config_data(machine_id: int) -> dict:
+    """Dados completos para a tela de Configurações de uma máquina."""
+    df_ihm = run_query("""
+        SELECT i.id_ihm, i.tx_name, l.tx_name AS linha_nome, i.id_linha_producao
+        FROM dbo.tb_ihm i
+        JOIN dbo.tb_linha_producao l ON l.id_linha_producao = i.id_linha_producao
+        WHERE i.id_ihm = :id
+    """, {"id": machine_id})
+
+    if df_ihm.empty:
+        return {"erro": f"Máquina {machine_id} não encontrada"}
+
+    ihm = df_ihm.iloc[0]
+
+    df_status = run_query("""
+        SELECT TOP 1 lr.nu_valor_bruto, lr.dt_created_at
+        FROM dbo.tb_log_registrador lr
+        JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
+        WHERE lr.id_ihm = :id AND r.tx_descricao = 'status_maquina'
+        ORDER BY lr.dt_created_at DESC
+    """, {"id": machine_id})
+
+    if not df_status.empty:
+        status_cod = int(df_status.iloc[0]["nu_valor_bruto"])
+        status_txt = _DEPARA_STATUS_CFG.get(status_cod, f"Status {status_cod}")
+        status_desde = df_status.iloc[0]["dt_created_at"].strftime("%H:%M")
+    else:
+        status_txt, status_desde = "-", "-"
+
+    meta = get_meta(machine_id)
+    peca_atual = get_selected_piece(machine_id)
+    pecas = get_possible_pieces(machine_id)
+
+    return {
+        "id":           int(ihm["id_ihm"]),
+        "nome":         ihm["tx_name"],
+        "linha":        ihm["linha_nome"],
+        "id_linha":     int(ihm["id_linha_producao"]),
+        "status":       status_txt,
+        "status_desde": status_desde,
+        "meta":         meta,
+        "peca_atual":   peca_atual,
+        "pecas":        pecas,
+    }
+
+
+def update_machine_config(machine_id: int, meta: int, peca_nome: str) -> dict:
+    """Salva meta e peça de uma máquina."""
+    df_regs = run_query("""
+        SELECT id_registrador, tx_descricao
+        FROM tb_registrador
+        WHERE id_ihm = :id AND tx_descricao IN ('meta', 'modelo_peça')
+    """, {"id": machine_id})
+    regs = {r["tx_descricao"]: int(r["id_registrador"]) for _, r in df_regs.iterrows()}
+
+    if "meta" in regs:
+        run_query_update("""
+            INSERT INTO dbo.tb_log_registrador (id_ihm, id_registrador, nu_valor_bruto)
+            VALUES (:id_ihm, :id_reg, :valor)
+        """, {"id_ihm": machine_id, "id_reg": regs["meta"], "valor": meta})
+
+    if "modelo_peça" in regs:
+        df_peca = run_query("""
+            SELECT nu_cod_peca FROM tb_depara_peca
+            WHERE id_ihm = :id AND tx_peca = :nome
+        """, {"id": machine_id, "nome": peca_nome})
+        if not df_peca.empty:
+            cod_peca = int(df_peca.iloc[0]["nu_cod_peca"])
+            run_query_update("""
+                INSERT INTO dbo.tb_log_registrador (id_ihm, id_registrador, nu_valor_bruto)
+                VALUES (:id_ihm, :id_reg, :valor)
+            """, {"id_ihm": machine_id, "id_reg": regs["modelo_peça"], "valor": cod_peca})
+
+    return {"ok": True}
+
+
+def get_overview_turno() -> dict:
+    """Informações do turno atual."""
+    df = run_query("""
+        SELECT TOP 1 tx_name, dt_inicio, dt_fim
+        FROM dbo.tb_turnos
+        WHERE bl_ativo = 1
+          AND dt_inicio <= GETDATE()
+          AND dt_fim    >= GETDATE()
+        ORDER BY dt_inicio
+    """)
+
+    if df.empty:
+        return {"nome": "-", "encerra_em": "-", "progresso_pct": 0}
+
+    row = df.iloc[0]
+    agora     = datetime.now()
+    dt_inicio = row["dt_inicio"]
+    dt_fim    = row["dt_fim"]
+
+    duracao   = (dt_fim - dt_inicio).total_seconds()
+    decorrido = (agora - dt_inicio).total_seconds()
+    progresso = int(100 * decorrido / duracao) if duracao else 0
+
+    restante_s    = max(0, (dt_fim - agora).total_seconds())
+    horas, resto  = divmod(int(restante_s), 3600)
+    encerra_em    = f"{horas:02d}:{resto // 60:02d}h"
+
+    return {
+        "nome":          row["tx_name"],
+        "encerra_em":    encerra_em,
+        "progresso_pct": min(100, max(0, progresso)),
+    }
+
+
+def get_overview_linhas() -> list:
+    """Lista de linhas de produção com suas máquinas e métricas."""
+    df_linhas = get_lines_df()
+    resultado = []
+
+    for _, linha in df_linhas.iterrows():
+        line_id    = int(linha["id_linha_producao"])
+        df_machines = get_machines_by_line_df(line_id)
+
+        maquinas        = []
+        total_produzido = 0
+        total_meta      = 0
+
+        for _, machine in df_machines.iterrows():
+            machine_id = int(machine["id_ihm"])
+            metrics    = get_metrics_machine(machine_id)
+
+            produzido = metrics["produzido"] if isinstance(metrics["produzido"], (int, float)) else 0
+            meta      = metrics["meta"]      if isinstance(metrics["meta"],      (int, float)) else 0
+            total_produzido += produzido
+            total_meta      += meta
+
+            maquinas.append({
+                "id":              machine_id,
+                "nome":            machine["tx_name"],
+                "status":          metrics["status_maquina"],
+                "op":              None,
+                "oee":             metrics["oee"],
+                "disponibilidade": metrics["disponibilidade"],
+                "qualidade":       metrics["qualidade"],
+                "performance":     metrics["performance"],
+                "produzido":       produzido,
+                "meta":            meta,
+            })
+
+        realizado_pct = int(100 * total_produzido / total_meta) if total_meta else 0
+        resultado.append({
+            "id":            line_id,
+            "nome":          linha["tx_name"],
+            "meta_hora":     total_meta,
+            "realizado":     total_produzido,
+            "realizado_pct": realizado_pct,
+            "maquinas":      maquinas,
+        })
+
+    return resultado
+
+
+def get_overview_data() -> dict:
+    """Payload completo da tela de Visão Geral."""
+    linhas = get_overview_linhas()
+    topbar = get_overview_topbar()
+
+    all_oees = [m["oee"] for l in linhas for m in l["maquinas"] if isinstance(m.get("oee"), (int, float))]
+    topbar["oee_global"] = round(sum(all_oees) / len(all_oees), 1) if all_oees else "-"
+
+    return {
+        "topbar":      topbar,
+        "turno_atual": get_overview_turno(),
+        "linhas":      linhas,
+    }
+
+
+def get_historico_data(data_inicio: datetime, data_fim: datetime) -> dict:
+    """Payload histórico para um período arbitrário."""
+    df_linhas = get_lines_df()
+    linhas = []
+
+    for _, linha in df_linhas.iterrows():
+        line_id     = int(linha["id_linha_producao"])
+        df_machines = get_machines_by_line_df(line_id)
+
+        maquinas        = []
+        total_produzido = 0
+        total_meta      = 0
+
+        for _, machine in df_machines.iterrows():
+            machine_id = int(machine["id_ihm"])
+            metrics    = get_metrics_machine(machine_id, data_inicio=data_inicio, data_fim=data_fim)
+
+            produzido = metrics["produzido"] if isinstance(metrics["produzido"], (int, float)) else 0
+            meta      = metrics["meta"]      if isinstance(metrics["meta"],      (int, float)) else 0
+            total_produzido += produzido
+            total_meta      += meta
+
+            maquinas.append({
+                "id":              machine_id,
+                "nome":            machine["tx_name"],
+                "status":          metrics["status_maquina"],
+                "oee":             metrics["oee"],
+                "disponibilidade": metrics["disponibilidade"],
+                "qualidade":       metrics["qualidade"],
+                "performance":     metrics["performance"],
+                "produzido":       produzido,
+                "meta":            meta,
+            })
+
+        realizado_pct = int(100 * total_produzido / total_meta) if total_meta else 0
+        linhas.append({
+            "id":            line_id,
+            "nome":          linha["tx_name"],
+            "realizado":     total_produzido,
+            "meta_total":    total_meta,
+            "realizado_pct": realizado_pct,
+            "maquinas":      maquinas,
+        })
+
+    all_oees = [m["oee"] for l in linhas for m in l["maquinas"] if isinstance(m.get("oee"), (int, float))]
+    oee_global = round(sum(all_oees) / len(all_oees), 1) if all_oees else None
+
+    return {
+        "oee_global": oee_global,
+        "periodo": {
+            "inicio": data_inicio.strftime("%d/%m/%Y %H:%M"),
+            "fim":    data_fim.strftime("%d/%m/%Y %H:%M"),
+        },
+        "linhas": linhas,
+    }
+
+
+# =========================
+# DETALHE DE LINHA
+# =========================
+
+def get_line_detail(line_id: int) -> dict:
+    """Payload completo da tela de Monitoramento de uma Linha específica."""
+    df_linha = run_query("""
+        SELECT id_linha_producao, tx_name
+        FROM dbo.tb_linha_producao
+        WHERE id_linha_producao = :id
+    """, {"id": line_id})
+
+    if df_linha.empty:
+        return {"erro": f"Linha {line_id} não encontrada"}
+
+    nome_linha  = df_linha.iloc[0]["tx_name"]
+    df_machines = get_machines_by_line_df(line_id)
+
+    maquinas         = []
+    total_produzido  = 0
+    total_meta       = 0
+    oees: List[float]         = []
+    maquinas_ativas  = 0
+    operadores_vistos: Dict[str, str] = {}  # nome → cor
+
+    for _, machine in df_machines.iterrows():
+        machine_id = int(machine["id_ihm"])
+        metrics    = get_metrics_machine(machine_id)
+        status     = metrics["status_maquina"]
+
+        produzido = metrics["produzido"] if isinstance(metrics["produzido"], (int, float)) else 0
+        reprovado = metrics["reprovado"] if isinstance(metrics["reprovado"], (int, float)) else 0
+        meta      = metrics["meta"]      if isinstance(metrics["meta"],      (int, float)) else 0
+        oee       = metrics["oee"]       if isinstance(metrics["oee"],       (int, float)) else 0
+
+        total_produzido += produzido
+        total_meta      += meta
+        if isinstance(oee, (int, float)):
+            oees.append(oee)
+        if status not in _STATUS_NAO_PRODUTIVO and status != "-":
+            maquinas_ativas += 1
+
+        # Peça atual
+        peca = get_selected_piece(machine_id)
+        peca = peca if peca != "PEÇA TEMP" else None
+
+        # Operador, manutentor, engenheiro (resolve código → nome)
+        op_nome  = _resolve_nome(metrics.get("operador"),   machine_id, "tb_depara_operador",  "nu_cod_operador",   "tx_operador")
+        man_nome = _resolve_nome(metrics.get("manutentor"), machine_id, "tb_depara_manutentor", "nu_cod_manutentor", "tx_manutentor")
+        eng_nome = _resolve_nome(metrics.get("engenheiro"), machine_id, "tb_depara_engenheiro", "nu_cod_engenheiro", "tx_engenheiro")
+
+        if op_nome and op_nome not in operadores_vistos:
+            operadores_vistos[op_nome] = _CORES_EQUIPE[len(operadores_vistos) % len(_CORES_EQUIPE)]
+
+        # Motivo de parada
+        motivo_parada = None
+        df_mot = run_query("""
+            SELECT TOP 1 lr.nu_valor_bruto
+            FROM dbo.tb_log_registrador lr
+            JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
+            WHERE lr.id_ihm = :id AND r.tx_descricao = 'motivo_parada'
+            ORDER BY lr.dt_created_at DESC
+        """, {"id": machine_id})
+        if not df_mot.empty:
+            motivo_parada = _resolve_nome(
+                df_mot.iloc[0]["nu_valor_bruto"], machine_id,
+                "tb_depara_motivo_parada", "nu_cod_motivo_parada", "tx_motivo_parada",
+            )
+
+        # Tempo parado
+        parada_ha = None
+        if status in _STATUS_NAO_PRODUTIVO:
+            df_parada = run_query("""
+                SELECT TOP 1 lr.dt_created_at
+                FROM dbo.tb_log_registrador lr
+                JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
+                WHERE lr.id_ihm = :id AND r.tx_descricao = 'status_maquina'
+                ORDER BY lr.dt_created_at DESC
+            """, {"id": machine_id})
+            if not df_parada.empty:
+                delta      = datetime.utcnow() - df_parada.iloc[0]["dt_created_at"]
+                h, resto   = divmod(max(0, int(delta.total_seconds())), 3600)
+                parada_ha  = f"{h:02d}:{resto // 60:02d}"
+
+        maquinas.append({
+            "id":              machine_id,
+            "nome":            machine["tx_name"],
+            "tipo":            None,
+            "status":          status,
+            "op":              None,
+            "peca":            peca,
+            "oee":             oee,
+            "disponibilidade": metrics["disponibilidade"],
+            "performance":     metrics["performance"],
+            "qualidade":       metrics["qualidade"],
+            "produzido":       produzido,
+            "rejeitos":        reprovado,
+            "ciclo_segundos":  None,
+            "operador":        op_nome,
+            "operador_avatar": _avatar(op_nome),
+            "manutentor":      man_nome,
+            "engenheiro":      eng_nome,
+            "motivo_parada":   motivo_parada,
+            "manutencao":      man_nome if status == "Máquina em manutenção" else None,
+            "parada_ha":       parada_ha,
+        })
+
+    oee_global = round(sum(oees) / len(oees), 1) if oees else 0
+    equipe = [
+        {"iniciais": _avatar(nome), "cor": cor}
+        for nome, cor in list(operadores_vistos.items())[:5]
+    ]
+
+    return {
+        "id":                 line_id,
+        "nome":               nome_linha,
+        "status_geral":       "Operação Normal",
+        "ultima_atualizacao": datetime.now().strftime("%H:%M:%S"),
+        "kpis": {
+            "oee_global":       oee_global,
+            "oee_variacao":     None,
+            "producao_hoje":    total_produzido,
+            "producao_meta":    total_meta,
+            "previsao_termino": None,
+            "maquinas_ativas":  maquinas_ativas,
+            "maquinas_total":   len(maquinas),
+            "equipe":           equipe,
+            "equipe_extras":    max(0, len(operadores_vistos) - 5),
+            "supervisor":       None,
+        },
+        "maquinas": maquinas,
+    }

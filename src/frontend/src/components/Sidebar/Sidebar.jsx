@@ -1,6 +1,39 @@
-import "./sidebar.css";
+import { useEffect, useState } from "react";
+import { NavLink } from "react-router-dom";
+import "./Sidebar.css";
+
+const DEFAULT_API = `http://${window.location.hostname}:8000`;
+const API_BASE = import.meta.env.VITE_API_BASE || DEFAULT_API;
 
 export default function Sidebar() {
+  const [linhas, setLinhas] = useState([]);
+  const [turno, setTurno]   = useState(null);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/lines`)
+      .then((r) => r.json())
+      .then(setLinhas)
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    function fetchTurno() {
+      fetch(`${API_BASE}/api/config/turno/atual`)
+        .then((r) => r.json())
+        .then(setTurno)
+        .catch(() => {});
+    }
+    fetchTurno();
+    const id = setInterval(fetchTurno, 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const emTurno   = turno && turno.nome !== "-";
+  const progresso = turno ? turno.progresso_pct : 0;
+  const barColor  = progresso < 40 ? "#22c55e"
+                  : progresso < 75 ? "#f59e0b"
+                  : "#ef4444";
+
   return (
     <aside className="sidebar">
       <div className="sb-header">
@@ -9,33 +42,87 @@ export default function Sidebar() {
       </div>
 
       <nav className="sb-nav">
-        <button className="sb-item active" type="button">
+        <NavLink
+          to="/"
+          end
+          className={({ isActive }) => "sb-item" + (isActive ? " active" : "")}
+        >
           <span className="sb-ico">▦</span>
           <span>Visão Geral</span>
-        </button>
+        </NavLink>
 
         <button className="sb-item" type="button">
           <span className="sb-ico">≡</span>
           <span>Ordens em Aberto</span>
         </button>
+
+        <NavLink
+          to="/historico"
+          className={({ isActive }) => "sb-item" + (isActive ? " active" : "")}
+        >
+          <span className="sb-ico">📊</span>
+          <span>Histórico</span>
+        </NavLink>
+
+        <a
+          href="/painel-mes"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="sb-item"
+        >
+          <span className="sb-ico">📺</span>
+          <span>Painel TV</span>
+        </a>
+
+        <span className="sb-item sb-item--disabled">
+          <span className="sb-ico">🖥️</span>
+          <span>Painel TV (antigo) <span className="sb-soon">em breve</span></span>
+        </span>
       </nav>
 
       <div className="sb-section">
-        <div className="sb-section-title">LINHAS DE PRODUÇÃO</div>
+        <div className="sb-section-title">GESTÃO</div>
+        <NavLink
+          to="/configuracoes"
+          className={({ isActive }) => "sb-item" + (isActive ? " active" : "")}
+        >
+          <span className="sb-ico">⚙</span>
+          <span>Configurações</span>
+        </NavLink>
+      </div>
 
-        <button className="sb-line" type="button"><span className="dot"></span> Linha 505</button>
-        <button className="sb-line" type="button"><span className="dot"></span> Linha 504</button>
-        <button className="sb-line" type="button"><span className="dot"></span> Linha 506</button>
+      <div className="sb-section">
+        <div className="sb-section-title">LINHAS DE PRODUÇÃO</div>
+        {linhas.map((l) => (
+          <NavLink
+            key={l.id}
+            to={`/linha/${l.id}`}
+            className={({ isActive }) => "sb-line" + (isActive ? " active" : "")}
+          >
+            <span className="dot" />
+            {l.nome}
+          </NavLink>
+        ))}
       </div>
 
       <div className="sb-spacer" />
 
       <div className="sb-card">
-        <div className="sb-card-title">Turno Atual: <strong>T2</strong></div>
-        <div className="sb-card-sub">Encerra em 04:32h</div>
-
+        {emTurno ? (
+          <>
+            <div className="sb-card-title">
+              Turno Atual: <strong>{turno.nome}</strong>
+            </div>
+            <div className="sb-card-sub">Encerra em {turno.encerra_em}</div>
+          </>
+        ) : (
+          <>
+            <div className="sb-card-title">Turno Atual</div>
+            <div className="sb-card-sub">Nenhum turno ativo</div>
+          </>
+        )}
         <div className="progress">
-          <div className="progress-bar" style={{ width: "68%" }} />
+          <div className="progress-bar" style={{ width: `${progresso}%`, background: barColor }} />
         </div>
       </div>
     </aside>

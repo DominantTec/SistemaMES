@@ -2,11 +2,14 @@ import pyodbc
 from logger import logger
 import os
 import pandas as pd
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 def get_connection_db(driver=None, server=None, database=None):
     try:
-        driver = "{FreeTDS}"
+        driver = os.getenv('DB_DRIVER', '{FreeTDS}')
         server = os.getenv('DB_HOST')
         port = os.getenv('DB_PORT')
         database = os.getenv("DB_NAME")
