@@ -241,8 +241,8 @@ SET IDENTITY_INSERT dbo.tb_ihm ON;
 
 INSERT INTO dbo.tb_ihm (id_ihm, tx_ip_address, tx_port_number, id_linha_producao, tx_name) VALUES
 -- Linha 1 – reais (altere os IPs para os endereços reais do DIACom)
-(1, '192.168.1.1', '502', 1, N'ACM 1'),
--- (2, '192.168.1.2', '502', 1, N'ACM 2'),  -- IHM 2 desativada temporariamente
+(1, '192.168.11.89', '502', 1, N'ACM 1'),
+(2, '192.168.11.90', '502', 1, N'ACM 2'),
 -- Linha 2 – fantasmas (IPs não usados; simulação feita pelo simulator.py)
 (3, '127.0.0.1', '5020', 2, N'TRATAMENTO 1'),
 (4, '127.0.0.1', '5021', 2, N'PRIMER 1'),
@@ -280,53 +280,87 @@ GO
 --  7=manutentor 8=engenheiro     9=meta  10=modelo_peça
 -- status_maquina: 49=Produzindo, 0=Parada, 4=Limpeza, 52=Manutenção
 -- -------------------------------------------------------
-SET IDENTITY_INSERT dbo.tb_registrador ON;
 
-INSERT INTO dbo.tb_registrador (id_registrador, nu_endereco, tx_descricao, id_ihm) VALUES
+INSERT INTO dbo.tb_registrador (nu_endereco, tx_descricao, id_ihm) VALUES
 -- IHM 1 – CUSI_02 (real)
-(1,  0,   N'operador',        1), (2,  100, N'status_maquina',  1),
-(3,  101, N'motivo_parada',   1), (4,  200, N'produzido',       1),
-(5,  201, N'reprovado',       1), (6,  202, N'total_produzido', 1),
-(7,  300, N'manutentor',      1), (8,  301, N'engenheiro',      1),
-(9,  400, N'meta',            1), (10, 401, N'modelo_peça',     1),
+(0,    N'operador',        1),
+(3001, N'produzido',       1),
+(3010, N'reprovado',       1),
+(3000, N'total_produzido', 1),
+(1000, N'manutentor',      1),
+(1500, N'engenheiro',      1),
+(2000, N'status_maquina',  1),
+(2000, N'motivo_parada',   1),
+(4000, N'meta',            1),
+(4100, N'modelo_peça',     1),
 -- IHM 2 – MAQ_24 (real) -- desativada temporariamente
--- (11, 0,   N'operador',        2), (12, 100, N'status_maquina',  2),
--- (13, 101, N'motivo_parada',   2), (14, 200, N'produzido',       2),
--- (15, 201, N'reprovado',       2), (16, 202, N'total_produzido', 2),
--- (17, 300, N'manutentor',      2), (18, 301, N'engenheiro',      2),
--- (19, 400, N'meta',            2), (20, 401, N'modelo_peça',     2),
+(0,    N'operador',        2),
+(7024, N'produzido',       2),
+(7025, N'reprovado',       2),
+(7056, N'total_produzido', 2),
+(1000, N'manutentor',      2),
+(1500, N'engenheiro',      2),
+(2000, N'status_maquina',  2),
+(2000, N'motivo_parada',   2),
+(4000, N'meta',            2),
+(4100, N'modelo_peça',     2),
 -- IHM 3 – SIM_01 (fantasma)
-(21, 0,   N'operador',        3), (22, 100, N'status_maquina',  3),
-(23, 101, N'motivo_parada',   3), (24, 200, N'produzido',       3),
-(25, 201, N'reprovado',       3), (26, 202, N'total_produzido', 3),
-(27, 300, N'manutentor',      3), (28, 301, N'engenheiro',      3),
-(29, 400, N'meta',            3), (30, 401, N'modelo_peça',     3),
+(0,   N'operador',        3),
+(100, N'status_maquina',  3),
+(101, N'motivo_parada',   3),
+(200, N'produzido',       3),
+(201, N'reprovado',       3),
+(202, N'total_produzido', 3),
+(300, N'manutentor',      3),
+(301, N'engenheiro',      3),
+(400, N'meta',            3),
+(401, N'modelo_peça',     3),
 -- IHM 4 – SIM_02 (fantasma)
-(31, 0,   N'operador',        4), (32, 100, N'status_maquina',  4),
-(33, 101, N'motivo_parada',   4), (34, 200, N'produzido',       4),
-(35, 201, N'reprovado',       4), (36, 202, N'total_produzido', 4),
-(37, 300, N'manutentor',      4), (38, 301, N'engenheiro',      4),
-(39, 400, N'meta',            4), (40, 401, N'modelo_peça',     4),
+(0,   N'operador',        4),
+(100, N'status_maquina',  4),
+(101, N'motivo_parada',   4),
+(200, N'produzido',       4),
+(201, N'reprovado',       4),
+(202, N'total_produzido', 4),
+(300, N'manutentor',      4),
+(301, N'engenheiro',      4),
+(400, N'meta',            4),
+(401, N'modelo_peça',     4),
 -- IHM 5 – SIM_03 (fantasma)
-(41, 0,   N'operador',        5), (42, 100, N'status_maquina',  5),
-(43, 101, N'motivo_parada',   5), (44, 200, N'produzido',       5),
-(45, 201, N'reprovado',       5), (46, 202, N'total_produzido', 5),
-(47, 300, N'manutentor',      5), (48, 301, N'engenheiro',      5),
-(49, 400, N'meta',            5), (50, 401, N'modelo_peça',     5),
+(0,   N'operador',        5),
+(100, N'status_maquina',  5),
+(101, N'motivo_parada',   5),
+(200, N'produzido',       5),
+(201, N'reprovado',       5),
+(202, N'total_produzido', 5),
+(300, N'manutentor',      5),
+(301, N'engenheiro',      5),
+(400, N'meta',            5),
+(401, N'modelo_peça',     5),
 -- IHM 6 – SIM_04 (fantasma)
-(51, 0,   N'operador',        6), (52, 100, N'status_maquina',  6),
-(53, 101, N'motivo_parada',   6), (54, 200, N'produzido',       6),
-(55, 201, N'reprovado',       6), (56, 202, N'total_produzido', 6),
-(57, 300, N'manutentor',      6), (58, 301, N'engenheiro',      6),
-(59, 400, N'meta',            6), (60, 401, N'modelo_peça',     6),
+(0,   N'operador',        6),
+(100, N'status_maquina',  6),
+(101, N'motivo_parada',   6),
+(200, N'produzido',       6),
+(201, N'reprovado',       6),
+(202, N'total_produzido', 6),
+(300, N'manutentor',      6),
+(301, N'engenheiro',      6),
+(400, N'meta',            6),
+(401, N'modelo_peça',     6),
 -- IHM 7 – SIM_05 (fantasma)
-(61, 0,   N'operador',        7), (62, 100, N'status_maquina',  7),
-(63, 101, N'motivo_parada',   7), (64, 200, N'produzido',       7),
-(65, 201, N'reprovado',       7), (66, 202, N'total_produzido', 7),
-(67, 300, N'manutentor',      7), (68, 301, N'engenheiro',      7),
-(69, 400, N'meta',            7), (70, 401, N'modelo_peça',     7);
+(0,   N'operador',        7),
+(100, N'status_maquina',  7),
+(101, N'motivo_parada',   7),
+(200, N'produzido',       7),
+(201, N'reprovado',       7),
+(202, N'total_produzido', 7),
+(300, N'manutentor',      7),
+(301, N'engenheiro',      7),
+(400, N'meta',            7),
+(401, N'modelo_peça',     7);
 
-SET IDENTITY_INSERT dbo.tb_registrador OFF;
+COMMIT;
 GO
 
 -- -------------------------------------------------------
