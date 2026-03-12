@@ -69,7 +69,7 @@ def insert_registers_values(id_ihm, conn_db, values, insert_values):
             insert_log_string = f"""
                 INSERT INTO tb_log_registrador (id_ihm, id_registrador, nu_valor_bruto)
                 VALUES
-                {insert_values};
+                {insert_values}
             """
 
             cursor.execute(insert_log_string)
@@ -108,7 +108,7 @@ def insert_registers_values(id_ihm, conn_db, values, insert_values):
         insert_log_string = f"""
             INSERT INTO tb_log_registrador (id_ihm, id_registrador, nu_valor_bruto)
             VALUES
-            {insert_values};
+            {insert_values}
         """
 
         cursor.execute(insert_log_string)

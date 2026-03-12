@@ -340,16 +340,12 @@ def get_metrics_machine(machine_id: int, data_inicio: Optional[Any] = None, data
         # ── Métricas de tempo ────────────────────────────────────────────────
         tempo_produzido = sum((b - a).total_seconds() for a, b in lista_produzido)
 
-        # Disponibilidade: janela de observação a partir do primeiro evento de
-        # produção no turno. Isso garante que a máquina comece em 100% e só
-        # diminua quando houver paradas. Quando não há produção registrada,
-        # retorna 100% (aguardando início de ciclo).
-        if lista_produzido:
-            observation_start = min(inicio for inicio, _ in lista_produzido)
-            tempo_programado  = (fim_efetivo - observation_start).total_seconds()
-            disponibilidade   = min(1.0, tempo_produzido / tempo_programado) if tempo_programado > 0 else 1.0
-        else:
-            disponibilidade = 1.0  # sem produção registrada ainda → 100%
+        # Disponibilidade: janela de observação a partir do primeiro registro
+        # no turno (independente do status). Isso garante que se a máquina
+        # estiver parada desde o início do turno, a disponibilidade vai cair.
+        observation_start = df_registradores["dt_created_at"].min()
+        tempo_programado  = (fim_efetivo - observation_start).total_seconds()
+        disponibilidade   = min(1.0, tempo_produzido / tempo_programado) if tempo_programado > 0 else 1.0
 
         produzido = sum((b - a) for a, b in lista_qtd_aprovado  if a is not None and b is not None)
         reprovado = sum((b - a) for a, b in lista_qtd_reprovado if a is not None and b is not None)
@@ -358,15 +354,10 @@ def get_metrics_machine(machine_id: int, data_inicio: Optional[Any] = None, data
         meta = get_meta(machine_id)
 
         # Performance: usa a mesma janela de observação da disponibilidade.
-        # A meta esperada cresce a partir do primeiro evento de produção,
-        # garantindo que inicia em 100% e cai se o ritmo ficar abaixo da meta.
-        if lista_produzido:
-            total_shift_s = (shift_fim_ref - shift_inicio).total_seconds()
-            observation_elapsed = (fim_efetivo - observation_start).total_seconds()
-            meta_proporcional = meta * (observation_elapsed / total_shift_s) if total_shift_s > 0 else 0
-            performance = min(1.0, int(total) / meta_proporcional) if meta_proporcional > 0 else 1.0
-        else:
-            performance = 1.0  # sem produção registrada ainda → 100%
+        total_shift_s       = (shift_fim_ref - shift_inicio).total_seconds()
+        observation_elapsed = (fim_efetivo - observation_start).total_seconds()
+        meta_proporcional   = meta * (observation_elapsed / total_shift_s) if total_shift_s > 0 else 0
+        performance         = min(1.0, int(total) / meta_proporcional) if meta_proporcional > 0 else 1.0
         qualidade   = min(1.0, int(produzido) / int(total))    if total            else 1.0
 
         oee = disponibilidade * performance * qualidade
