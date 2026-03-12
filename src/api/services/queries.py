@@ -70,19 +70,19 @@ def get_machine_timeline(machine_id: int, data_inicio: Optional[Any] = None, dat
         df_registradores = df_registradores.sort_values("dt_created_at")
         df_registradores.reset_index(drop=True, inplace=True)
 
-        depara_status_maquina = {
-            0: "Parada",
-            1: "Passar Padrão",
-            49: "Produzindo",
-            4: "Limpeza",
-            51: "Aguardando Manutentor",
-            52: "Máquina em manutenção",
-            50: "Maquina Liberada",
-            53: "Alteração de Parâmetros",
-        }
+        df_depara = run_query("""
+            SELECT nu_cod_motivo_parada, tx_motivo_parada
+            FROM tb_depara_motivo_parada
+            WHERE id_ihm = :id
+        """, {"id": machine_id})
+        depara_status_maquina = (
+            dict(zip(df_depara["nu_cod_motivo_parada"].astype(int), df_depara["tx_motivo_parada"]))
+            if not df_depara.empty else {}
+        )
 
         if "status_maquina" in df_registradores.columns:
-            df_registradores["status_maquina"] = df_registradores["status_maquina"].map(depara_status_maquina)
+            df_registradores["nu_status_maquina"] = df_registradores["status_maquina"].astype("Int64")
+            df_registradores["status_maquina"] = df_registradores["nu_status_maquina"].map(depara_status_maquina)
 
     return df_registradores
 
@@ -300,24 +300,27 @@ def get_metrics_machine(machine_id: int, data_inicio: Optional[Any] = None, data
         lista_qtd_reprovado: list = []
         lista_qtd_total:     list = []
 
-        status_antigo        = ""
+        nu_status_antigo     = None
         inicio               = None
         inicio_qtd_aprovado  = None
         inicio_qtd_reprovado = None
         inicio_qtd_total     = None
 
         for _, row in df_registradores.iterrows():
-            st = row["status_maquina"]
+            nu_st_raw = row.get("nu_status_maquina")
+            if nu_st_raw is None or (hasattr(nu_st_raw, '__class__') and str(nu_st_raw) == '<NA>'):
+                continue
+            nu_st = int(nu_st_raw)
 
-            # Entrada em produção
-            if status_antigo != "Produzindo" and st == "Produzindo":
+            # Entrada em produção (código 49)
+            if nu_status_antigo != 49 and nu_st == 49:
                 inicio               = max(shift_inicio, row["dt_created_at"])
                 inicio_qtd_aprovado  = row.get("produzido")
                 inicio_qtd_reprovado = row.get("reprovado")
                 inicio_qtd_total     = row.get("total_produzido")
 
             # Saída de produção
-            elif status_antigo == "Produzindo" and st != "Produzindo":
+            elif nu_status_antigo == 49 and nu_st != 49:
                 if inicio is not None:
                     lista_produzido.append((inicio, min(row["dt_created_at"], shift_fim_ref)))
                     lista_qtd_aprovado.append((inicio_qtd_aprovado,   row.get("produzido")))
@@ -325,7 +328,7 @@ def get_metrics_machine(machine_id: int, data_inicio: Optional[Any] = None, data
                     lista_qtd_total.append((inicio_qtd_total,          row.get("total_produzido")))
                     inicio = None
 
-            status_antigo = st
+            nu_status_antigo = nu_st
 
         # Fecha sessão ainda aberta no fim do loop (máquina ainda produzindo).
         # Usa os valores do último registro como fim — sem isso total=0 e performance=0%.
@@ -434,12 +437,15 @@ def get_machine_detail(machine_id: int) -> dict:
     man_nome = _resolve_nome(metrics.get("manutentor"), machine_id, "tb_depara_manutentor", "nu_cod_manutentor", "tx_manutentor")
 
     # --- logs de status para calcular paradas e índices ---
-    depara_status_txt = {
-        0: "Parada", 1: "Passar Padrão", 4: "Limpeza",
-        49: "Produzindo", 50: "Maquina Liberada",
-        51: "Aguardando Manutentor", 52: "Máquina em manutenção",
-        53: "Alteração de Parâmetros",
-    }
+    _df_depara_txt = run_query("""
+        SELECT nu_cod_motivo_parada, tx_motivo_parada
+        FROM tb_depara_motivo_parada
+        WHERE id_ihm = :id
+    """, {"id": machine_id})
+    depara_status_txt = (
+        dict(zip(_df_depara_txt["nu_cod_motivo_parada"].astype(int), _df_depara_txt["tx_motivo_parada"]))
+        if not _df_depara_txt.empty else {}
+    )
 
     df_logs = run_query("""
         SELECT lr.dt_created_at, lr.nu_valor_bruto, r.tx_descricao
@@ -458,34 +464,41 @@ def get_machine_detail(machine_id: int) -> dict:
         df_motivo = df_logs[df_logs["tx_descricao"] == "motivo_parada"]
         rows      = df_status[["dt_created_at", "nu_valor_bruto"]].values.tolist()
 
-        inicio_parada = None
-        status_ant    = None
+        inicio_parada    = None
+        status_ant       = None
+        motivo_parada_cod = None  # código não-0/não-49 visto durante a parada
 
         for dt, cod in rows:
             cod = int(cod)
+
             if status_ant == 49 and cod != 49:
-                inicio_parada = dt
+                # Saída de produção: início da parada
+                inicio_parada    = dt
+                motivo_parada_cod = None
+
+            elif status_ant != 49 and cod not in (0, 49):
+                # Código intermediário durante a parada = motivo informado pelo operador
+                motivo_parada_cod = cod
+
             elif status_ant != 49 and cod == 49 and inicio_parada is not None:
+                # Retorno à produção: fecha o intervalo de parada
                 dur_s = (dt - inicio_parada).total_seconds()
                 tempos_parada_s.append(dur_s)
                 h, r = divmod(int(dur_s), 3600)
 
-                motivo = None
-                if not df_motivo.empty:
-                    df_m = df_motivo[df_motivo["dt_created_at"] >= inicio_parada]
-                    if not df_m.empty:
-                        motivo = _resolve_nome(
-                            df_m.iloc[0]["nu_valor_bruto"], machine_id,
-                            "tb_depara_motivo_parada", "nu_cod_motivo_parada", "tx_motivo_parada",
-                        )
+                motivo = depara_status_txt.get(motivo_parada_cod, depara_status_txt.get(0, "Máquina Parada")) \
+                    if motivo_parada_cod is not None \
+                    else depara_status_txt.get(0, "Máquina Parada")
 
                 paradas.append({
                     "inicio":  inicio_parada.strftime("%H:%M"),
-                    "motivo":  motivo or depara_status_txt.get(status_ant, "-"),
+                    "motivo":  motivo,
                     "duracao": f"{h}h {r // 60:02d}m" if h else f"{r // 60}m",
-                    "status":  depara_status_txt.get(status_ant, "-"),
+                    "status":  depara_status_txt.get(motivo_parada_cod or 0, "Máquina Parada"),
                 })
-                inicio_parada = None
+                inicio_parada    = None
+                motivo_parada_cod = None
+
             status_ant = cod
 
     # --- MTBF / MTTR (simplificado a partir dos logs disponíveis) ---
@@ -582,16 +595,19 @@ def get_overview_topbar() -> dict:
         if not df_status.empty else 0
     )
 
-    # Eventos recentes: últimas mudanças de status
-    depara_status = {
-        0: "Máquina parada",       1: "Passando padrão",
-        4: "Iniciou limpeza",     49: "Entrou em produção",
-        50: "Máquina liberada",   51: "Aguardando manutentor",
-        52: "Entrou em manutenção", 53: "Alteração de parâmetros",
-    }
+    # Eventos recentes: últimas mudanças de status — busca labels do banco
+    _df_depara_ev = run_query("""
+        SELECT d.id_ihm, d.nu_cod_motivo_parada, d.tx_motivo_parada
+        FROM tb_depara_motivo_parada d
+    """)
+    # Monta {id_ihm: {codigo: label}}
+    depara_status_por_ihm: Dict[int, Dict[int, str]] = {}
+    for _, r in _df_depara_ev.iterrows():
+        depara_status_por_ihm.setdefault(int(r["id_ihm"]), {})[int(r["nu_cod_motivo_parada"])] = r["tx_motivo_parada"]
     df_eventos = run_query("""
         SELECT TOP 5
             i.tx_name AS maquina,
+            t.id_ihm,
             t.dt_created_at,
             t.nu_valor_bruto AS status_cod
         FROM (
@@ -617,7 +633,9 @@ def get_overview_topbar() -> dict:
         {
             "hora":      row["dt_created_at"].strftime("%H:%M"),
             "maquina":   row["maquina"],
-            "descricao": depara_status.get(int(row["status_cod"]), f"Status {int(row['status_cod'])}"),
+            "descricao": depara_status_por_ihm.get(int(row["id_ihm"]), {}).get(
+                int(row["status_cod"]), f"Status {int(row['status_cod'])}"
+            ),
         }
         for _, row in df_eventos.iterrows()
     ]
