@@ -172,7 +172,9 @@ def get_selected_piece(machine_id: int, data_ref: Optional[Any] = None) -> str:
 
 
 def get_meta(machine_id: int, data_ref: Optional[Any] = None) -> int:
-    """Retorna a meta antes da data informada."""
+    """Retorna a meta antes da data informada.
+    Ignora valores zero — a IHM real retorna 0 no registrador de meta,
+    e o valor correto é sempre o último definido pelo usuário via UI."""
     try:
         if not data_ref:
             resultado = run_query("""
@@ -183,6 +185,7 @@ def get_meta(machine_id: int, data_ref: Optional[Any] = None) -> int:
                     FROM tb_registrador
                     WHERE id_ihm = :id AND tx_descricao='meta'
                 )
+                  AND nu_valor_bruto > 0
                 ORDER BY dt_created_at DESC
             """, {"id": machine_id})
         else:
@@ -195,6 +198,7 @@ def get_meta(machine_id: int, data_ref: Optional[Any] = None) -> int:
                     WHERE id_ihm = :id AND tx_descricao='meta'
                 )
                   AND dt_created_at <= :data
+                  AND nu_valor_bruto > 0
                 ORDER BY dt_created_at DESC
             """, {"id": machine_id, "data": data_ref})
 
