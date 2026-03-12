@@ -1,5 +1,49 @@
 from logger import logger
 
+
+def sync_meta_to_ihm(id_ihm, conn_ihm, conn_db):
+    """Compara a meta configurada no banco com a que está na IHM.
+    Se forem diferentes, escreve o valor do banco na IHM via Modbus."""
+    try:
+        cursor = conn_db.cursor()
+
+        # Endereço Modbus do registrador de meta
+        cursor.execute(f"""
+            SELECT nu_endereco FROM tb_registrador
+            WHERE id_ihm = {id_ihm} AND tx_descricao = 'meta'
+        """)
+        row = cursor.fetchone()
+        if not row:
+            return
+        endereco_meta = int(row[0])
+
+        # Último valor de meta definido pelo usuário no banco (ignora zeros da IHM)
+        cursor.execute(f"""
+            SELECT TOP 1 nu_valor_bruto
+            FROM tb_log_registrador
+            WHERE id_registrador = (
+                SELECT id_registrador FROM tb_registrador
+                WHERE id_ihm = {id_ihm} AND tx_descricao = 'meta'
+            )
+            AND nu_valor_bruto > 0
+            ORDER BY dt_created_at DESC
+        """)
+        row_meta = cursor.fetchone()
+        if not row_meta:
+            return
+        meta_db = int(row_meta[0])
+
+        # Meta atual na IHM
+        meta_ihm = conn_ihm.read_holding_registers(address=endereco_meta, count=1).registers[0]
+
+        if meta_db != meta_ihm:
+            conn_ihm.write_registers(address=endereco_meta, values=[meta_db])
+            logger.info(f"IHM {id_ihm}: meta sincronizada na IHM ({meta_ihm} → {meta_db})")
+
+    except Exception as e:
+        logger.warning(f"IHM {id_ihm}: falha ao sincronizar meta: {e}")
+
+
 # Função para ler os registradores e montar a string de insert no banco de dados
 
 

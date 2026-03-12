@@ -2,8 +2,7 @@ from logger import logger
 from database import get_connection_db, execute_select, insert_dataframe
 # from ftp_services import connect_ftp, list_files, download_file, read_ftp_file
 from ihm_client import get_connection_ihm
-from data_processor import read_registers
-from data_processor import insert_registers_values
+from data_processor import read_registers, insert_registers_values, sync_meta_to_ihm
 import time
 import os
 
@@ -88,6 +87,8 @@ def main():
                 try:
                     logger.info(
                         f"========================================== {id_ihm} ==========================================")
+
+                    sync_meta_to_ihm(id_ihm, conn_ihm[k], conn_db)
 
                     values, insert_values = read_registers(
                         id_ihm, conn_ihm[k], conn_db)
