@@ -253,16 +253,11 @@ INSERT INTO dbo.tb_ihm (id_ihm, tx_ip_address, tx_port_number, id_linha_producao
 SET IDENTITY_INSERT dbo.tb_ihm OFF;
 GO
 
--- -------------------------------------------------------
--- FTP
--- Máquinas reais: bl_needed=1 (aguardando config real)
--- Máquinas fantasma: bl_needed=0 (não usam FTP)
--- -------------------------------------------------------
 SET IDENTITY_INSERT dbo.tb_ftp_needed ON;
 
 INSERT INTO dbo.tb_ftp_needed (id_ftp_needed, id_ihm, bl_needed) VALUES
 (1, 1, 1),
--- (2, 2, 1),  -- IHM 2 desativada temporariamente
+(2, 2, 0),
 (3, 3, 0),
 (4, 4, 0),
 (5, 5, 0),
@@ -293,7 +288,7 @@ INSERT INTO dbo.tb_registrador (nu_endereco, tx_descricao, id_ihm) VALUES
 (2000, N'motivo_parada',   1),
 (4000, N'meta',            1),
 (4100, N'modelo_peça',     1),
--- IHM 2 – MAQ_24 (real) -- desativada temporariamente
+-- IHM 2 – MAQ_24 (real) --
 (0,    N'operador',        2),
 (7024, N'produzido',       2),
 (7025, N'reprovado',       2),
@@ -394,7 +389,7 @@ GO
 INSERT INTO dbo.tb_depara_peca (nu_cod_peca, tx_peca, id_ihm) VALUES
 -- Linha real
 (1, N'Eixo A-12',  1),
--- (1, N'Base Z',     2),  -- IHM 2 desativada temporariamente
+(1, N'Base Z',     2),
 -- Linha simulada (2 modelos por IHM para permitir troca durante simulação)
 (1, N'Corpo X-7',  3), (2, N'Pino B-3',   3),
 (1, N'Anel C-7',   4), (2, N'Suporte L',  4),
@@ -407,24 +402,71 @@ GO
 -- De-para: operadores
 -- -------------------------------------------------------
 INSERT INTO dbo.tb_depara_operador (nu_cod_operador, tx_operador, id_ihm) VALUES
--- Linha real
-(1, N'Ana S.',      1), (2, N'João M.',    1),
--- (1, N'João M.',     2),  -- IHM 2 desativada temporariamente
+(1,  N'Antonia Tomaz',        1),
+(2,  N'Janice Souza',         1),
+(3,  N'Daiane Godofredo',     1),
+(5,  N'Claudia Almeida',      1),
+(7,  N'Sueli Ferreira',       1),
+(22, N'Janete Azevedo',       1),
+(23, N'Andreia Vilela',       1),
+(24, N'Joana Darc',           1),
+(26, N'Carlos Cesar',         1),
+(28, N'Katia da Silva',       1),
+(34, N'Crisleide Oliveira',   1),
+(45, N'Sueli Pereira',        1),
+(46, N'Dislene da Silva',     1),
+(47, N'Luciana Ribeiro',      1),
+(48, N'Luziete Ribeiro',      1),
+(49, N'Vanessa Michael',      1),
+(50, N'Rosanfega de Jesus',   1),
+(11, N'Clesia Maria',         1),
+(6,  N'Doralice',             1),
+(48, N'Luziete',              1),
+(53, N'Luciano Barbeiro',     1),
+(1,  N'Zoãozinho F.',        2),
 -- Linha simulada (múltiplos por IHM para rodízio na simulação)
-(1, N'Lucas F.',    3), (2, N'Fernanda K.', 3), (3, N'Bruno S.',   3),
-(1, N'Ricardo A.',  4), (2, N'Sandra M.',   4),
-(1, N'Tatiane B.',  5), (2, N'Carlos R.',   5), (3, N'Marcos P.',  5),
-(1, N'Patrícia L.', 6), (2, N'Eduardo N.',  6),
-(1, N'Fábio C.',    7), (2, N'Juliana M.',  7);
+(1, N'Lucas F.',    3),
+(2, N'Fernanda K.', 3),
+(3, N'Bruno S.',   3),
+(1, N'Ricardo A.',  4),
+(2, N'Sandra M.',   4),
+(1, N'Tatiane B.',  5),
+(2, N'Carlos R.',   5),
+(3, N'Marcos P.',  5),
+(1, N'Patrícia L.', 6),
+(2, N'Eduardo N.',  6),
+(1, N'Fábio C.',    7),
+(2, N'Juliana M.',  7);
 GO
 
 -- -------------------------------------------------------
 -- De-para: manutentores
 -- -------------------------------------------------------
 INSERT INTO dbo.tb_depara_manutentor (nu_cod_manutentor, tx_manutentor, id_ihm) VALUES
--- Linha real
-(1, N'Marcos T.',   1),
--- (1, N'Marcos T.',   2),  -- IHM 2 desativada temporariamente
+(100, N'Hugo cesar',           1),
+(101, N'Cleberson Sarmento',   1),
+(102, N'Tiago Bastos',         1),
+(103, N'Mateus Braga',         1),
+(104, N'Carlos Eduardo',       1),
+(105, N'Rafel Rodrigues',      1),
+(106, N'Alexandre Lima',       1),
+(107, N'Wagner de Souza',      1),
+(108, N'Roberto Satori',       1),
+(109, N'Marcus Ribeiro',       1),
+(110, N'Marcelo Ricardo',      1),
+(111, N'Fernando Jose',        1),
+(112, N'Edson da Luz',         1),
+(113, N'Willian Marcos',       1),
+(114, N'Johnny Neris',         1),
+(115, N'Jose Carlos',          1),
+(116, N'Gean Cardoso',         1),
+(117, N'Ricardo Macena',       1),
+(118, N'Diego Jose',           1),
+(119, N'Maicon Ribeiro',       1),
+(120, N'Flavio Balera',        1),
+(121, N'Gildasio Reis',        1),
+(122, N'Jonas Mendes',         1),
+(1, N'Marcos T.',   2),
 -- Linha simulada
 (1, N'Lucas P.',    3),
 (1, N'Lucas P.',    4),
@@ -437,9 +479,17 @@ GO
 -- De-para: engenheiros
 -- -------------------------------------------------------
 INSERT INTO dbo.tb_depara_engenheiro (nu_cod_engenheiro, tx_engenheiro, id_ihm) VALUES
--- Linha real
-(1, N'Dr. Silva',    1),
--- (1, N'Dr. Silva',    2),  -- IHM 2 desativada temporariamente
+(500, N'Marcelo Francelino',   1),
+(501, N'Willian Correa',       1),
+(502, N'Yanke Vinicius',       1),
+(503, N'Michael dos Santos',   1),
+(504, N'Marcos Guimaraes',     1),
+(505, N'Fabricio Santos',      1),
+(506, N'Marcelo Ardito',       1),
+(507, N'Antonia Tomaz',        1),
+(508, N'Janice Souza',         1),
+(509, N'Luciano Ribeiro',      1),
+(1, N'Dr. Silva',    2),
 -- Linha simulada
 (1, N'Eng. Costa',   3),
 (1, N'Eng. Costa',   4),
@@ -491,7 +541,8 @@ INSERT INTO dbo.tb_depara_motivo_parada (nu_cod_motivo_parada, tx_motivo_parada,
 (51, N'Aguardando Manutentor',              1),
 (52, N'Máquina em Manutenção',              1),
 (53, N'Alteração de Parâmetros',            1),
--- (IHM 2 desativada temporariamente)
+(0,  N'Máquina Parada',                     2),
+(49, N'Máquina Produzindo',                 2),
 -- Linha simulada (mesmo conjunto para todas as IHMs fantasma)
 (1, N'Aguardando Matéria Prima', 3), (2, N'Falta de operador',     3),
 (3, N'Manutenção Preventiva',    3), (4, N'Limpeza programada',    3),
