@@ -421,7 +421,6 @@ INSERT INTO dbo.tb_depara_operador (nu_cod_operador, tx_operador, id_ihm) VALUES
 (50, N'Rosanfega de Jesus',   1),
 (11, N'Clesia Maria',         1),
 (6,  N'Doralice',             1),
-(48, N'Luziete',              1),
 (53, N'Luciano Barbeiro',     1),
 (1,  N'Zoãozinho F.',        2),
 -- Linha simulada (múltiplos por IHM para rodízio na simulação)
