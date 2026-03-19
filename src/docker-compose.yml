@@ -39,7 +39,7 @@ services:
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=${DB_NAME}
       - SIMULADOR_ENABLED=${SIMULADOR_ENABLED}
-    restart: unless-stopped
+    restart: no
     env_file:
       - .env
     depends_on:
