@@ -58,3 +58,15 @@ def run_query_update(sql, params=None):
             return result.rowcount
     except Exception as e:
         raise Exception(f"Erro ao executar UPDATE: {e}\nSQL: {sql}")
+
+
+def run_query_insert(sql, params=None):
+    """Executa INSERT com OUTPUT INSERTED e retorna o primeiro valor da linha."""
+    try:
+        engine = get_connection()
+        with engine.begin() as conn:
+            result = conn.execute(text(sql), params or {})
+            row = result.fetchone()
+            return row[0] if row else None
+    except Exception as e:
+        raise Exception(f"Erro ao executar INSERT: {e}\nSQL: {sql}")
