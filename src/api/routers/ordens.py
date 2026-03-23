@@ -64,8 +64,14 @@ async def ordens_ws(websocket: WebSocket):
     await websocket.accept()
     try:
         while True:
-            data = get_all_ordens()
-            await websocket.send_text(json.dumps(data, default=str))
+            try:
+                data = get_all_ordens()
+                await websocket.send_text(json.dumps(data, default=str))
+            except WebSocketDisconnect:
+                return
+            except Exception:
+                # Erro de DB — mantém conexão viva, tenta de novo no próximo tick
+                pass
             await asyncio.sleep(2)
-    except WebSocketDisconnect:
+    except Exception:
         pass

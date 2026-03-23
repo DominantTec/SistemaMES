@@ -272,6 +272,7 @@ export default function OrdensProducao() {
   const [showModal, setShowModal] = useState(false);
   const [search, setSearch]       = useState("");
   const [filterLinha, setFilterLinha] = useState("");
+  const [wsOk, setWsOk]           = useState(false);
   const wsRef = useRef(null);
 
   // WebSocket live updates
@@ -279,10 +280,14 @@ export default function OrdensProducao() {
     function connect() {
       const ws = new WebSocket(`${WS_BASE}/api/ordens/ws`);
       wsRef.current = ws;
+      ws.onopen    = () => setWsOk(true);
       ws.onmessage = (e) => {
         try { setOrdens(JSON.parse(e.data)); } catch {}
       };
-      ws.onclose = () => setTimeout(connect, 3000);
+      ws.onclose = () => {
+        setWsOk(false);
+        setTimeout(connect, 3000);
+      };
     }
     connect();
     return () => wsRef.current?.close();
@@ -324,11 +329,15 @@ export default function OrdensProducao() {
   }
 
   async function handleSaveOP(data) {
-    await fetch(`${API_BASE}/api/ordens`, {
+    const res = await fetch(`${API_BASE}/api/ordens`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
+    if (!res.ok) {
+      alert("Erro ao criar OP. Verifique a conexão com o servidor.");
+      return;
+    }
     setShowModal(false);
   }
 
@@ -362,7 +371,23 @@ export default function OrdensProducao() {
     <div className="op-page">
       {/* Cabeçalho */}
       <div className="op-header">
-        <h1 className="op-title">Ordens de Produção</h1>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <h1 className="op-title">Ordens de Produção</h1>
+          <span
+            title={wsOk ? "Conectado — atualizando em tempo real" : "Reconectando..."}
+            style={{
+              width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
+              background: wsOk ? "#16a34a" : "#d97706",
+              boxShadow: wsOk ? "0 0 0 0 rgba(22,163,74,.4)" : "none",
+              animation: wsOk ? "pulse-green 1.5s infinite" : "none",
+            }}
+          />
+          {!wsOk && (
+            <span style={{ fontSize: "0.75rem", color: "#d97706", fontWeight: 600 }}>
+              Reconectando...
+            </span>
+          )}
+        </div>
         <div className="op-header-actions">
           <input
             className="op-search"
@@ -385,6 +410,7 @@ export default function OrdensProducao() {
           </button>
         </div>
       </div>
+
 
       {/* Estatísticas */}
       <div className="op-stats">
