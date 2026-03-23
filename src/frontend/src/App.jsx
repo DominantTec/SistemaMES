@@ -7,6 +7,7 @@ import Configuracoes from "./pages/Configuracoes";
 import Painel from "./pages/Painel";
 import PainelMES from "./pages/PainelMES";
 import Historico from "./pages/Historico";
+import OrdensProducao from "./pages/OrdensProducao";
 
 export default function App() {
   return (
@@ -25,6 +26,7 @@ export default function App() {
               <Route path="/maquina/:machineId" element={<MaquinaDetalhe />} />
               <Route path="/configuracoes" element={<Configuracoes />} />
               <Route path="/historico" element={<Historico />} />
+              <Route path="/ordens" element={<OrdensProducao />} />
             </Routes>
           </AppLayout>
         } />

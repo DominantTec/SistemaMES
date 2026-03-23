@@ -11,6 +11,8 @@ from api.routers.machine import router as machines_router
 from api.routers.overview import router as overview_router
 from api.routers.config import router as config_router
 from api.routers.historico import router as historico_router
+from api.routers.ordens import router as ordens_router
+from api.services.queries import ensure_ordens_table
 
 
 class SafeJSONResponse(JSONResponse):
@@ -37,6 +39,14 @@ class SafeJSONResponse(JSONResponse):
 
 app = FastAPI(title="PCP API", default_response_class=SafeJSONResponse)
 
+
+@app.on_event("startup")
+async def startup():
+    try:
+        ensure_ordens_table()
+    except Exception:
+        pass  # Não bloqueia o boot caso DB ainda esteja subindo
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],      # DEV
@@ -51,3 +61,4 @@ app.include_router(machines_router)
 app.include_router(overview_router)
 app.include_router(config_router)
 app.include_router(historico_router)
+app.include_router(ordens_router)

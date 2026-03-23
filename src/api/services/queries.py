@@ -2,7 +2,7 @@ from datetime import datetime, date, time, timedelta
 from typing import List, Dict, Any, Optional
 import pandas as pd
 
-from api.services.db import run_query, run_query_update
+from api.services.db import run_query, run_query_update, run_query_insert
 
 
 # =========================
@@ -1128,3 +1128,147 @@ def get_line_detail(line_id: int) -> dict:
         },
         "maquinas": maquinas,
     }
+
+# =========================
+# ORDENS DE PRODUÇÃO
+# =========================
+
+def ensure_ordens_table():
+    """Cria tb_ordem_producao se ainda não existir."""
+    run_query_update("""
+        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'tb_ordem_producao')
+        BEGIN
+            CREATE TABLE dbo.tb_ordem_producao (
+                id_ordem          INT IDENTITY(1,1) PRIMARY KEY,
+                nu_numero_op      VARCHAR(50)  NOT NULL,
+                id_linha_producao INT          NOT NULL,
+                tx_peca           VARCHAR(100) NOT NULL DEFAULT '',
+                nu_quantidade     INT          NOT NULL DEFAULT 0,
+                nu_meta_hora      INT          NOT NULL DEFAULT 0,
+                tx_status         VARCHAR(20)  NOT NULL DEFAULT 'fila',
+                nu_prioridade     INT          NOT NULL DEFAULT 0,
+                dt_criacao        DATETIME     NOT NULL DEFAULT GETDATE(),
+                dt_inicio         DATETIME     NULL,
+                dt_fim            DATETIME     NULL,
+                tx_observacoes    VARCHAR(500) NULL
+            )
+        END
+    """)
+
+
+def get_all_ordens() -> list:
+    """Retorna todas as ordens de produção ordenadas por prioridade e data."""
+    df = run_query("""
+        SELECT
+            o.id_ordem, o.nu_numero_op,
+            o.id_linha_producao, l.tx_name AS linha_nome,
+            o.tx_peca, o.nu_quantidade, o.nu_meta_hora,
+            o.tx_status, o.nu_prioridade,
+            o.dt_criacao, o.dt_inicio, o.dt_fim,
+            o.tx_observacoes
+        FROM dbo.tb_ordem_producao o
+        JOIN dbo.tb_linha_producao l ON l.id_linha_producao = o.id_linha_producao
+        ORDER BY o.nu_prioridade DESC, o.dt_criacao
+    """)
+    result = []
+    for _, r in df.iterrows():
+        result.append({
+            "id":         int(r["id_ordem"]),
+            "numero_op":  r["nu_numero_op"],
+            "linha_id":   int(r["id_linha_producao"]),
+            "linha_nome": r["linha_nome"],
+            "peca":       r["tx_peca"],
+            "quantidade": int(r["nu_quantidade"]),
+            "meta_hora":  int(r["nu_meta_hora"]),
+            "status":     r["tx_status"],
+            "prioridade": int(r["nu_prioridade"]),
+            "dt_criacao": r["dt_criacao"].isoformat() if r["dt_criacao"] is not None else None,
+            "dt_inicio":  r["dt_inicio"].isoformat()  if r["dt_inicio"]  is not None else None,
+            "dt_fim":     r["dt_fim"].isoformat()      if r["dt_fim"]     is not None else None,
+            "observacoes": r["tx_observacoes"],
+        })
+    return result
+
+
+def proximo_numero_op() -> str:
+    """Gera o próximo número de OP no formato OP-YYYYMM-XXXX."""
+    ym = datetime.now().strftime("%Y%m")
+    df = run_query("""
+        SELECT COUNT(*) AS cnt FROM dbo.tb_ordem_producao
+        WHERE nu_numero_op LIKE :pat
+    """, {"pat": f"OP-{ym}-%"})
+    cnt = int(df.iloc[0]["cnt"]) + 1 if not df.empty else 1
+    return f"OP-{ym}-{cnt:04d}"
+
+
+def create_ordem(numero_op, linha_id, peca, quantidade, meta_hora, prioridade, observacoes) -> int:
+    """Cria nova ordem de produção e retorna o id gerado."""
+    return run_query_insert("""
+        INSERT INTO dbo.tb_ordem_producao
+            (nu_numero_op, id_linha_producao, tx_peca, nu_quantidade,
+             nu_meta_hora, nu_prioridade, tx_observacoes)
+        OUTPUT INSERTED.id_ordem
+        VALUES (:num, :linha, :peca, :qtd, :meta, :pri, :obs)
+    """, {
+        "num":   numero_op,
+        "linha": linha_id,
+        "peca":  peca,
+        "qtd":   quantidade,
+        "meta":  meta_hora,
+        "pri":   prioridade,
+        "obs":   observacoes or None,
+    })
+
+
+def update_ordem_status(ordem_id: int, new_status: str) -> dict:
+    """Atualiza status da OP. Se 'em_producao', seta meta das máquinas da linha."""
+    if new_status == "em_producao":
+        run_query_update("""
+            UPDATE dbo.tb_ordem_producao
+            SET tx_status = :status, dt_inicio = GETDATE(), dt_fim = NULL
+            WHERE id_ordem = :id
+        """, {"status": new_status, "id": ordem_id})
+
+        df_op = run_query("""
+            SELECT id_linha_producao, nu_meta_hora, tx_peca
+            FROM dbo.tb_ordem_producao WHERE id_ordem = :id
+        """, {"id": ordem_id})
+        if not df_op.empty:
+            r        = df_op.iloc[0]
+            linha_id = int(r["id_linha_producao"])
+            meta     = int(r["nu_meta_hora"])
+            peca     = r["tx_peca"]
+            df_m = run_query("""
+                SELECT id_ihm FROM dbo.tb_ihm
+                WHERE id_linha_producao = :lid
+            """, {"lid": linha_id})
+            for _, m in df_m.iterrows():
+                try:
+                    update_machine_config(int(m["id_ihm"]), meta, peca)
+                except Exception:
+                    pass
+
+    elif new_status == "finalizado":
+        run_query_update("""
+            UPDATE dbo.tb_ordem_producao
+            SET tx_status = :status, dt_fim = GETDATE()
+            WHERE id_ordem = :id
+        """, {"status": new_status, "id": ordem_id})
+
+    else:  # fila ou qualquer outro
+        run_query_update("""
+            UPDATE dbo.tb_ordem_producao
+            SET tx_status = :status, dt_inicio = NULL, dt_fim = NULL
+            WHERE id_ordem = :id
+        """, {"status": new_status, "id": ordem_id})
+
+    return {"ok": True}
+
+
+def delete_ordem(ordem_id: int) -> dict:
+    """Remove uma ordem de produção."""
+    run_query_update(
+        "DELETE FROM dbo.tb_ordem_producao WHERE id_ordem = :id",
+        {"id": ordem_id},
+    )
+    return {"ok": True}
