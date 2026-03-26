@@ -232,33 +232,63 @@ export default function MaquinaDetalhe() {
           <DonutChart mtbf={data.manutencao?.mtbf} mttr={data.manutencao?.mttr} />
         </div>
 
-        {/* Registros de Paradas */}
-        <div className="md-card md-stops">
-          <div className="md-card-title">Registros de Paradas</div>
-          {data.registros_parada?.length > 0 ? (
-            <table className="md-stops-table">
-              <thead>
-                <tr>
-                  <th>Início</th>
-                  <th>Motivo</th>
-                  <th>Duração</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.registros_parada.map((p, i) => (
-                  <tr key={i}>
-                    <td>{p.inicio}</td>
-                    <td>{p.motivo || "-"}</td>
-                    <td>{p.duracao}</td>
-                    <td><span className="md-stop-badge">{p.status}</span></td>
+        <div className="md-stops-col">
+          {/* Registros de Paradas */}
+          <div className="md-card md-stops">
+            <div className="md-card-title">Registros de Paradas</div>
+            {data.registros_parada?.filter(p => p.codigo < 54).length > 0 ? (
+              <table className="md-stops-table">
+                <thead>
+                  <tr>
+                    <th>Início</th>
+                    <th>Motivo</th>
+                    <th>Duração</th>
+                    <th>Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <div className="md-no-stops">Nenhuma parada registrada no período.</div>
-          )}
+                </thead>
+                <tbody>
+                  {data.registros_parada.filter(p => p.codigo < 54).map((p, i) => (
+                    <tr key={i}>
+                      <td>{p.inicio}</td>
+                      <td>{p.motivo || "-"}</td>
+                      <td>{p.duracao}</td>
+                      <td><span className="md-stop-badge">{p.status}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="md-no-stops">Nenhuma parada registrada no período.</div>
+            )}
+          </div>
+          {/* Registros de Manutenção */}
+          <div className="md-card md-stops">
+            <div className="md-card-title">Registros de Manutenção</div>
+            {data.registros_parada?.filter(p => p.codigo >= 54).length > 0 ? (
+              <table className="md-stops-table">
+                <thead>
+                  <tr>
+                    <th>Início</th>
+                    <th>Motivo</th>
+                    <th>Duração</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.registros_parada.filter(p => p.codigo >= 54).map((p, i) => (
+                    <tr key={i}>
+                      <td>{p.inicio}</td>
+                      <td>{p.motivo || "-"}</td>
+                      <td>{p.duracao}</td>
+                      <td><span className="md-stop-badge">{p.status}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="md-no-stops">Nenhuma manutenção registrada no período.</div>
+            )}
+          </div>
         </div>
 
       </div>

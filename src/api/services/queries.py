@@ -539,6 +539,7 @@ def get_machine_detail(machine_id: int) -> dict:
                     "motivo":  motivo,
                     "duracao": f"{h}h {r // 60:02d}m" if h else f"{r // 60}m",
                     "status":  depara_status_txt.get(motivo_parada_cod or 0, "Máquina Parada"),
+                    "codigo": motivo_parada_cod or 0
                 })
                 inicio_parada    = None
                 motivo_parada_cod = None
