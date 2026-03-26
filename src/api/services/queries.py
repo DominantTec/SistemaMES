@@ -156,6 +156,17 @@ def get_machine_timeline(machine_id: int, data_inicio: Optional[Any] = None, dat
             dict(zip(df_depara["nu_cod_motivo_parada"].astype(int), df_depara["tx_motivo_parada"]))
             if not df_depara.empty else {}
         )
+        # Fallback para máquinas sem depara configurado (ex: simuladas)
+        _defaults = {
+            49: "Em Produção",
+            0:  "Parada",
+            4:  "Limpeza",
+            51: "Ag. Manutentor",
+            52: "Em Manutenção",
+        }
+        for k, v in _defaults.items():
+            if k not in depara_status_maquina:
+                depara_status_maquina[k] = v
 
         if "status_maquina" in df_registradores.columns:
             df_registradores["nu_status_maquina"] = df_registradores["status_maquina"].astype("Int64")
