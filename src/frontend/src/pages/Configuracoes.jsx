@@ -4,28 +4,16 @@ import "./Configuracoes.css";
 const DEFAULT_API = `http://${window.location.hostname}:8000`;
 const API_BASE = import.meta.env.VITE_API_BASE || DEFAULT_API;
 
-const STATUS_STYLE = {
-  "Em Produção":    { color: "#16a34a", bg: "#dcfce7" },
-  "Parada":         { color: "#dc2626", bg: "#fee2e2" },
-  "Em Manutenção":  { color: "#7c3aed", bg: "#ede9fe" },
-  "Limpeza":        { color: "#2563eb", bg: "#dbeafe" },
-  "Ag. Manutentor": { color: "#d97706", bg: "#fef3c7" },
-};
-
 const DIAS_SEMANA = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"];
 const DIAS_SHORT  = { "Segunda": "Seg", "Terça": "Ter", "Quarta": "Qua", "Quinta": "Qui", "Sexta": "Sex", "Sábado": "Sáb", "Domingo": "Dom" };
 const TODAY_NAME  = DIAS_SEMANA[new Date().getDay() === 0 ? 6 : new Date().getDay() - 1];
 const TODAY_IDX   = DIAS_SEMANA.indexOf(TODAY_NAME);
 
-function statusStyle(s) {
-  return STATUS_STYLE[s] || { color: "#6b7280", bg: "#f3f4f6" };
-}
-
 function novoTurno() {
   return { dia: TODAY_NAME, nome: "", inicio: "07:00", fim: "15:00", ativo: true };
 }
 
-/* ── Seção: Gestão de Turnos (por linha) ─────────────────── */
+/* ── Seção: Gestão de Turnos ─────────────────────────────── */
 function GestaoTurnos() {
   const [linhas, setLinhas]         = useState([]);
   const [selectedId, setSelectedId] = useState(null);
@@ -78,35 +66,27 @@ function GestaoTurnos() {
   }
 
   return (
-    <div className="cfg-card">
-      <div className="cfg-card-header">
-        <div className="cfg-card-title-row">
-          <span className="cfg-card-title">Gestão de Turnos</span>
-          <div className="cfg-card-header-right">
-            {savedMsg && <span className="cfg-saved-msg">{savedMsg}</span>}
-            <button className="cfg-save-btn" onClick={handleSave} disabled={saving || !selectedId}>
-              {saving ? "Salvando..." : "Salvar Turnos"}
-            </button>
-          </div>
+    <div className="cfg-section">
+      {/* Linha de produção */}
+      <div className="cfg-row-between cfg-mb16">
+        <div className="cfg-field-group" style={{ flex: 1, maxWidth: 340 }}>
+          <label className="cfg-label">Linha de Produção</label>
+          <select className="cfg-select" value={selectedId ?? ""} onChange={(e) => setSelectedId(Number(e.target.value))}>
+            {linhas.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
+          </select>
         </div>
-        <p className="cfg-card-desc">
-          Turnos são definidos por linha de produção. Você pode ter múltiplos turnos por dia.
-          Todas as máquinas da linha seguem o mesmo calendário.
-        </p>
-      </div>
-
-      <div className="cfg-field-group" style={{ marginBottom: 20 }}>
-        <label className="cfg-label">Linha de Produção</label>
-        <select className="cfg-select" value={selectedId ?? ""} onChange={(e) => setSelectedId(Number(e.target.value))}>
-          {linhas.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
-        </select>
+        <div className="cfg-row-end" style={{ gap: 12 }}>
+          {savedMsg && <span className="cfg-saved-msg">{savedMsg}</span>}
+          <button className="cfg-save-btn" onClick={handleSave} disabled={saving || !selectedId}>
+            {saving ? "Salvando..." : "Salvar Turnos"}
+          </button>
+        </div>
       </div>
 
       {loading && <div className="cfg-loading"><div className="cfg-spinner" /> Carregando...</div>}
 
       {!loading && (
         <>
-          {/* Header */}
           <div className="cfg-shift-header">
             <span>Dia</span>
             <span>Nome do Turno</span>
@@ -116,7 +96,6 @@ function GestaoTurnos() {
             <span />
           </div>
 
-          {/* Lista de turnos — apenas hoje e dias futuros */}
           {turnos.filter(t => DIAS_SEMANA.indexOf(t.dia) >= TODAY_IDX).length === 0 && (
             <div className="cfg-shift-empty">
               Nenhum turno configurado a partir de hoje. Clique em "Adicionar Turno" para começar.
@@ -131,7 +110,6 @@ function GestaoTurnos() {
                 key={i}
                 className={["cfg-shift-row", !turno.ativo ? "cfg-shift-row--inactive" : "", isToday ? "cfg-shift-row--today" : ""].join(" ")}
               >
-                {/* Dia */}
                 <div className="cfg-shift-dia">
                   <select
                     className="cfg-dia-select"
@@ -145,7 +123,6 @@ function GestaoTurnos() {
                   {isToday && <span className="cfg-hoje-tag">hoje</span>}
                 </div>
 
-                {/* Nome */}
                 <input
                   className="cfg-shift-name-input"
                   type="text"
@@ -154,7 +131,6 @@ function GestaoTurnos() {
                   onChange={(e) => setField(i, "nome", e.target.value)}
                 />
 
-                {/* Início */}
                 <input
                   className="cfg-time-input"
                   type="time"
@@ -162,7 +138,6 @@ function GestaoTurnos() {
                   onChange={(e) => setField(i, "inicio", e.target.value)}
                 />
 
-                {/* Fim */}
                 <input
                   className="cfg-time-input"
                   type="time"
@@ -170,7 +145,6 @@ function GestaoTurnos() {
                   onChange={(e) => setField(i, "fim", e.target.value)}
                 />
 
-                {/* Toggle */}
                 <div className="cfg-toggle-wrap">
                   <span className="cfg-toggle-label">{turno.ativo ? "Ativo" : "Inativo"}</span>
                   <button
@@ -182,7 +156,6 @@ function GestaoTurnos() {
                   </button>
                 </div>
 
-                {/* Remover */}
                 <button type="button" className="cfg-remove-btn" onClick={() => removeTurno(i)} title="Remover turno">
                   ✕
                 </button>
@@ -190,7 +163,6 @@ function GestaoTurnos() {
             );
           })}
 
-          {/* Botão adicionar */}
           <button type="button" className="cfg-add-btn" onClick={addTurno}>
             + Adicionar Turno
           </button>
@@ -200,123 +172,260 @@ function GestaoTurnos() {
   );
 }
 
-/* ── Seção: Parâmetros de Máquina ────────────────────────── */
-function ParametrosMaquina() {
-  const [machines, setMachines]                 = useState([]);
-  const [selectedId, setSelectedId]             = useState(null);
-  const [config, setConfig]                     = useState(null);
-  const [meta, setMeta]                         = useState(0);
-  const [peca, setPeca]                         = useState("");
-  const [producaoTeorica, setProducaoTeorica]   = useState(0);
-  const [saving, setSaving]                     = useState(false);
-  const [savedMsg, setSavedMsg]                 = useState("");
-  const [loading, setLoading]                   = useState(false);
+/* ── Seção: Peças e Roteiros ─────────────────────────────── */
+function GestaoPecas() {
+  const [linhas, setLinhas]             = useState([]);
+  const [selectedLinha, setSelectedLinha] = useState(null);
+  const [pecas, setPecas]               = useState([]);
+  const [selectedPeca, setSelectedPeca] = useState(null);
+  const [maquinas, setMaquinas]         = useState([]);
+  const [rota, setRota]                 = useState([]);
+  const [novaNome, setNovaNome]         = useState("");
+  const [addingPeca, setAddingPeca]     = useState(false);
+  const [addMsg, setAddMsg]             = useState("");
+  const [saving, setSaving]             = useState(false);
+  const [savedMsg, setSavedMsg]         = useState("");
+  const [loading, setLoading]           = useState(false);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/config/machines`)
-      .then((r) => r.json())
-      .then((data) => { setMachines(data); if (data.length > 0) setSelectedId(data[0].id); })
+    fetch(`${API_BASE}/api/config/lines`)
+      .then(r => r.json())
+      .then(data => { setLinhas(data); if (data.length > 0) setSelectedLinha(data[0].id); })
       .catch(() => {});
   }, []);
 
   useEffect(() => {
-    if (!selectedId) return;
-    setConfig(null); setLoading(true);
-    fetch(`${API_BASE}/api/config/machines/${selectedId}`)
-      .then((r) => r.json())
-      .then((data) => {
-        setConfig(data);
-        setMeta(data.meta ?? 0);
-        setPeca(data.peca_atual ?? "");
-        setProducaoTeorica(data.producao_teorica ?? 0);
-      })
+    if (!selectedLinha) return;
+    setLoading(true);
+    setSelectedPeca(null);
+    Promise.all([
+      fetch(`${API_BASE}/api/config/lines/${selectedLinha}/pecas`).then(r => r.json()),
+      fetch(`${API_BASE}/api/config/lines/${selectedLinha}/machines`).then(r => r.json()),
+    ])
+      .then(([p, m]) => { setPecas(p); setMaquinas(m); })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [selectedId]);
+  }, [selectedLinha]);
 
-  async function handleSave() {
-    if (!selectedId || !config) return;
-    setSaving(true); setSavedMsg("");
+  useEffect(() => {
+    if (!selectedPeca) { setRota([]); return; }
+    const found = pecas.find(p => p.id === selectedPeca);
+    if (found) setRota(found.rota);
+  }, [selectedPeca, pecas]);
+
+  async function handleAddPeca() {
+    if (!novaNome.trim() || !selectedLinha) return;
+    setAddingPeca(true); setAddMsg("");
     try {
-      const res = await fetch(`${API_BASE}/api/config/machines/${selectedId}`, {
-        method: "PUT",
+      const res = await fetch(`${API_BASE}/api/config/lines/${selectedLinha}/pecas`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ meta, peca, producao_teorica: producaoTeorica }),
+        body: JSON.stringify({ nome: novaNome.trim() }),
       });
-      setSavedMsg(res.ok ? "Parâmetros salvos!" : "Erro ao salvar.");
-    } catch { setSavedMsg("Erro de conexão."); }
-    finally { setSaving(false); setTimeout(() => setSavedMsg(""), 4000); }
+      if (res.ok) {
+        const nova = await res.json();
+        setPecas(prev => [...prev, nova]);
+        setSelectedPeca(nova.id);
+        setNovaNome("");
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setAddMsg(err.detail || "Erro ao adicionar peça.");
+        setTimeout(() => setAddMsg(""), 4000);
+      }
+    } catch {
+      setAddMsg("Erro de conexão.");
+      setTimeout(() => setAddMsg(""), 4000);
+    } finally {
+      setAddingPeca(false);
+    }
   }
 
-  const st = config ? statusStyle(config.status) : {};
+  async function handleDeletePeca(pecaId) {
+    if (!window.confirm("Excluir esta peça e seu roteiro?")) return;
+    await fetch(`${API_BASE}/api/config/pecas/${pecaId}`, { method: "DELETE" });
+    setPecas(prev => prev.filter(p => p.id !== pecaId));
+    if (selectedPeca === pecaId) setSelectedPeca(null);
+  }
+
+  async function handleSaveRota() {
+    if (!selectedPeca) return;
+    setSaving(true); setSavedMsg("");
+    try {
+      const steps = rota.map(m => ({ id_ihm: m.id_ihm, producao_teorica: m.producao_teorica ?? 0 }));
+      const res = await fetch(`${API_BASE}/api/config/pecas/${selectedPeca}/rota`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ steps }),
+      });
+      if (res.ok) {
+        setSavedMsg("Roteiro salvo!");
+        setPecas(prev => prev.map(p => p.id === selectedPeca ? { ...p, rota } : p));
+      } else {
+        setSavedMsg("Erro ao salvar.");
+      }
+    } catch { setSavedMsg("Erro de conexão."); }
+    finally { setSaving(false); setTimeout(() => setSavedMsg(""), 3000); }
+  }
+
+  function addToRota(maquina) {
+    if (rota.find(m => m.id_ihm === maquina.id)) return;
+    setRota(prev => [...prev, { id_ihm: maquina.id, nome: maquina.nome, nu_ordem: prev.length + 1, producao_teorica: 0 }]);
+  }
+
+  function removeFromRota(id_ihm) {
+    setRota(prev => prev.filter(m => m.id_ihm !== id_ihm).map((m, i) => ({ ...m, nu_ordem: i + 1 })));
+  }
+
+  function setRotaProd(id_ihm, value) {
+    setRota(prev => prev.map(m => m.id_ihm === id_ihm ? { ...m, producao_teorica: value } : m));
+  }
+
+  function moveUp(idx) {
+    if (idx === 0) return;
+    setRota(prev => {
+      const next = [...prev];
+      [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+      return next.map((m, i) => ({ ...m, nu_ordem: i + 1 }));
+    });
+  }
+
+  function moveDown(idx) {
+    setRota(prev => {
+      if (idx === prev.length - 1) return prev;
+      const next = [...prev];
+      [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
+      return next.map((m, i) => ({ ...m, nu_ordem: i + 1 }));
+    });
+  }
+
+  const rotaIds = new Set(rota.map(m => m.id_ihm));
+  const maquinasDisponiveis = maquinas.filter(m => !rotaIds.has(m.id));
 
   return (
-    <div className="cfg-card cfg-params-card">
-      <div className="cfg-card-header">
-        <div className="cfg-card-title-row">
-          <span className="cfg-card-title">Parâmetros de Máquina</span>
-          <div className="cfg-card-header-right">
+    <div className="cfg-section">
+      {/* Linha de produção */}
+      <div className="cfg-row-between cfg-mb16">
+        <div className="cfg-field-group" style={{ flex: 1, maxWidth: 340 }}>
+          <label className="cfg-label">Linha de Produção</label>
+          <select className="cfg-select" value={selectedLinha ?? ""} onChange={e => setSelectedLinha(Number(e.target.value))}>
+            {linhas.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
+          </select>
+        </div>
+        {selectedPeca && (
+          <div className="cfg-row-end" style={{ gap: 12 }}>
             {savedMsg && <span className="cfg-saved-msg">{savedMsg}</span>}
+            <button className="cfg-save-btn" onClick={handleSaveRota} disabled={saving}>
+              {saving ? "Salvando..." : "Salvar Roteiro"}
+            </button>
           </div>
-        </div>
-        <p className="cfg-card-desc">Meta e peça são configurados individualmente por máquina.</p>
+        )}
       </div>
-
-      <div className="cfg-field-group" style={{ marginBottom: 16 }}>
-        <label className="cfg-label">Selecione a Máquina</label>
-        <select className="cfg-select" value={selectedId ?? ""} onChange={(e) => setSelectedId(Number(e.target.value))}>
-          {machines.map((m) => <option key={m.id} value={m.id}>{m.nome} ({m.linha})</option>)}
-        </select>
-      </div>
-
-      {config && (
-        <div className="cfg-status-group" style={{ marginBottom: 16 }}>
-          <span className="cfg-label">Status Atual</span>
-          <div className="cfg-status-row">
-            <span className="cfg-status-badge" style={{ color: st.color, background: st.bg }}>{config.status}</span>
-            <span className="cfg-status-desde">desde {config.status_desde}</span>
-          </div>
-        </div>
-      )}
 
       {loading && <div className="cfg-loading"><div className="cfg-spinner" /> Carregando...</div>}
 
-      {config && !loading && (
-        <>
-          <div className="cfg-ctx-section">
-            <label className="cfg-label">Peça / Produto</label>
-            <select className="cfg-select" value={peca} onChange={(e) => setPeca(e.target.value)}>
-              {(config.pecas ?? []).map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
+      {!loading && (
+        <div className="cfg-pecas-layout">
+
+          {/* Coluna esquerda: lista de peças */}
+          <div className="cfg-pecas-list-col">
+            <div className="cfg-col-title">Peças Configuradas</div>
+
+            {pecas.length === 0 && (
+              <div className="cfg-shift-empty">Nenhuma peça configurada para esta linha.</div>
+            )}
+
+            {pecas.map(p => (
+              <div
+                key={p.id}
+                className={`cfg-peca-item${selectedPeca === p.id ? " cfg-peca-item--selected" : ""}`}
+                onClick={() => setSelectedPeca(p.id)}
+              >
+                <span className="cfg-peca-nome">{p.nome}</span>
+                <div className="cfg-peca-meta">
+                  <span className="cfg-peca-rota-count">{p.rota.length} máq.</span>
+                  <button
+                    type="button"
+                    className="cfg-remove-btn"
+                    onPointerDown={e => e.stopPropagation()}
+                    onClick={e => { e.stopPropagation(); handleDeletePeca(p.id); }}
+                  >✕</button>
+                </div>
+              </div>
+            ))}
+
+            <div className="cfg-add-peca-row">
+              <input
+                className="cfg-shift-name-input"
+                placeholder="Nome da nova peça..."
+                value={novaNome}
+                onChange={e => setNovaNome(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleAddPeca()}
+              />
+              <button
+                type="button"
+                className="cfg-save-btn"
+                style={{ whiteSpace: "nowrap", padding: "9px 16px" }}
+                onClick={handleAddPeca}
+                disabled={!novaNome.trim() || !selectedLinha || addingPeca}
+              >
+                {addingPeca ? "..." : "+ Adicionar"}
+              </button>
+            </div>
+            {addMsg && <div className="cfg-error-msg">{addMsg}</div>}
           </div>
 
-          <div className="cfg-ctx-section">
-            <span className="cfg-label">Produção Teórica (pç/h)</span>
-            <p className="cfg-field-hint">
-              Capacidade máxima da máquina. Usada para calcular automaticamente a meta de cada turno nas Ordens de Produção.
-            </p>
-            <div className="cfg-meta-ctrl">
-              <button className="cfg-meta-btn" type="button" onClick={() => setProducaoTeorica((v) => Math.max(0, v - 1))}>−</button>
-              <input className="cfg-meta-input" type="number" min={0} value={producaoTeorica} onChange={(e) => setProducaoTeorica(Number(e.target.value))} />
-              <button className="cfg-meta-btn" type="button" onClick={() => setProducaoTeorica((v) => v + 1)}>+</button>
-            </div>
-          </div>
+          {/* Coluna direita: editor de roteiro */}
+          {selectedPeca ? (
+            <div className="cfg-rota-col">
+              <div className="cfg-col-title">
+                Roteiro — {pecas.find(p => p.id === selectedPeca)?.nome}
+              </div>
 
-          <div className="cfg-ctx-section">
-            <span className="cfg-label">Meta de Produção (turno atual)</span>
-            <p className="cfg-field-hint">
-              Ajuste manual da meta do turno em curso. Normalmente preenchida automaticamente pelas Ordens de Produção.
-            </p>
-            <div className="cfg-meta-ctrl">
-              <button className="cfg-meta-btn" type="button" onClick={() => setMeta((m) => Math.max(0, m - 1))}>−</button>
-              <input className="cfg-meta-input" type="number" min={0} value={meta} onChange={(e) => setMeta(Number(e.target.value))} />
-              <button className="cfg-meta-btn" type="button" onClick={() => setMeta((m) => m + 1)}>+</button>
+              {rota.length === 0 && (
+                <div className="cfg-shift-empty">Nenhuma máquina no roteiro. Adicione abaixo.</div>
+              )}
+
+              {rota.map((m, idx) => (
+                <div key={m.id_ihm} className="cfg-rota-item">
+                  <span className="cfg-rota-ordem">{idx + 1}</span>
+                  <span className="cfg-rota-nome">{m.nome}</span>
+                  <div className="cfg-rota-prod">
+                    <input
+                      className="cfg-rota-prod-input"
+                      type="number"
+                      min={0}
+                      value={m.producao_teorica ?? 0}
+                      onChange={e => setRotaProd(m.id_ihm, Number(e.target.value))}
+                      title="Produção Teórica (pç/h)"
+                    />
+                    <span className="cfg-rota-prod-unit">pç/h</span>
+                  </div>
+                  <div className="cfg-rota-actions">
+                    <button type="button" className="cfg-rota-btn" onClick={() => moveUp(idx)} disabled={idx === 0}>↑</button>
+                    <button type="button" className="cfg-rota-btn" onClick={() => moveDown(idx)} disabled={idx === rota.length - 1}>↓</button>
+                    <button type="button" className="cfg-remove-btn" onClick={() => removeFromRota(m.id_ihm)}>✕</button>
+                  </div>
+                </div>
+              ))}
+
+              {maquinasDisponiveis.length > 0 && (
+                <>
+                  <div className="cfg-rota-disponivel-label">Disponíveis para adicionar:</div>
+                  {maquinasDisponiveis.map(m => (
+                    <div key={m.id} className="cfg-rota-disponivel-item" onClick={() => addToRota(m)}>
+                      <span>{m.nome}</span>
+                      <span className="cfg-rota-add-btn">+ Adicionar</span>
+                    </div>
+                  ))}
+                </>
+              )}
             </div>
-            <button className="cfg-ajustar-btn" type="button" onClick={handleSave} disabled={saving}>
-              {saving ? "Salvando..." : "Salvar Parâmetros"}
-            </button>
-          </div>
-        </>
+          ) : (
+            <div className="cfg-rota-col cfg-rota-empty">
+              Selecione uma peça para configurar seu roteiro.
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
@@ -324,18 +433,35 @@ function ParametrosMaquina() {
 
 /* ── Página principal ────────────────────────────────────── */
 export default function Configuracoes() {
+  const [tab, setTab] = useState("turnos");
+
   return (
     <div className="cfg-root">
       <div className="cfg-topbar">
         <div>
           <h1 className="cfg-page-title">Configurações</h1>
-          <p className="cfg-page-sub">Gerencie turnos por linha de produção e parâmetros individuais de cada máquina.</p>
+          <p className="cfg-page-sub">Gerencie turnos, peças e roteiros por linha de produção.</p>
         </div>
       </div>
 
-      <div className="cfg-two-col">
-        <GestaoTurnos />
-        <ParametrosMaquina />
+      <div className="cfg-tabs">
+        <button
+          className={`cfg-tab${tab === "turnos" ? " cfg-tab--active" : ""}`}
+          onClick={() => setTab("turnos")}
+        >
+          Turnos de Trabalho
+        </button>
+        <button
+          className={`cfg-tab${tab === "pecas" ? " cfg-tab--active" : ""}`}
+          onClick={() => setTab("pecas")}
+        >
+          Peças e Roteiros
+        </button>
+      </div>
+
+      <div className="cfg-card">
+        {tab === "turnos" && <GestaoTurnos />}
+        {tab === "pecas"  && <GestaoPecas />}
       </div>
     </div>
   );

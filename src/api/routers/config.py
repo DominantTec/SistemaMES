@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -6,6 +6,9 @@ from api.services.queries import (
     get_all_machines, get_machine_config_data, update_machine_config,
     get_overview_turno, get_line_shifts, update_line_shifts, get_lines_df,
     update_producao_teorica, calcular_metas_op,
+    get_pecas_by_linha, create_peca, delete_peca,
+    get_rota_peca, update_rota_peca,
+    get_machines_by_line_df,
 )
 
 router = APIRouter(prefix="/api/config", tags=["config"])
@@ -75,3 +78,51 @@ def get_line_turnos(line_id: int):
 def save_line_turnos(line_id: int, body: list[DiaCalendario]):
     """Salva o calendário de turnos de uma linha."""
     return update_line_shifts(line_id, [d.model_dump() for d in body])
+
+
+class PecaCreate(BaseModel):
+    nome: str
+
+
+class RotaStep(BaseModel):
+    id_ihm: int
+    producao_teorica: int = 0
+
+
+class RotaUpdate(BaseModel):
+    steps: list[RotaStep]
+
+
+@router.get("/lines/{line_id}/machines")
+def get_line_machines(line_id: int):
+    """Lista as máquinas de uma linha."""
+    df = get_machines_by_line_df(line_id)
+    return [{"id": int(r["id_ihm"]), "nome": r["tx_name"]} for _, r in df.iterrows()]
+
+
+@router.get("/lines/{line_id}/pecas")
+def list_pecas(line_id: int):
+    return get_pecas_by_linha(line_id)
+
+
+@router.post("/lines/{line_id}/pecas")
+def add_peca(line_id: int, body: PecaCreate):
+    peca_id = create_peca(line_id, body.nome)
+    return {"id": peca_id, "nome": body.nome, "rota": []}
+
+
+@router.delete("/pecas/{peca_id}")
+def remove_peca(peca_id: int):
+    delete_peca(peca_id)
+    return {"ok": True}
+
+
+@router.get("/pecas/{peca_id}/rota")
+def get_peca_rota(peca_id: int):
+    return get_rota_peca(peca_id)
+
+
+@router.put("/pecas/{peca_id}/rota")
+def save_peca_rota(peca_id: int, body: RotaUpdate):
+    update_rota_peca(peca_id, [s.model_dump() for s in body.steps])
+    return {"ok": True}

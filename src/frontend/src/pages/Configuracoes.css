@@ -483,7 +483,83 @@
   color: #9ca3af;
 }
 
-/* ── Layout duas colunas ───────────────────────────────────── */
+/* ── Tabs ──────────────────────────────────────────────────── */
+.cfg-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 2px solid var(--line);
+  margin-bottom: -2px;
+}
+
+.cfg-tab {
+  padding: 10px 20px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  border-radius: 8px 8px 0 0;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.cfg-tab:hover {
+  color: var(--text);
+  background: var(--bg);
+}
+
+.cfg-tab--active {
+  color: var(--brand);
+  border-bottom-color: var(--brand);
+}
+
+/* ── Section (inside card) ─────────────────────────────────── */
+.cfg-section {
+  /* no extra padding — card already has it */
+}
+
+/* ── Row helpers ───────────────────────────────────────────── */
+.cfg-row-between {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.cfg-row-end {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.cfg-mb16 {
+  margin-bottom: 16px;
+}
+
+/* ── Error message ─────────────────────────────────────────── */
+.cfg-error-msg {
+  font-size: 12px;
+  color: #dc2626;
+  padding: 4px 4px 0;
+}
+
+/* ── Column title ──────────────────────────────────────────── */
+.cfg-col-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0 4px 8px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
+}
+
+/* ── Layout duas colunas (kept for reference, unused) ──────── */
 .cfg-two-col {
   display: grid;
   grid-template-columns: 1fr 380px;
@@ -580,4 +656,220 @@
   background: #fee2e2;
   color: #dc2626;
   border-color: #fca5a5;
+}
+
+/* ── Peças e Roteiros ──────────────────────────────────────── */
+.cfg-pecas-layout {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+.cfg-pecas-list-col,
+.cfg-rota-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* kept for backwards compat in case referenced elsewhere */
+.cfg-pecas-list-header {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0 4px 8px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
+}
+
+.cfg-peca-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 0.15s;
+  gap: 8px;
+}
+
+.cfg-peca-item:hover {
+  background: var(--bg);
+}
+
+.cfg-peca-item--selected {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.cfg-peca-nome {
+  font-size: 14px;
+  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cfg-peca-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.cfg-peca-rota-count {
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 2px 8px;
+}
+
+.cfg-add-peca-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  align-items: center;
+}
+
+.cfg-rota-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+}
+
+.cfg-rota-ordem {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--brand);
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.cfg-rota-nome {
+  font-size: 13px;
+  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cfg-rota-prod {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.cfg-rota-prod-input {
+  width: 64px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 13px;
+  text-align: right;
+  background: var(--card);
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.cfg-rota-prod-input:focus {
+  border-color: var(--brand);
+}
+
+.cfg-rota-prod-unit {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.cfg-rota-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.cfg-rota-btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+  font-size: 13px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  color: var(--text);
+  transition: background 0.15s;
+}
+
+.cfg-rota-btn:hover:not(:disabled) {
+  background: var(--bg);
+}
+
+.cfg-rota-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.cfg-rota-disponivel-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 12px 4px 4px;
+}
+
+.cfg-rota-disponivel-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px dashed var(--line);
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.15s;
+  gap: 8px;
+}
+
+.cfg-rota-disponivel-item:hover {
+  background: var(--bg);
+  border-style: solid;
+}
+
+.cfg-rota-add-btn {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--brand);
+  flex-shrink: 0;
+}
+
+.cfg-rota-empty {
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+  padding: 24px;
 }

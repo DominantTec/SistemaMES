@@ -54,6 +54,43 @@ def _ensure_schema():
                 )
                     ALTER TABLE dbo.tb_ordem_producao ADD {col_def[0]} {col_def[1]}
             """)
+        # tb_peca já existe no init.sql — adiciona colunas que faltam
+        run_query_update("""
+            IF NOT EXISTS (
+                SELECT * FROM sys.columns
+                WHERE object_id = OBJECT_ID('dbo.tb_peca') AND name = 'id_linha_producao'
+            )
+                ALTER TABLE dbo.tb_peca ADD id_linha_producao INT NULL
+        """)
+        # tb_peca_rota
+        run_query_update("""
+            IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.tb_peca_rota') AND type = 'U')
+            BEGIN
+                CREATE TABLE dbo.tb_peca_rota (
+                    id_rota             INT IDENTITY(1,1) PRIMARY KEY,
+                    id_peca             INT NOT NULL,
+                    id_ihm              INT NOT NULL,
+                    nu_ordem            INT NOT NULL DEFAULT 0,
+                    nu_producao_teorica INT NOT NULL DEFAULT 0
+                )
+            END
+        """)
+        # adiciona nu_producao_teorica se a tabela já existia sem ela
+        run_query_update("""
+            IF NOT EXISTS (
+                SELECT * FROM sys.columns
+                WHERE object_id = OBJECT_ID('dbo.tb_peca_rota') AND name = 'nu_producao_teorica'
+            )
+                ALTER TABLE dbo.tb_peca_rota ADD nu_producao_teorica INT NOT NULL DEFAULT 0
+        """)
+        # id_peca column in tb_ordem_producao
+        run_query_update("""
+            IF NOT EXISTS (
+                SELECT * FROM sys.columns
+                WHERE object_id = OBJECT_ID('dbo.tb_ordem_producao') AND name = 'id_peca'
+            )
+                ALTER TABLE dbo.tb_ordem_producao ADD id_peca INT NULL
+        """)
         _schema_ensured = True
     except Exception:
         pass  # não travar se o banco ainda não estiver disponível
@@ -1210,7 +1247,8 @@ def get_all_ordens() -> list:
             o.dt_criacao, o.dt_inicio, o.dt_fim,
             o.tx_observacoes,
             o.nu_meta_turno_atual,
-            o.nu_pecas_proximos_turnos
+            o.nu_pecas_proximos_turnos,
+            o.id_peca
         FROM dbo.tb_ordem_producao o
         JOIN dbo.tb_linha_producao l ON l.id_linha_producao = o.id_linha_producao
         ORDER BY o.nu_prioridade DESC, o.dt_criacao
@@ -1226,6 +1264,7 @@ def get_all_ordens() -> list:
             "quantidade":            int(r["nu_quantidade"]),
             "meta_turno_atual":      int(r["nu_meta_turno_atual"]),
             "pecas_proximos_turnos": int(r["nu_pecas_proximos_turnos"]),
+            "peca_id":               int(r["id_peca"]) if r["id_peca"] is not None and not pd.isna(r["id_peca"]) else None,
             "status":                r["tx_status"],
             "prioridade":            int(r["nu_prioridade"]),
             "dt_criacao":            r["dt_criacao"].isoformat() if r["dt_criacao"] is not None else None,
@@ -1247,29 +1286,30 @@ def proximo_numero_op() -> str:
     return f"OP-{ym}-{cnt:04d}"
 
 
-def create_ordem(numero_op, linha_id, peca, quantidade, prioridade, observacoes) -> int:
+def create_ordem(numero_op, linha_id, peca, quantidade, prioridade, observacoes, peca_id: int = None) -> int:
     """Cria nova ordem de produção, calcula metas por turno e retorna o id gerado."""
     _ensure_schema()
-    metas = calcular_metas_op(linha_id, quantidade)
+    metas = calcular_metas_op(linha_id, quantidade, peca_id)
     return run_query_insert("""
         INSERT INTO dbo.tb_ordem_producao
             (nu_numero_op, id_linha_producao, tx_peca, nu_quantidade,
              nu_meta_hora, nu_prioridade, tx_observacoes,
-             nu_meta_turno_atual, nu_pecas_proximos_turnos, dt_fim_turno_calculado)
+             nu_meta_turno_atual, nu_pecas_proximos_turnos, dt_fim_turno_calculado, id_peca)
         OUTPUT INSERTED.id_ordem
         VALUES (:num, :linha, :peca, :qtd,
                 0, :pri, :obs,
-                :meta_turno, :pecas_proximos, :dt_fim_turno)
+                :meta_turno, :pecas_proximos, :dt_fim_turno, :peca_id)
     """, {
-        "num":           numero_op,
-        "linha":         linha_id,
-        "peca":          peca,
-        "qtd":           quantidade,
-        "pri":           prioridade,
-        "obs":           observacoes or None,
-        "meta_turno":    metas["meta_turno_atual"],
+        "num":            numero_op,
+        "linha":          linha_id,
+        "peca":           peca,
+        "qtd":            quantidade,
+        "pri":            prioridade,
+        "obs":            observacoes or None,
+        "meta_turno":     metas["meta_turno_atual"],
         "pecas_proximos": metas["pecas_proximos_turnos"],
-        "dt_fim_turno":  metas["dt_fim_turno"],
+        "dt_fim_turno":   metas["dt_fim_turno"],
+        "peca_id":        peca_id,
     })
 
 
@@ -1313,7 +1353,7 @@ def _op_ativa_linha(linha_id: int, excluir_id: int = None) -> Optional[dict]:
 def _ativar_proxima_op(linha_id: int) -> None:
     """Ativa automaticamente a próxima OP em 'fila' de maior prioridade na linha."""
     df = run_query("""
-        SELECT TOP 1 id_ordem, nu_quantidade, tx_peca
+        SELECT TOP 1 id_ordem, nu_quantidade, tx_peca, id_peca
         FROM dbo.tb_ordem_producao
         WHERE id_linha_producao = :lid AND tx_status = 'fila'
         ORDER BY nu_prioridade DESC, dt_criacao ASC
@@ -1324,9 +1364,10 @@ def _ativar_proxima_op(linha_id: int) -> None:
     prox_id    = int(r["id_ordem"])
     quantidade = int(r["nu_quantidade"])
     peca       = r["tx_peca"]
+    peca_id    = int(r["id_peca"]) if r["id_peca"] is not None and not pd.isna(r["id_peca"]) else None
 
     # Recalcula metas com base no momento atual
-    metas = calcular_metas_op(linha_id, quantidade)
+    metas = calcular_metas_op(linha_id, quantidade, peca_id)
 
     run_query_update("""
         UPDATE dbo.tb_ordem_producao
@@ -1343,7 +1384,10 @@ def _ativar_proxima_op(linha_id: int) -> None:
         "dt_fim":   metas["dt_fim_turno"],
         "id":       prox_id,
     })
-    _set_meta_linha(linha_id, metas["meta_turno_atual"], peca)
+    if peca_id:
+        _set_meta_rota(peca_id, linha_id, peca)
+    else:
+        _set_meta_linha(linha_id, metas["meta_turno_atual"], peca)
 
 
 # ─── Status da OP ────────────────────────────────────────────────────────────
@@ -1365,7 +1409,7 @@ def update_ordem_status(ordem_id: int, new_status: str) -> dict:
 
     # Carrega dados atuais da OP
     df_op = run_query("""
-        SELECT tx_status, id_linha_producao, nu_quantidade, tx_peca
+        SELECT tx_status, id_linha_producao, nu_quantidade, tx_peca, id_peca
         FROM dbo.tb_ordem_producao WHERE id_ordem = :id
     """, {"id": ordem_id})
     if df_op.empty:
@@ -1376,6 +1420,7 @@ def update_ordem_status(ordem_id: int, new_status: str) -> dict:
     linha_id    = int(r["id_linha_producao"])
     quantidade  = int(r["nu_quantidade"])
     peca        = r["tx_peca"]
+    peca_id     = int(r["id_peca"]) if r["id_peca"] is not None and not pd.isna(r["id_peca"]) else None
 
     # ── fila / finalizado → em_producao ──────────────────────────────────────
     if new_status == "em_producao":
@@ -1405,7 +1450,10 @@ def update_ordem_status(ordem_id: int, new_status: str) -> dict:
             "dt_fim":   metas["dt_fim_turno"],
             "id":       ordem_id,
         })
-        _set_meta_linha(linha_id, metas["meta_turno_atual"], peca)
+        if peca_id:
+            _set_meta_rota(peca_id, linha_id, peca)
+        else:
+            _set_meta_linha(linha_id, metas["meta_turno_atual"], peca)
 
     # ── em_producao → fila  (pausa) ───────────────────────────────────────────
     elif new_status == "fila" and status_ant == "em_producao":
@@ -1428,7 +1476,10 @@ def update_ordem_status(ordem_id: int, new_status: str) -> dict:
             "id":       ordem_id,
         })
         # Limpa meta das máquinas (sem OP ativa = sem meta)
-        _set_meta_linha(linha_id, 0)
+        if peca_id:
+            _clear_meta_rota(peca_id)
+        else:
+            _set_meta_linha(linha_id, 0)
 
     # ── → finalizado ─────────────────────────────────────────────────────────
     elif new_status == "finalizado":
@@ -1439,7 +1490,10 @@ def update_ordem_status(ordem_id: int, new_status: str) -> dict:
         """, {"id": ordem_id})
 
         if status_ant == "em_producao":
-            _set_meta_linha(linha_id, 0)
+            if peca_id:
+                _clear_meta_rota(peca_id)
+            else:
+                _set_meta_linha(linha_id, 0)
             _ativar_proxima_op(linha_id)
 
     # ── → cancelado ──────────────────────────────────────────────────────────
@@ -1455,7 +1509,10 @@ def update_ordem_status(ordem_id: int, new_status: str) -> dict:
         """, {"id": ordem_id})
 
         if status_ant == "em_producao":
-            _set_meta_linha(linha_id, 0)
+            if peca_id:
+                _clear_meta_rota(peca_id)
+            else:
+                _set_meta_linha(linha_id, 0)
             _ativar_proxima_op(linha_id)
 
     # ── finalizado / cancelado → fila  (reabertura) ───────────────────────────
@@ -1550,21 +1607,14 @@ def get_producao_teorica_linha(linha_id: int) -> int:
     return int(df.iloc[0]["total"]) if not df.empty else 0
 
 
-def calcular_metas_op(linha_id: int, quantidade: int) -> dict:
+def calcular_metas_op(linha_id: int, quantidade: int, peca_id: int = None) -> dict:
     """
-    Calcula meta_turno_atual, pecas_proximos_turnos e dt_fim_turno
-    com base na produção teórica da linha e no turno ativo agora.
+    Calcula meta_turno_atual, pecas_proximos_turnos e dt_fim_turno.
+    Se peca_id fornecido, usa a menor prod_teorica do roteiro (gargalo).
+    Caso contrário, usa a soma da linha (compatibilidade).
     """
     _ensure_schema()
     agora = datetime.now()
-    prod_teorica = get_producao_teorica_linha(linha_id)
-
-    if prod_teorica <= 0:
-        return {
-            "meta_turno_atual":      0,
-            "pecas_proximos_turnos": quantidade,
-            "dt_fim_turno":          None,
-        }
 
     df_turno = run_query("""
         SELECT TOP 1 dt_inicio, dt_fim
@@ -1576,15 +1626,25 @@ def calcular_metas_op(linha_id: int, quantidade: int) -> dict:
     """, {"lid": linha_id, "agora": agora})
 
     if df_turno.empty:
-        return {
-            "meta_turno_atual":      0,
-            "pecas_proximos_turnos": quantidade,
-            "dt_fim_turno":          None,
-        }
+        return {"meta_turno_atual": 0, "pecas_proximos_turnos": quantidade, "dt_fim_turno": None}
 
     dt_fim_turno    = df_turno.iloc[0]["dt_fim"]
     horas_restantes = max(0.0, (dt_fim_turno - agora).total_seconds() / 3600)
-    capacidade      = int(prod_teorica * horas_restantes)
+
+    if peca_id:
+        rota = get_rota_peca(peca_id)
+        if not rota:
+            return {"meta_turno_atual": 0, "pecas_proximos_turnos": quantidade, "dt_fim_turno": None}
+        teoricas = [m.get("producao_teorica", 0) for m in rota]
+        gargalo  = min(t for t in teoricas if t > 0) if any(t > 0 for t in teoricas) else 0
+        if gargalo <= 0:
+            return {"meta_turno_atual": 0, "pecas_proximos_turnos": quantidade, "dt_fim_turno": None}
+        capacidade = int(gargalo * horas_restantes)
+    else:
+        prod_teorica = get_producao_teorica_linha(linha_id)
+        if prod_teorica <= 0:
+            return {"meta_turno_atual": 0, "pecas_proximos_turnos": quantidade, "dt_fim_turno": None}
+        capacidade = int(prod_teorica * horas_restantes)
 
     meta_turno_atual      = min(quantidade, capacidade)
     pecas_proximos_turnos = quantidade - meta_turno_atual
@@ -1622,6 +1682,107 @@ def _get_producao_linha_desde(linha_id: int, dt_inicio: datetime) -> int:
     return total
 
 
+# ─── Peças e Roteiros ────────────────────────────────────────────────────────
+
+def get_pecas_by_linha(linha_id: int) -> list:
+    """Lista as peças configuradas para uma linha, com seus roteiros."""
+    _ensure_schema()
+    df = run_query("""
+        SELECT id_peca, tx_name FROM dbo.tb_peca
+        WHERE id_linha_producao = :lid ORDER BY tx_name
+    """, {"lid": linha_id})
+    result = []
+    for _, r in df.iterrows():
+        peca_id = int(r["id_peca"])
+        result.append({"id": peca_id, "nome": r["tx_name"], "rota": get_rota_peca(peca_id)})
+    return result
+
+
+def create_peca(linha_id: int, nome: str) -> int:
+    _ensure_schema()
+    return run_query_insert("""
+        INSERT INTO dbo.tb_peca (tx_name, id_linha_producao, tempo_producao) OUTPUT INSERTED.id_peca
+        VALUES (:nome, :lid, 0)
+    """, {"nome": nome.strip(), "lid": linha_id})
+
+
+def delete_peca(peca_id: int) -> None:
+    _ensure_schema()
+    run_query_update("DELETE FROM dbo.tb_peca_rota WHERE id_peca = :id", {"id": peca_id})
+    run_query_update("DELETE FROM dbo.tb_peca WHERE id_peca = :id", {"id": peca_id})
+
+
+def get_rota_peca(peca_id: int) -> list:
+    """Retorna o roteiro ordenado de uma peça: lista de {id_ihm, nome, nu_ordem, producao_teorica}."""
+    _ensure_schema()
+    df = run_query("""
+        SELECT r.id_ihm, i.tx_name AS nome, r.nu_ordem,
+               COALESCE(r.nu_producao_teorica, 0) AS nu_producao_teorica
+        FROM dbo.tb_peca_rota r
+        JOIN dbo.tb_ihm i ON i.id_ihm = r.id_ihm
+        WHERE r.id_peca = :id ORDER BY r.nu_ordem
+    """, {"id": peca_id})
+    if df.empty:
+        return []
+    return [
+        {
+            "id_ihm": int(r["id_ihm"]),
+            "nome": r["nome"],
+            "nu_ordem": int(r["nu_ordem"]),
+            "producao_teorica": int(r["nu_producao_teorica"]),
+        }
+        for _, r in df.iterrows()
+    ]
+
+
+def update_rota_peca(peca_id: int, steps: list) -> None:
+    """Salva o roteiro de uma peça. steps = lista de {id_ihm, producao_teorica}."""
+    _ensure_schema()
+    run_query_update("DELETE FROM dbo.tb_peca_rota WHERE id_peca = :id", {"id": peca_id})
+    for ordem, step in enumerate(steps, start=1):
+        run_query_update("""
+            INSERT INTO dbo.tb_peca_rota (id_peca, id_ihm, nu_ordem, nu_producao_teorica)
+            VALUES (:peca, :ihm, :ordem, :prod)
+        """, {
+            "peca": peca_id,
+            "ihm": step["id_ihm"],
+            "ordem": ordem,
+            "prod": step.get("producao_teorica", 0),
+        })
+
+
+def _get_horas_restantes_turno(linha_id: int) -> float:
+    agora = datetime.now()
+    df = run_query("""
+        SELECT TOP 1 dt_fim FROM dbo.tb_turnos
+        WHERE id_linha_producao = :lid AND dt_inicio <= :agora AND dt_fim >= :agora
+        ORDER BY dt_inicio
+    """, {"lid": linha_id, "agora": agora})
+    if df.empty:
+        return 0.0
+    return max(0.0, (df.iloc[0]["dt_fim"] - agora).total_seconds() / 3600)
+
+
+def _set_meta_rota(peca_id: int, linha_id: int, peca_nome: str) -> None:
+    """Seta meta individualmente em cada máquina do roteiro da peça."""
+    horas = _get_horas_restantes_turno(linha_id)
+    for m in get_rota_peca(peca_id):
+        meta = int(m.get("producao_teorica", 0) * horas)
+        try:
+            update_machine_config(m["id_ihm"], meta, peca_nome)
+        except Exception:
+            pass
+
+
+def _clear_meta_rota(peca_id: int) -> None:
+    """Zera a meta nas máquinas do roteiro da peça."""
+    for m in get_rota_peca(peca_id):
+        try:
+            update_machine_config(m["id_ihm"], 0, get_selected_piece(m["id_ihm"]))
+        except Exception:
+            pass
+
+
 def recalcular_turno_ordens_ativas() -> None:
     """
     Verifica OPs em produção cujo turno calculado já expirou e redistribui
@@ -1633,7 +1794,7 @@ def recalcular_turno_ordens_ativas() -> None:
 
     df = run_query("""
         SELECT id_ordem, id_linha_producao,
-               nu_quantidade,
+               nu_quantidade, id_peca,
                dt_fim_turno_calculado,
                dt_inicio
         FROM dbo.tb_ordem_producao
@@ -1645,6 +1806,7 @@ def recalcular_turno_ordens_ativas() -> None:
     for _, op in df.iterrows():
         linha_id    = int(op["id_linha_producao"])
         quantidade  = int(op["nu_quantidade"])
+        peca_id_op  = int(op["id_peca"]) if op["id_peca"] is not None and not pd.isna(op["id_peca"]) else None
         dt_inicio_op = op["dt_inicio"]
 
         # Produção real desde início da OP
@@ -1683,4 +1845,7 @@ def recalcular_turno_ordens_ativas() -> None:
         })
 
         # Atualiza a meta nas máquinas da linha
-        _set_meta_linha(linha_id, nova_meta)
+        if peca_id_op:
+            _set_meta_rota(peca_id_op, linha_id, "")
+        else:
+            _set_meta_linha(linha_id, nova_meta)

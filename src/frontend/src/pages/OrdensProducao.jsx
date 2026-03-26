@@ -141,13 +141,14 @@ function Coluna({ coluna, ordens, onDelete }) {
 // ---- Modal Nova OP ----
 function NovaOPModal({ linhas, onClose, onSave }) {
   const [form, setForm] = useState({
-    numero_op:  "",
-    linha_id:   linhas[0]?.id ?? "",
-    peca:       "",
-    quantidade: "",
-    prioridade: "0",
+    numero_op:   "",
+    linha_id:    linhas[0]?.id ?? "",
+    peca_id:     "",
+    quantidade:  "",
+    prioridade:  "0",
     observacoes: "",
   });
+  const [pecas, setPecas]       = useState([]);
   const [loading, setLoading]   = useState(false);
   const [preview, setPreview]   = useState(null);
   const previewTimer            = useRef(null);
@@ -160,31 +161,48 @@ function NovaOPModal({ linhas, onClose, onSave }) {
       .catch(() => {});
   }, []);
 
-  // Preview de metas: debounce 500ms ao mudar linha ou quantidade
+  // Busca peças ao mudar linha
+  useEffect(() => {
+    if (!form.linha_id) return;
+    setPecas([]);
+    setForm((f) => ({ ...f, peca_id: "" }));
+    fetch(`${API_BASE}/api/config/lines/${form.linha_id}/pecas`)
+      .then((r) => r.json())
+      .then((data) => {
+        setPecas(data);
+        if (data.length > 0) setForm((f) => ({ ...f, peca_id: data[0].id }));
+      })
+      .catch(() => {});
+  }, [form.linha_id]);
+
+  // Preview de metas: debounce 500ms ao mudar linha, peça ou quantidade
   useEffect(() => {
     clearTimeout(previewTimer.current);
     const qtd = Number(form.quantidade);
     if (!form.linha_id || !qtd || qtd <= 0) { setPreview(null); return; }
     previewTimer.current = setTimeout(() => {
-      fetch(`${API_BASE}/api/ordens/preview-metas?linha_id=${form.linha_id}&quantidade=${qtd}`)
+      const params = `linha_id=${form.linha_id}&quantidade=${qtd}${form.peca_id ? `&peca_id=${form.peca_id}` : ""}`;
+      fetch(`${API_BASE}/api/ordens/preview-metas?${params}`)
         .then((r) => r.json())
         .then(setPreview)
         .catch(() => setPreview(null));
     }, 500);
     return () => clearTimeout(previewTimer.current);
-  }, [form.linha_id, form.quantidade]);
+  }, [form.linha_id, form.peca_id, form.quantidade]);
 
   function set(k, v) {
     setForm((f) => ({ ...f, [k]: v }));
   }
 
   async function handleSave() {
-    if (!form.numero_op || !form.linha_id || !form.peca) return;
+    if (!form.numero_op || !form.linha_id || !form.peca_id) return;
     setLoading(true);
+    const pecaSelecionada = pecas.find(p => p.id === Number(form.peca_id));
     await onSave({
       numero_op:   form.numero_op,
       linha_id:    Number(form.linha_id),
-      peca:        form.peca,
+      peca:        pecaSelecionada?.nome ?? "",
+      peca_id:     Number(form.peca_id),
       quantidade:  Number(form.quantidade) || 0,
       prioridade:  Number(form.prioridade) || 0,
       observacoes: form.observacoes,
@@ -192,7 +210,7 @@ function NovaOPModal({ linhas, onClose, onSave }) {
     setLoading(false);
   }
 
-  const valid = form.numero_op && form.linha_id && form.peca;
+  const valid = form.numero_op && form.linha_id && form.peca_id;
 
   return (
     <div className="op-modal-overlay" onClick={onClose}>
@@ -220,11 +238,18 @@ function NovaOPModal({ linhas, onClose, onSave }) {
 
           <div className="op-modal-field full">
             <label>Peça / Produto</label>
-            <input
-              value={form.peca}
-              onChange={(e) => set("peca", e.target.value)}
-              placeholder="Ex: PRODUTO-A"
-            />
+            {pecas.length > 0 ? (
+              <select value={form.peca_id} onChange={(e) => set("peca_id", e.target.value)}>
+                {pecas.map((p) => (
+                  <option key={p.id} value={p.id}>{p.nome}</option>
+                ))}
+              </select>
+            ) : (
+              <div className="op-modal-no-pecas">
+                Nenhuma peça configurada para esta linha.
+                Cadastre em Configurações → Peças e Roteiros.
+              </div>
+            )}
           </div>
 
           <div className="op-modal-field">

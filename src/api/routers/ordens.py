@@ -23,6 +23,7 @@ class CreateOrdemBody(BaseModel):
     numero_op: str
     linha_id: int
     peca: str
+    peca_id: int = None
     quantidade: int
     prioridade: int = 0
     observacoes: str = ""
@@ -43,9 +44,9 @@ def next_number():
 
 
 @router.get("/preview-metas")
-def preview_metas(linha_id: int, quantidade: int):
+def preview_metas(linha_id: int, quantidade: int, peca_id: int = None):
     """Retorna a distribuição de metas por turno para uma OP a ser criada."""
-    return calcular_metas_op(linha_id, quantidade)
+    return calcular_metas_op(linha_id, quantidade, peca_id)
 
 
 @router.post("")
@@ -54,6 +55,7 @@ def create_ordem_endpoint(body: CreateOrdemBody):
         body.numero_op, body.linha_id, body.peca,
         body.quantidade,
         body.prioridade, body.observacoes,
+        body.peca_id,
     )
     return {"id": id_ordem, "ok": True}
 
