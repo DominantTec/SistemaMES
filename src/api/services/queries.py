@@ -1272,53 +1272,236 @@ def create_ordem(numero_op, linha_id, peca, quantidade, prioridade, observacoes)
     })
 
 
+STATUSES_VALIDOS = {"fila", "em_producao", "finalizado", "cancelado"}
+
+
+# ─── Helpers internos de OP ──────────────────────────────────────────────────
+
+def _set_meta_linha(linha_id: int, meta: int, peca: str = None) -> None:
+    """Seta a meta de todas as máquinas de uma linha.
+    Se peca=None, mantém a peça atual de cada máquina."""
+    df_m = run_query("""
+        SELECT id_ihm FROM dbo.tb_ihm WHERE id_linha_producao = :lid
+    """, {"lid": linha_id})
+    for _, m in df_m.iterrows():
+        machine_id = int(m["id_ihm"])
+        peca_usar  = peca if peca is not None else get_selected_piece(machine_id)
+        try:
+            update_machine_config(machine_id, meta, peca_usar)
+        except Exception:
+            pass
+
+
+def _op_ativa_linha(linha_id: int, excluir_id: int = None) -> Optional[dict]:
+    """Retorna a OP em_producao da linha, ou None.
+    excluir_id: ignora essa OP na busca (usada ao mover a própria OP)."""
+    params = {"lid": linha_id, "excluir": excluir_id if excluir_id else -1}
+    df = run_query("""
+        SELECT id_ordem, nu_meta_turno_atual, tx_peca
+        FROM dbo.tb_ordem_producao
+        WHERE id_linha_producao = :lid
+          AND tx_status = 'em_producao'
+          AND id_ordem <> :excluir
+    """, params)
+    if df.empty:
+        return None
+    r = df.iloc[0]
+    return {"id": int(r["id_ordem"]), "meta": int(r["nu_meta_turno_atual"]), "peca": r["tx_peca"]}
+
+
+def _ativar_proxima_op(linha_id: int) -> None:
+    """Ativa automaticamente a próxima OP em 'fila' de maior prioridade na linha."""
+    df = run_query("""
+        SELECT TOP 1 id_ordem, nu_quantidade, tx_peca
+        FROM dbo.tb_ordem_producao
+        WHERE id_linha_producao = :lid AND tx_status = 'fila'
+        ORDER BY nu_prioridade DESC, dt_criacao ASC
+    """, {"lid": linha_id})
+    if df.empty:
+        return
+    r          = df.iloc[0]
+    prox_id    = int(r["id_ordem"])
+    quantidade = int(r["nu_quantidade"])
+    peca       = r["tx_peca"]
+
+    # Recalcula metas com base no momento atual
+    metas = calcular_metas_op(linha_id, quantidade)
+
+    run_query_update("""
+        UPDATE dbo.tb_ordem_producao
+        SET tx_status                = 'em_producao',
+            dt_inicio                = GETDATE(),
+            dt_fim                   = NULL,
+            nu_meta_turno_atual      = :meta,
+            nu_pecas_proximos_turnos = :proximas,
+            dt_fim_turno_calculado   = :dt_fim
+        WHERE id_ordem = :id
+    """, {
+        "meta":     metas["meta_turno_atual"],
+        "proximas": metas["pecas_proximos_turnos"],
+        "dt_fim":   metas["dt_fim_turno"],
+        "id":       prox_id,
+    })
+    _set_meta_linha(linha_id, metas["meta_turno_atual"], peca)
+
+
+# ─── Status da OP ────────────────────────────────────────────────────────────
+
 def update_ordem_status(ordem_id: int, new_status: str) -> dict:
-    """Atualiza status da OP. Se 'em_producao', seta meta das máquinas da linha."""
+    """
+    Atualiza o status de uma OP tratando todos os cenários:
+
+    fila        → em_producao : recalcula metas; bloqueia se já há outra ativa na linha;
+                                 seta meta das máquinas
+    em_producao → fila        : limpa meta das máquinas; recalcula metas do ponto atual
+    em_producao → finalizado  : registra dt_fim; limpa meta; ativa próxima OP da fila
+    em_producao → cancelado   : zera metas da OP; limpa meta; ativa próxima OP da fila
+    fila        → cancelado   : zera metas da OP
+    finalizado  → fila        : reabre OP; recalcula metas
+    """
+    if new_status not in STATUSES_VALIDOS:
+        raise ValueError(f"Status inválido: {new_status}")
+
+    # Carrega dados atuais da OP
+    df_op = run_query("""
+        SELECT tx_status, id_linha_producao, nu_quantidade, tx_peca
+        FROM dbo.tb_ordem_producao WHERE id_ordem = :id
+    """, {"id": ordem_id})
+    if df_op.empty:
+        raise ValueError(f"OP {ordem_id} não encontrada")
+
+    r           = df_op.iloc[0]
+    status_ant  = r["tx_status"]
+    linha_id    = int(r["id_linha_producao"])
+    quantidade  = int(r["nu_quantidade"])
+    peca        = r["tx_peca"]
+
+    # ── fila / finalizado → em_producao ──────────────────────────────────────
     if new_status == "em_producao":
+        # Bloqueia se já há outra OP ativa na mesma linha
+        ativa = _op_ativa_linha(linha_id, excluir_id=ordem_id)
+        if ativa:
+            raise ConflictError(
+                f"Já existe uma OP em produção nesta linha (OP #{ativa['id']}). "
+                "Finalize ou pause-a antes de iniciar uma nova."
+            )
+
+        # Recalcula metas com base no momento atual (não na criação)
+        metas = calcular_metas_op(linha_id, quantidade)
+
         run_query_update("""
             UPDATE dbo.tb_ordem_producao
-            SET tx_status = :status, dt_inicio = GETDATE(), dt_fim = NULL
+            SET tx_status                = 'em_producao',
+                dt_inicio                = GETDATE(),
+                dt_fim                   = NULL,
+                nu_meta_turno_atual      = :meta,
+                nu_pecas_proximos_turnos = :proximas,
+                dt_fim_turno_calculado   = :dt_fim
             WHERE id_ordem = :id
-        """, {"status": new_status, "id": ordem_id})
+        """, {
+            "meta":     metas["meta_turno_atual"],
+            "proximas": metas["pecas_proximos_turnos"],
+            "dt_fim":   metas["dt_fim_turno"],
+            "id":       ordem_id,
+        })
+        _set_meta_linha(linha_id, metas["meta_turno_atual"], peca)
 
-        df_op = run_query("""
-            SELECT id_linha_producao, nu_meta_turno_atual, tx_peca
-            FROM dbo.tb_ordem_producao WHERE id_ordem = :id
-        """, {"id": ordem_id})
-        if not df_op.empty:
-            r        = df_op.iloc[0]
-            linha_id = int(r["id_linha_producao"])
-            meta     = int(r["nu_meta_turno_atual"])
-            peca     = r["tx_peca"]
-            df_m = run_query("""
-                SELECT id_ihm FROM dbo.tb_ihm
-                WHERE id_linha_producao = :lid
-            """, {"lid": linha_id})
-            for _, m in df_m.iterrows():
-                try:
-                    update_machine_config(int(m["id_ihm"]), meta, peca)
-                except Exception:
-                    pass
+    # ── em_producao → fila  (pausa) ───────────────────────────────────────────
+    elif new_status == "fila" and status_ant == "em_producao":
+        # Recalcula metas para quando for reativada
+        metas = calcular_metas_op(linha_id, quantidade)
 
+        run_query_update("""
+            UPDATE dbo.tb_ordem_producao
+            SET tx_status                = 'fila',
+                dt_inicio                = NULL,
+                dt_fim                   = NULL,
+                nu_meta_turno_atual      = :meta,
+                nu_pecas_proximos_turnos = :proximas,
+                dt_fim_turno_calculado   = :dt_fim
+            WHERE id_ordem = :id
+        """, {
+            "meta":     metas["meta_turno_atual"],
+            "proximas": metas["pecas_proximos_turnos"],
+            "dt_fim":   metas["dt_fim_turno"],
+            "id":       ordem_id,
+        })
+        # Limpa meta das máquinas (sem OP ativa = sem meta)
+        _set_meta_linha(linha_id, 0)
+
+    # ── → finalizado ─────────────────────────────────────────────────────────
     elif new_status == "finalizado":
         run_query_update("""
             UPDATE dbo.tb_ordem_producao
-            SET tx_status = :status, dt_fim = GETDATE()
+            SET tx_status = 'finalizado', dt_fim = GETDATE()
             WHERE id_ordem = :id
-        """, {"status": new_status, "id": ordem_id})
+        """, {"id": ordem_id})
 
-    else:  # fila ou qualquer outro
+        if status_ant == "em_producao":
+            _set_meta_linha(linha_id, 0)
+            _ativar_proxima_op(linha_id)
+
+    # ── → cancelado ──────────────────────────────────────────────────────────
+    elif new_status == "cancelado":
         run_query_update("""
             UPDATE dbo.tb_ordem_producao
-            SET tx_status = :status, dt_inicio = NULL, dt_fim = NULL
+            SET tx_status                = 'cancelado',
+                dt_fim                   = GETDATE(),
+                nu_meta_turno_atual      = 0,
+                nu_pecas_proximos_turnos = 0,
+                dt_fim_turno_calculado   = NULL
             WHERE id_ordem = :id
-        """, {"status": new_status, "id": ordem_id})
+        """, {"id": ordem_id})
+
+        if status_ant == "em_producao":
+            _set_meta_linha(linha_id, 0)
+            _ativar_proxima_op(linha_id)
+
+    # ── finalizado / cancelado → fila  (reabertura) ───────────────────────────
+    else:
+        metas = calcular_metas_op(linha_id, quantidade)
+        run_query_update("""
+            UPDATE dbo.tb_ordem_producao
+            SET tx_status                = 'fila',
+                dt_inicio                = NULL,
+                dt_fim                   = NULL,
+                nu_meta_turno_atual      = :meta,
+                nu_pecas_proximos_turnos = :proximas,
+                dt_fim_turno_calculado   = :dt_fim
+            WHERE id_ordem = :id
+        """, {
+            "meta":     metas["meta_turno_atual"],
+            "proximas": metas["pecas_proximos_turnos"],
+            "dt_fim":   metas["dt_fim_turno"],
+            "id":       ordem_id,
+        })
 
     return {"ok": True}
 
 
+class ConflictError(Exception):
+    """OP em conflito com outra já ativa na linha."""
+    pass
+
+
 def delete_ordem(ordem_id: int) -> dict:
-    """Remove uma ordem de produção."""
+    """Remove uma ordem de produção. Se estava em produção, limpa a meta e ativa próxima."""
+    df = run_query("""
+        SELECT tx_status, id_linha_producao FROM dbo.tb_ordem_producao WHERE id_ordem = :id
+    """, {"id": ordem_id})
+
+    if not df.empty:
+        status   = df.iloc[0]["tx_status"]
+        linha_id = int(df.iloc[0]["id_linha_producao"])
+        if status == "em_producao":
+            _set_meta_linha(linha_id, 0)
+            run_query_update(
+                "DELETE FROM dbo.tb_ordem_producao WHERE id_ordem = :id",
+                {"id": ordem_id},
+            )
+            _ativar_proxima_op(linha_id)
+            return {"ok": True}
+
     run_query_update(
         "DELETE FROM dbo.tb_ordem_producao WHERE id_ordem = :id",
         {"id": ordem_id},

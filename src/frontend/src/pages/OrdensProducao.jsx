@@ -18,6 +18,7 @@ const COLUNAS = [
   { id: "fila",        label: "Fila",         color: "#1f6feb" },
   { id: "em_producao", label: "Em Produção",   color: "#d97706" },
   { id: "finalizado",  label: "Finalizado",    color: "#16a34a" },
+  { id: "cancelado",   label: "Cancelado",     color: "#6b7280" },
 ];
 
 function fmtData(iso) {
@@ -42,8 +43,9 @@ function OPCard({ op, onDelete, isOverlay = false }) {
 
   const classes = [
     "op-card",
-    isDragging  ? "is-dragging" : "",
-    isOverlay   ? "overlay"     : "",
+    isDragging          ? "is-dragging" : "",
+    isOverlay           ? "overlay"     : "",
+    op.status === "cancelado" ? "is-cancelado" : "",
   ].filter(Boolean).join(" ");
 
   return (
@@ -347,6 +349,8 @@ export default function OrdensProducao() {
     const op = ordens.find((o) => o.id === active.id);
     if (!op || op.status === novoStatus) return;
 
+    const statusAnterior = op.status;
+
     // Atualiza otimisticamente
     setOrdens((prev) =>
       prev.map((o) => (o.id === active.id ? { ...o, status: novoStatus } : o))
@@ -356,7 +360,23 @@ export default function OrdensProducao() {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: novoStatus }),
-    }).catch(() => {});
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          // Reverte atualização otimista
+          setOrdens((prev) =>
+            prev.map((o) => (o.id === active.id ? { ...o, status: statusAnterior } : o))
+          );
+          alert(err.detail || "Erro ao mover OP.");
+        }
+      })
+      .catch(() => {
+        // Reverte em caso de falha de rede
+        setOrdens((prev) =>
+          prev.map((o) => (o.id === active.id ? { ...o, status: statusAnterior } : o))
+        );
+      });
   }
 
   async function handleSaveOP(data) {
@@ -396,6 +416,7 @@ export default function OrdensProducao() {
     fila:        ordens.filter((o) => o.status === "fila").length,
     em_producao: ordens.filter((o) => o.status === "em_producao").length,
     finalizado:  ordens.filter((o) => o.status === "finalizado").length,
+    cancelado:   ordens.filter((o) => o.status === "cancelado").length,
   };
 
   return (
@@ -461,6 +482,12 @@ export default function OrdensProducao() {
           <span className="op-stat-label">Finalizadas</span>
           <span className="op-stat-value green">{counts.finalizado}</span>
         </div>
+        {counts.cancelado > 0 && (
+          <div className="op-stat">
+            <span className="op-stat-label">Canceladas</span>
+            <span className="op-stat-value muted">{counts.cancelado}</span>
+          </div>
+        )}
       </div>
 
       {/* Board Kanban */}

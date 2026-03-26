@@ -1,7 +1,7 @@
 import asyncio
 import json
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from api.services.queries import (
@@ -12,6 +12,8 @@ from api.services.queries import (
     delete_ordem,
     calcular_metas_op,
     recalcular_turno_ordens_ativas,
+    ConflictError,
+    STATUSES_VALIDOS,
 )
 
 router = APIRouter(prefix="/api/ordens", tags=["ordens"])
@@ -27,7 +29,7 @@ class CreateOrdemBody(BaseModel):
 
 
 class UpdateStatusBody(BaseModel):
-    status: str  # 'fila' | 'em_producao' | 'finalizado'
+    status: str  # 'fila' | 'em_producao' | 'finalizado' | 'cancelado'
 
 
 @router.get("")
@@ -58,7 +60,14 @@ def create_ordem_endpoint(body: CreateOrdemBody):
 
 @router.patch("/{ordem_id}/status")
 def update_status(ordem_id: int, body: UpdateStatusBody):
-    return update_ordem_status(ordem_id, body.status)
+    if body.status not in STATUSES_VALIDOS:
+        raise HTTPException(status_code=400, detail=f"Status inválido: {body.status}")
+    try:
+        return update_ordem_status(ordem_id, body.status)
+    except ConflictError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.delete("/{ordem_id}")

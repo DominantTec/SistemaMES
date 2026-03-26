@@ -108,6 +108,7 @@
 .op-stat-value.blue   { color: #1f6feb; }
 .op-stat-value.orange { color: #d97706; }
 .op-stat-value.green  { color: #16a34a; }
+.op-stat-value.muted  { color: #6b7280; }
 
 /* ---- Board Kanban ---- */
 .op-board {
@@ -212,6 +213,18 @@
 
 .op-card.is-dragging {
   opacity: 0.4;
+}
+
+.op-card.is-cancelado {
+  opacity: 0.6;
+  background: #f9fafb;
+  border-color: #e5e7eb;
+}
+.op-card.is-cancelado .op-card-numero,
+.op-card.is-cancelado .op-card-peca,
+.op-card.is-cancelado .op-card-info-value {
+  color: #9ca3af;
+  text-decoration: line-through;
 }
 
 .op-card.overlay {
