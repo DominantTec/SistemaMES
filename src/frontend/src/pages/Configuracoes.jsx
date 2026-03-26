@@ -15,13 +15,14 @@ const STATUS_STYLE = {
 const DIAS_SEMANA = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"];
 const DIAS_SHORT  = { "Segunda": "Seg", "Terça": "Ter", "Quarta": "Qua", "Quinta": "Qui", "Sexta": "Sex", "Sábado": "Sáb", "Domingo": "Dom" };
 const TODAY_NAME  = DIAS_SEMANA[new Date().getDay() === 0 ? 6 : new Date().getDay() - 1];
+const TODAY_IDX   = DIAS_SEMANA.indexOf(TODAY_NAME);
 
 function statusStyle(s) {
   return STATUS_STYLE[s] || { color: "#6b7280", bg: "#f3f4f6" };
 }
 
 function novoTurno() {
-  return { dia: "Segunda", nome: "", inicio: "07:00", fim: "15:00", ativo: true };
+  return { dia: TODAY_NAME, nome: "", inicio: "07:00", fim: "15:00", ativo: true };
 }
 
 /* ── Seção: Gestão de Turnos (por linha) ─────────────────── */
@@ -115,14 +116,15 @@ function GestaoTurnos() {
             <span />
           </div>
 
-          {/* Lista de turnos */}
-          {turnos.length === 0 && (
+          {/* Lista de turnos — apenas hoje e dias futuros */}
+          {turnos.filter(t => DIAS_SEMANA.indexOf(t.dia) >= TODAY_IDX).length === 0 && (
             <div className="cfg-shift-empty">
-              Nenhum turno configurado. Clique em "Adicionar Turno" para começar.
+              Nenhum turno configurado a partir de hoje. Clique em "Adicionar Turno" para começar.
             </div>
           )}
 
           {turnos.map((turno, i) => {
+            if (DIAS_SEMANA.indexOf(turno.dia) < TODAY_IDX) return null;
             const isToday = turno.dia === TODAY_NAME;
             return (
               <div

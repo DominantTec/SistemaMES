@@ -1596,6 +1596,32 @@ def calcular_metas_op(linha_id: int, quantidade: int) -> dict:
     }
 
 
+def _get_producao_linha_desde(linha_id: int, dt_inicio: datetime) -> int:
+    """Soma a produção real de todas as máquinas da linha desde dt_inicio.
+    Usa o delta do registrador 'total_produzido' (acumulador) por máquina."""
+    df_maquinas = run_query("""
+        SELECT id_ihm FROM dbo.tb_ihm WHERE id_linha_producao = :lid
+    """, {"lid": linha_id})
+    if df_maquinas.empty:
+        return 0
+    total = 0
+    for _, m in df_maquinas.iterrows():
+        df = run_query("""
+            SELECT MIN(lr.nu_valor_bruto) AS val_inicio,
+                   MAX(lr.nu_valor_bruto) AS val_fim
+            FROM dbo.tb_log_registrador lr
+            JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
+            WHERE lr.id_ihm      = :id
+              AND r.tx_descricao = 'total_produzido'
+              AND lr.dt_created_at >= :dt_inicio
+        """, {"id": int(m["id_ihm"]), "dt_inicio": dt_inicio})
+        if not df.empty and df.iloc[0]["val_inicio"] is not None:
+            delta = float(df.iloc[0]["val_fim"]) - float(df.iloc[0]["val_inicio"])
+            if delta > 0:
+                total += int(delta)
+    return total
+
+
 def recalcular_turno_ordens_ativas() -> None:
     """
     Verifica OPs em produção cujo turno calculado já expirou e redistribui
@@ -1607,18 +1633,23 @@ def recalcular_turno_ordens_ativas() -> None:
 
     df = run_query("""
         SELECT id_ordem, id_linha_producao,
-               nu_meta_turno_atual, nu_pecas_proximos_turnos,
-               dt_fim_turno_calculado
+               nu_quantidade,
+               dt_fim_turno_calculado,
+               dt_inicio
         FROM dbo.tb_ordem_producao
         WHERE tx_status = 'em_producao'
-          AND nu_pecas_proximos_turnos > 0
           AND dt_fim_turno_calculado IS NOT NULL
           AND dt_fim_turno_calculado < :agora
     """, {"agora": agora})
 
     for _, op in df.iterrows():
-        linha_id       = int(op["id_linha_producao"])
-        pecas_restantes = int(op["nu_pecas_proximos_turnos"])
+        linha_id    = int(op["id_linha_producao"])
+        quantidade  = int(op["nu_quantidade"])
+        dt_inicio_op = op["dt_inicio"]
+
+        # Produção real desde início da OP
+        produzido = _get_producao_linha_desde(linha_id, dt_inicio_op) if dt_inicio_op is not None else 0
+        pecas_restantes = max(0, quantidade - produzido)
 
         df_turno = run_query("""
             SELECT TOP 1 dt_inicio, dt_fim
@@ -1630,7 +1661,7 @@ def recalcular_turno_ordens_ativas() -> None:
         """, {"lid": linha_id, "agora": agora})
 
         if df_turno.empty:
-            continue  # sem turno ativo agora, aguarda
+            continue  # sem turno ativo agora, aguarda próximo tick
 
         dt_fim_turno    = df_turno.iloc[0]["dt_fim"]
         horas_restantes = max(0.0, (dt_fim_turno - agora).total_seconds() / 3600)
@@ -1650,3 +1681,6 @@ def recalcular_turno_ordens_ativas() -> None:
             "dt_fim":   dt_fim_turno,
             "id":       int(op["id_ordem"]),
         })
+
+        # Atualiza a meta nas máquinas da linha
+        _set_meta_linha(linha_id, nova_meta)
