@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from api.services.queries import (
     get_all_machines, get_machine_config_data, update_machine_config,
     get_overview_turno, get_line_shifts, update_line_shifts, get_lines_df,
+    update_producao_teorica, calcular_metas_op,
 )
 
 router = APIRouter(prefix="/api/config", tags=["config"])
@@ -33,6 +34,7 @@ class DiaCalendario(BaseModel):
 class MachineConfigUpdate(BaseModel):
     meta: int
     peca: str
+    producao_teorica: int = 0
 
 
 @router.get("/turno/atual")
@@ -43,8 +45,17 @@ def turno_atual():
 
 @router.put("/machines/{machine_id}")
 def save_config(machine_id: int, body: MachineConfigUpdate):
-    """Salva meta e peça de uma máquina."""
+    """Salva meta, peça e produção teórica de uma máquina."""
+    update_producao_teorica(machine_id, body.producao_teorica)
     return update_machine_config(machine_id, body.meta, body.peca)
+
+
+@router.get("/lines/{line_id}/producao-teorica")
+def get_line_producao_teorica(line_id: int):
+    """Retorna a soma da produção teórica e preview de metas para uma linha."""
+    from api.services.queries import get_producao_teorica_linha
+    total = get_producao_teorica_linha(line_id)
+    return {"producao_teorica_linha": total}
 
 
 @router.get("/lines")

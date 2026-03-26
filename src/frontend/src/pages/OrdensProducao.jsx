@@ -71,14 +71,20 @@ function OPCard({ op, onDelete, isOverlay = false }) {
 
       <div className="op-card-info">
         <div className="op-card-info-item">
-          <span className="op-card-info-label">Quantidade</span>
+          <span className="op-card-info-label">Quantidade total</span>
           <span className="op-card-info-value">{op.quantidade.toLocaleString("pt-BR")} un</span>
         </div>
         <div className="op-card-info-item">
-          <span className="op-card-info-label">Meta / hora</span>
-          <span className="op-card-info-value">{op.meta_hora} pç/h</span>
+          <span className="op-card-info-label">Meta turno atual</span>
+          <span className="op-card-info-value">{(op.meta_turno_atual ?? 0).toLocaleString("pt-BR")} un</span>
         </div>
       </div>
+      {(op.pecas_proximos_turnos ?? 0) > 0 && (
+        <div className="op-card-proximos-turnos">
+          <span className="op-card-proximos-icon">⏭</span>
+          <span>{(op.pecas_proximos_turnos).toLocaleString("pt-BR")} un em turnos futuros</span>
+        </div>
+      )}
 
       {op.observacoes && (
         <div className="op-card-obs" title={op.observacoes}>{op.observacoes}</div>
@@ -133,15 +139,16 @@ function Coluna({ coluna, ordens, onDelete }) {
 // ---- Modal Nova OP ----
 function NovaOPModal({ linhas, onClose, onSave }) {
   const [form, setForm] = useState({
-    numero_op: "",
-    linha_id: linhas[0]?.id ?? "",
-    peca: "",
+    numero_op:  "",
+    linha_id:   linhas[0]?.id ?? "",
+    peca:       "",
     quantidade: "",
-    meta_hora: "",
     prioridade: "0",
     observacoes: "",
   });
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading]   = useState(false);
+  const [preview, setPreview]   = useState(null);
+  const previewTimer            = useRef(null);
 
   // Busca próximo número ao abrir
   useEffect(() => {
@@ -151,6 +158,20 @@ function NovaOPModal({ linhas, onClose, onSave }) {
       .catch(() => {});
   }, []);
 
+  // Preview de metas: debounce 500ms ao mudar linha ou quantidade
+  useEffect(() => {
+    clearTimeout(previewTimer.current);
+    const qtd = Number(form.quantidade);
+    if (!form.linha_id || !qtd || qtd <= 0) { setPreview(null); return; }
+    previewTimer.current = setTimeout(() => {
+      fetch(`${API_BASE}/api/ordens/preview-metas?linha_id=${form.linha_id}&quantidade=${qtd}`)
+        .then((r) => r.json())
+        .then(setPreview)
+        .catch(() => setPreview(null));
+    }, 500);
+    return () => clearTimeout(previewTimer.current);
+  }, [form.linha_id, form.quantidade]);
+
   function set(k, v) {
     setForm((f) => ({ ...f, [k]: v }));
   }
@@ -159,12 +180,11 @@ function NovaOPModal({ linhas, onClose, onSave }) {
     if (!form.numero_op || !form.linha_id || !form.peca) return;
     setLoading(true);
     await onSave({
-      numero_op:  form.numero_op,
-      linha_id:   Number(form.linha_id),
-      peca:       form.peca,
-      quantidade: Number(form.quantidade) || 0,
-      meta_hora:  Number(form.meta_hora)  || 0,
-      prioridade: Number(form.prioridade) || 0,
+      numero_op:   form.numero_op,
+      linha_id:    Number(form.linha_id),
+      peca:        form.peca,
+      quantidade:  Number(form.quantidade) || 0,
+      prioridade:  Number(form.prioridade) || 0,
       observacoes: form.observacoes,
     });
     setLoading(false);
@@ -206,23 +226,12 @@ function NovaOPModal({ linhas, onClose, onSave }) {
           </div>
 
           <div className="op-modal-field">
-            <label>Quantidade (un)</label>
+            <label>Quantidade total (un)</label>
             <input
               type="number"
               min="0"
               value={form.quantidade}
               onChange={(e) => set("quantidade", e.target.value)}
-              placeholder="0"
-            />
-          </div>
-
-          <div className="op-modal-field">
-            <label>Meta por hora (pç/h)</label>
-            <input
-              type="number"
-              min="0"
-              value={form.meta_hora}
-              onChange={(e) => set("meta_hora", e.target.value)}
               placeholder="0"
             />
           </div>
@@ -248,6 +257,28 @@ function NovaOPModal({ linhas, onClose, onSave }) {
             />
           </div>
         </div>
+
+        {/* Preview de distribuição por turno */}
+        {preview && (
+          <div className="op-modal-preview">
+            <div className="op-modal-preview-title">Distribuição estimada por turno</div>
+            <div className="op-modal-preview-row">
+              <span className="op-preview-label">Meta turno atual</span>
+              <span className="op-preview-value green">{preview.meta_turno_atual.toLocaleString("pt-BR")} un</span>
+            </div>
+            {preview.pecas_proximos_turnos > 0 && (
+              <div className="op-modal-preview-row">
+                <span className="op-preview-label">Turnos futuros</span>
+                <span className="op-preview-value orange">{preview.pecas_proximos_turnos.toLocaleString("pt-BR")} un</span>
+              </div>
+            )}
+            {preview.meta_turno_atual === 0 && (
+              <p className="op-preview-aviso">
+                Nenhum turno ativo no momento. As peças serão alocadas ao próximo turno disponível.
+              </p>
+            )}
+          </div>
+        )}
 
         <div className="op-modal-actions">
           <button className="btn-modal-cancel" onClick={onClose}>Cancelar</button>

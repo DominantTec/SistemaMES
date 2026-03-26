@@ -448,6 +448,62 @@
   min-height: 64px;
 }
 
+/* ---- Indicador de turnos futuros no card ---- */
+.op-card-proximos-turnos {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 5px 8px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  color: #c2410c;
+  font-weight: 500;
+}
+.op-card-proximos-icon {
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+
+/* ---- Preview de distribuição no modal ---- */
+.op-modal-preview {
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+}
+.op-modal-preview-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+.op-modal-preview-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 0.85rem;
+}
+.op-preview-label {
+  color: var(--text);
+}
+.op-preview-value {
+  font-weight: 700;
+}
+.op-preview-value.green  { color: #16a34a; }
+.op-preview-value.orange { color: #d97706; }
+.op-preview-aviso {
+  font-size: 0.78rem;
+  color: #d97706;
+  margin: 6px 0 0;
+}
+
 .op-modal-actions {
   display: flex;
   justify-content: flex-end;

@@ -343,6 +343,13 @@
   color: var(--text);
 }
 
+.cfg-field-hint {
+  font-size: 0.75rem;
+  color: #6b7280;
+  margin: 2px 0 8px;
+  line-height: 1.4;
+}
+
 .cfg-ajustar-btn {
   margin-top: 4px;
   width: 100%;

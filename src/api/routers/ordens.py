@@ -10,6 +10,8 @@ from api.services.queries import (
     create_ordem,
     update_ordem_status,
     delete_ordem,
+    calcular_metas_op,
+    recalcular_turno_ordens_ativas,
 )
 
 router = APIRouter(prefix="/api/ordens", tags=["ordens"])
@@ -20,7 +22,6 @@ class CreateOrdemBody(BaseModel):
     linha_id: int
     peca: str
     quantidade: int
-    meta_hora: int
     prioridade: int = 0
     observacoes: str = ""
 
@@ -39,11 +40,17 @@ def next_number():
     return {"numero": proximo_numero_op()}
 
 
+@router.get("/preview-metas")
+def preview_metas(linha_id: int, quantidade: int):
+    """Retorna a distribuição de metas por turno para uma OP a ser criada."""
+    return calcular_metas_op(linha_id, quantidade)
+
+
 @router.post("")
 def create_ordem_endpoint(body: CreateOrdemBody):
     id_ordem = create_ordem(
         body.numero_op, body.linha_id, body.peca,
-        body.quantidade, body.meta_hora,
+        body.quantidade,
         body.prioridade, body.observacoes,
     )
     return {"id": id_ordem, "ok": True}
@@ -65,6 +72,7 @@ async def ordens_ws(websocket: WebSocket):
     try:
         while True:
             try:
+                recalcular_turno_ordens_ativas()
                 data = get_all_ordens()
                 await websocket.send_text(json.dumps(data, default=str))
             except WebSocketDisconnect:

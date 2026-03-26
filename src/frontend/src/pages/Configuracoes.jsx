@@ -200,14 +200,15 @@ function GestaoTurnos() {
 
 /* ── Seção: Parâmetros de Máquina ────────────────────────── */
 function ParametrosMaquina() {
-  const [machines, setMachines]     = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
-  const [config, setConfig]         = useState(null);
-  const [meta, setMeta]             = useState(0);
-  const [peca, setPeca]             = useState("");
-  const [saving, setSaving]         = useState(false);
-  const [savedMsg, setSavedMsg]     = useState("");
-  const [loading, setLoading]       = useState(false);
+  const [machines, setMachines]                 = useState([]);
+  const [selectedId, setSelectedId]             = useState(null);
+  const [config, setConfig]                     = useState(null);
+  const [meta, setMeta]                         = useState(0);
+  const [peca, setPeca]                         = useState("");
+  const [producaoTeorica, setProducaoTeorica]   = useState(0);
+  const [saving, setSaving]                     = useState(false);
+  const [savedMsg, setSavedMsg]                 = useState("");
+  const [loading, setLoading]                   = useState(false);
 
   useEffect(() => {
     fetch(`${API_BASE}/api/config/machines`)
@@ -221,7 +222,12 @@ function ParametrosMaquina() {
     setConfig(null); setLoading(true);
     fetch(`${API_BASE}/api/config/machines/${selectedId}`)
       .then((r) => r.json())
-      .then((data) => { setConfig(data); setMeta(data.meta ?? 0); setPeca(data.peca_atual ?? ""); })
+      .then((data) => {
+        setConfig(data);
+        setMeta(data.meta ?? 0);
+        setPeca(data.peca_atual ?? "");
+        setProducaoTeorica(data.producao_teorica ?? 0);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [selectedId]);
@@ -233,7 +239,7 @@ function ParametrosMaquina() {
       const res = await fetch(`${API_BASE}/api/config/machines/${selectedId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ meta, peca }),
+        body: JSON.stringify({ meta, peca, producao_teorica: producaoTeorica }),
       });
       setSavedMsg(res.ok ? "Parâmetros salvos!" : "Erro ao salvar.");
     } catch { setSavedMsg("Erro de conexão."); }
@@ -283,7 +289,22 @@ function ParametrosMaquina() {
           </div>
 
           <div className="cfg-ctx-section">
-            <span className="cfg-label">Meta de Produção</span>
+            <span className="cfg-label">Produção Teórica (pç/h)</span>
+            <p className="cfg-field-hint">
+              Capacidade máxima da máquina. Usada para calcular automaticamente a meta de cada turno nas Ordens de Produção.
+            </p>
+            <div className="cfg-meta-ctrl">
+              <button className="cfg-meta-btn" type="button" onClick={() => setProducaoTeorica((v) => Math.max(0, v - 1))}>−</button>
+              <input className="cfg-meta-input" type="number" min={0} value={producaoTeorica} onChange={(e) => setProducaoTeorica(Number(e.target.value))} />
+              <button className="cfg-meta-btn" type="button" onClick={() => setProducaoTeorica((v) => v + 1)}>+</button>
+            </div>
+          </div>
+
+          <div className="cfg-ctx-section">
+            <span className="cfg-label">Meta de Produção (turno atual)</span>
+            <p className="cfg-field-hint">
+              Ajuste manual da meta do turno em curso. Normalmente preenchida automaticamente pelas Ordens de Produção.
+            </p>
             <div className="cfg-meta-ctrl">
               <button className="cfg-meta-btn" type="button" onClick={() => setMeta((m) => Math.max(0, m - 1))}>−</button>
               <input className="cfg-meta-input" type="number" min={0} value={meta} onChange={(e) => setMeta(Number(e.target.value))} />
