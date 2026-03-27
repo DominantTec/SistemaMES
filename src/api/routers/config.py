@@ -9,6 +9,7 @@ from api.services.queries import (
     get_pecas_by_linha, create_peca, delete_peca,
     get_rota_peca, update_rota_peca,
     get_machines_by_line_df, update_machine_tipo,
+    get_historico_turnos,
 )
 
 router = APIRouter(prefix="/api/config", tags=["config"])
@@ -78,6 +79,12 @@ def get_line_turnos(line_id: int):
 def save_line_turnos(line_id: int, body: list[DiaCalendario]):
     """Salva o calendário de turnos de uma linha."""
     return update_line_shifts(line_id, [d.model_dump() for d in body])
+
+
+@router.get("/lines/{line_id}/turnos/historico")
+def get_turnos_historico(line_id: int, limit: int = 20):
+    """Retorna o histórico de ocorrências de turno de uma linha."""
+    return get_historico_turnos(line_id, limit)
 
 
 class PecaCreate(BaseModel):

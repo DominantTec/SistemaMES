@@ -801,8 +801,8 @@
   border-radius: 10px;
   background: var(--card, #161b22);
   padding: 10px 12px;
-  min-width: 120px;
-  max-width: 200px;
+  min-width: 140px;
+  max-width: 260px;
   flex-shrink: 0;
 }
 .fluxo-step--paralelo {

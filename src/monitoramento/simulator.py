@@ -1,11 +1,21 @@
 """
-Simulador de produção para as IHMs fantasma (Linha 2 – LINHA PINTURA).
+Simulador de produção para as IHMs fantasma (Linha Pintura).
+
+Execute manualmente (fora do Docker):
+    cd src/monitoramento
+    python simulator.py
 
 Comportamento orientado a OP:
   - Máquina só produz quando há uma OP ativa (em_producao) na linha.
-  - Para quando a meta do turno é atingida (produzido_na_op >= meta).
+  - Para quando a meta do turno é atingida.
   - Retoma automaticamente se a meta aumentar (OP paralela adicionada).
   - Se não houver OP ativa: fica PARADA.
+
+Taxa de produção:
+  - Cada máquina tem sua própria taxa teórica (pç/h) definida em MACHINE_RATES.
+  - Um acumulador fracional garante que a produção média respeite a taxa configurada.
+  - Variação aleatória de ±20% simula irregularidade real.
+  - Paradas aleatórias podem ocorrer e reduzir a produção efetiva.
 
 Ciclo: CYCLE_SECONDS segundos.
 """
@@ -18,15 +28,26 @@ from database import get_connection_db
 
 # ─── Configuração ─────────────────────────────────────────────────────────────
 
-GHOST_IHM_IDS  = [3, 4, 5, 6, 7]
-CYCLE_SECONDS  = 5
+CYCLE_SECONDS = 5
+
+# Taxas teóricas de produção por IHM (peças/hora)
+# Ajuste os IDs conforme o banco de dados.
+MACHINE_RATES = {
+    3: 80,    # TRATAMENTO 1
+    4: 40,    # PRIMER 1    (mesmo tipo que TRATAMENTO)
+    5: 300,   # PINTURA 1   (mesmo tipo que PINTURA 2)
+    6: 300,   # PINTURA 2
+    7: 80,    # ESTUFA 1
+}
+
+GHOST_IHM_IDS = list(MACHINE_RATES.keys())
 
 STATUS_PRODUZINDO = 49
 STATUS_PARADA     = 0
 STATUS_LIMPEZA    = 4
 STATUS_MANUTENCAO = 52
 
-# Probabilidades de interrupção (apenas quando PRODUZINDO e com OP ativa)
+# Probabilidades de interrupção (por ciclo, apenas quando PRODUZINDO com OP ativa)
 PROB_IR_PARADA     = 0.012   # ~1 parada a cada ~40 min
 PROB_IR_MANUTENCAO = 0.004   # ~1 manutenção a cada ~2 h
 PROB_IR_LIMPEZA    = 0.002   # ~1 limpeza a cada ~4 h
@@ -36,49 +57,50 @@ PROB_VOLTA_DE_PARADA     = 0.12
 PROB_VOLTA_DE_MANUTENCAO = 0.05
 PROB_VOLTA_DE_LIMPEZA    = 0.25
 
-# Ciclos mínimos em cada estado de interrupção
+# Ciclos mínimos em cada estado de interrupção antes de poder voltar
 MIN_CICLOS_PARADA     = 3
 MIN_CICLOS_MANUTENCAO = 6
 MIN_CICLOS_LIMPEZA    = 2
 
-# Produção por ciclo (em peças aprovadas)
-PECAS_POR_CICLO_MIN = 1
-PECAS_POR_CICLO_MAX = 4
-TAXA_REPROVADO      = 0.03
-
+TAXA_REPROVADO      = 0.03   # 3% de reprovação
 PROB_TROCA_OPERADOR = 0.15
 
 
 # ─── Estado de cada máquina ───────────────────────────────────────────────────
 
 class MachineState:
-    def __init__(self, id_ihm, reg_ids, operadores, motivos, manutentores, engenheiros, modelos):
-        self.id_ihm       = id_ihm
-        self.reg_ids      = reg_ids
-        self.operadores   = operadores
-        self.motivos      = motivos
-        self.manutentores = manutentores
-        self.engenheiros  = engenheiros
-        self.modelos      = modelos
+    def __init__(self, id_ihm, pecas_por_hora, reg_ids,
+                 operadores, motivos, manutentores, engenheiros, modelos):
+        self.id_ihm          = id_ihm
+        self.pecas_por_hora  = pecas_por_hora
+        self.reg_ids         = reg_ids
+        self.operadores      = operadores
+        self.motivos         = motivos
+        self.manutentores    = manutentores
+        self.engenheiros     = engenheiros
+        self.modelos         = modelos
 
         self.operador        = operadores[0] if operadores else 1
-        self.status          = STATUS_PARADA   # inicia parada até ter OP
+        self.status          = STATUS_PARADA
         self.motivo_parada   = 0
-        self.produzido       = 0               # acumulado total (persiste entre ciclos)
+        self.produzido       = 0
         self.reprovado       = 0
         self.total_produzido = 0
         self.manutentor      = 0
         self.engenheiro      = 0
-        self.meta            = 0               # meta do turno atual (0 = sem OP)
+        self.meta            = 0
         self.modelo          = modelos[0] if modelos else 1
 
         self.parada_duracao  = 0
         self.prev_values     = None
 
         # Controle interno de produção por período de meta
-        self._produzido_na_op   = 0    # produzido desde que a meta atual foi definida
-        self._meta_anterior     = 0    # meta na iteração anterior (detecta mudanças)
-        self._parada_por_meta   = False  # parou porque atingiu a meta
+        self._produzido_na_op = 0
+        self._meta_anterior   = 0
+        self._parada_por_meta = False
+
+        # Acumulador fracional: garante taxa média correta mesmo com ciclos grossos
+        self._acum = 0.0
 
     # ── Carregamento do banco ─────────────────────────────────────────────────
 
@@ -142,17 +164,18 @@ class MachineState:
         """Avança um ciclo de simulação respeitando a lógica de OP."""
         nova_meta = self.meta
 
-        # Detecta início de novo período de meta (meta foi de 0 para > 0)
+        # Nova OP detectada (meta foi de 0 para > 0)
         if nova_meta > 0 and self._meta_anterior == 0:
             self._produzido_na_op = 0
             self._parada_por_meta = False
+            self._acum = 0.0
             logger.info(f"IHM {self.id_ihm}: nova OP detectada, meta={nova_meta}. Iniciando produção.")
 
-        # Detecta aumento de meta (OP paralela adicionada)
+        # Meta aumentou (OP paralela adicionada)
         elif nova_meta > self._meta_anterior and self._meta_anterior > 0:
             logger.info(f"IHM {self.id_ihm}: meta aumentou {self._meta_anterior} → {nova_meta} (OP paralela).")
             if self._parada_por_meta:
-                self._parada_por_meta = False  # retoma produção
+                self._parada_por_meta = False
 
         # Meta zerada: OP encerrada/pausada
         if nova_meta == 0:
@@ -160,11 +183,12 @@ class MachineState:
                 logger.info(f"IHM {self.id_ihm}: meta zerada, OP encerrada. Parando.")
                 self._produzido_na_op = 0
                 self._parada_por_meta = False
+                self._acum = 0.0
             self._forcar_parada()
             self._meta_anterior = 0
             return
 
-        # Meta atingida: fica parada
+        # Meta atingida
         if self._produzido_na_op >= nova_meta and not self._parada_por_meta:
             logger.info(f"IHM {self.id_ihm}: meta atingida ({self._produzido_na_op}/{nova_meta}). Parando.")
             self._parada_por_meta = True
@@ -188,10 +212,10 @@ class MachineState:
 
     def _forcar_parada(self):
         if self.status != STATUS_PARADA:
-            self.status        = STATUS_PARADA
-            self.motivo_parada = 0
-            self.manutentor    = 0
-            self.engenheiro    = 0
+            self.status         = STATUS_PARADA
+            self.motivo_parada  = 0
+            self.manutentor     = 0
+            self.engenheiro     = 0
             self.parada_duracao = 0
 
     # ── Transições de estado (com OP ativa) ──────────────────────────────────
@@ -223,42 +247,60 @@ class MachineState:
             self._transicao_produzindo()
 
     def _produzir(self):
-        restante = self.meta - self._produzido_na_op
-        n = min(random.randint(PECAS_POR_CICLO_MIN, PECAS_POR_CICLO_MAX), restante)
+        """
+        Produz peças respeitando a taxa teórica da máquina.
+
+        Acumulador fracional: a cada ciclo acumula `taxa * CYCLE_SECONDS/3600` peças
+        (com variação aleatória ±20%) e só registra quando o acumulador atinge >= 1 peça.
+        Isso garante que a produção média bata a taxa configurada independente do tamanho do ciclo.
+        """
+        pct_ciclo = self.pecas_por_hora * CYCLE_SECONDS / 3600.0
+        # Variação aleatória ±20% para simular irregularidade real
+        self._acum += pct_ciclo * random.uniform(0.8, 1.2)
+
+        n = int(self._acum)
         if n <= 0:
             return
+        self._acum -= n
+
+        # Limita ao restante da meta
+        restante = self.meta - self._produzido_na_op
+        n = min(n, restante)
+        if n <= 0:
+            return
+
         reprov = sum(1 for _ in range(n) if random.random() < TAXA_REPROVADO)
         boas   = n - reprov
-        self.produzido          += boas
-        self.reprovado          += reprov
-        self.total_produzido    += n
-        self._produzido_na_op   += boas
+        self.produzido        += boas
+        self.reprovado        += reprov
+        self.total_produzido  += n
+        self._produzido_na_op += boas
 
     def _transicao_parada(self):
-        self.status        = STATUS_PARADA
-        self.motivo_parada = random.choice(self.motivos) if self.motivos else 1
+        self.status         = STATUS_PARADA
+        self.motivo_parada  = random.choice(self.motivos) if self.motivos else 1
         self.parada_duracao = 0
         logger.info(f"IHM {self.id_ihm}: → PARADA (motivo={self.motivo_parada})")
 
     def _transicao_manutencao(self):
-        self.status        = STATUS_MANUTENCAO
-        self.motivo_parada = 3
-        self.manutentor    = random.choice(self.manutentores) if self.manutentores else 1
-        self.engenheiro    = random.choice(self.engenheiros)  if self.engenheiros  else 0
+        self.status         = STATUS_MANUTENCAO
+        self.motivo_parada  = 3
+        self.manutentor     = random.choice(self.manutentores) if self.manutentores else 1
+        self.engenheiro     = random.choice(self.engenheiros)  if self.engenheiros  else 0
         self.parada_duracao = 0
         logger.info(f"IHM {self.id_ihm}: → MANUTENÇÃO")
 
     def _transicao_limpeza(self):
-        self.status        = STATUS_LIMPEZA
-        self.motivo_parada = 4
+        self.status         = STATUS_LIMPEZA
+        self.motivo_parada  = 4
         self.parada_duracao = 0
         logger.info(f"IHM {self.id_ihm}: → LIMPEZA")
 
     def _transicao_produzindo(self):
-        self.status        = STATUS_PRODUZINDO
-        self.motivo_parada = 0
-        self.manutentor    = 0
-        self.engenheiro    = 0
+        self.status         = STATUS_PRODUZINDO
+        self.motivo_parada  = 0
+        self.manutentor     = 0
+        self.engenheiro     = 0
         self.parada_duracao = 0
         if self.operadores and random.random() < PROB_TROCA_OPERADOR:
             self.operador = random.choice(self.operadores)
@@ -290,8 +332,9 @@ class MachineState:
 # ─── Carregamento ─────────────────────────────────────────────────────────────
 
 def load_machine(id_ihm, conn_db):
-    cursor = conn_db.cursor()
+    pecas_por_hora = MACHINE_RATES.get(id_ihm, 60)  # fallback: 60 pç/h
 
+    cursor = conn_db.cursor()
     cursor.execute(f"SELECT id_registrador FROM tb_registrador WHERE id_ihm = {id_ihm} ORDER BY id_registrador ASC")
     reg_ids = [r[0] for r in cursor.fetchall()]
 
@@ -310,11 +353,11 @@ def load_machine(id_ihm, conn_db):
     cursor.execute(f"SELECT nu_cod_peca          FROM tb_depara_peca          WHERE id_ihm = {id_ihm}")
     modelos = [r[0] for r in cursor.fetchall()]
 
-    machine = MachineState(id_ihm, reg_ids, operadores, motivos, manutentores, engenheiros, modelos)
+    machine = MachineState(id_ihm, pecas_por_hora, reg_ids,
+                           operadores, motivos, manutentores, engenheiros, modelos)
     machine.load_from_db(conn_db)
     machine.refresh_meta(conn_db)
 
-    # Inicia parada — começa a produzir apenas quando houver OP ativa
     machine.status         = STATUS_PARADA
     machine.motivo_parada  = 0
     machine.manutentor     = 0
@@ -341,8 +384,9 @@ def insert_if_changed(machine, conn_db):
         conn_db.commit()
         machine.prev_values = curr[:]
         logger.info(
-            f"IHM {machine.id_ihm}: status={machine.status} "
-            f"prod={machine.produzido} op={machine._produzido_na_op}/{machine.meta}"
+            f"IHM {machine.id_ihm} ({machine.pecas_por_hora}pç/h): "
+            f"status={machine.status} prod={machine.produzido} "
+            f"op={machine._produzido_na_op}/{machine.meta}"
         )
     except Exception as e:
         logger.error(f"IHM {machine.id_ihm}: erro ao inserir: {e}")
@@ -366,10 +410,6 @@ def insert_if_changed(machine, conn_db):
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
 def main():
-    if os.getenv('SIMULADOR_ENABLED', 'true').lower() != 'true':
-        logger.info("Simulador desativado (SIMULADOR_ENABLED=false). Encerrando.")
-        return
-
     conn_db = None
     try:
         conn_db = get_connection_db()
@@ -378,9 +418,15 @@ def main():
         for id_ihm in GHOST_IHM_IDS:
             m = load_machine(id_ihm, conn_db)
             machines.append(m)
-            logger.info(f"IHM {id_ihm} carregada: meta={m.meta}, status=PARADA (aguardando OP)")
+            logger.info(
+                f"IHM {id_ihm} carregada: {m.pecas_por_hora} pç/h, "
+                f"meta={m.meta}, status=PARADA (aguardando OP)"
+            )
 
         logger.info(f"Simulador iniciado — {len(machines)} máquinas, ciclo de {CYCLE_SECONDS}s.")
+        logger.info("Taxas configuradas: " + ", ".join(
+            f"IHM {iid}={MACHINE_RATES[iid]}pç/h" for iid in GHOST_IHM_IDS
+        ))
 
         while True:
             logger.info("=" * 60)
