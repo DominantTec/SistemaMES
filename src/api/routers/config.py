@@ -8,7 +8,7 @@ from api.services.queries import (
     update_producao_teorica, calcular_metas_op,
     get_pecas_by_linha, create_peca, delete_peca,
     get_rota_peca, update_rota_peca,
-    get_machines_by_line_df,
+    get_machines_by_line_df, update_machine_tipo,
 )
 
 router = APIRouter(prefix="/api/config", tags=["config"])
@@ -93,11 +93,25 @@ class RotaUpdate(BaseModel):
     steps: list[RotaStep]
 
 
+class MaquinaTipoUpdate(BaseModel):
+    tipo: str
+
+
+@router.put("/machines/{machine_id}/tipo")
+def save_machine_tipo(machine_id: int, body: MaquinaTipoUpdate):
+    """Atualiza o tipo da máquina (agrupa máquinas intercambiáveis)."""
+    update_machine_tipo(machine_id, body.tipo)
+    return {"ok": True}
+
+
 @router.get("/lines/{line_id}/machines")
 def get_line_machines(line_id: int):
     """Lista as máquinas de uma linha."""
     df = get_machines_by_line_df(line_id)
-    return [{"id": int(r["id_ihm"]), "nome": r["tx_name"]} for _, r in df.iterrows()]
+    return [
+        {"id": int(r["id_ihm"]), "nome": r["tx_name"], "tipo_maquina": r["tx_tipo_maquina"]}
+        for _, r in df.iterrows()
+    ]
 
 
 @router.get("/lines/{line_id}/pecas")

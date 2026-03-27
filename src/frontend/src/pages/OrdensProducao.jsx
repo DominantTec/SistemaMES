@@ -322,6 +322,254 @@ function NovaOPModal({ linhas, onClose, onSave }) {
   );
 }
 
+// ---- Mapa de Produção ----
+const STATUS_CORES = {
+  fila:        "#1f6feb",
+  em_producao: "#d97706",
+  finalizado:  "#16a34a",
+  cancelado:   "#6b7280",
+};
+const STATUS_LABELS = {
+  fila: "Fila", em_producao: "Em Produção", finalizado: "Finalizado", cancelado: "Cancelado",
+};
+
+function FluxogramaOP({ op, fluxo, onSave }) {
+  // distribuicao local: { [tipo_maquina]: { [id_ihm]: percentual } }
+  const [dist, setDist] = useState(() => {
+    const d = {};
+    (fluxo.steps || []).forEach(step => {
+      d[step.tipo_maquina] = {};
+      step.maquinas.forEach(m => { d[step.tipo_maquina][m.id_ihm] = m.percentual; });
+    });
+    return d;
+  });
+  const [saving, setSaving] = useState(false);
+  const [savedOk, setSavedOk] = useState(false);
+
+  const hasParallel = (fluxo.steps || []).some(s => s.maquinas.length > 1);
+
+  function handlePctChange(tipo, id_ihm, valor) {
+    const num = Math.max(0, Math.min(100, Number(valor) || 0));
+    setDist(prev => ({
+      ...prev,
+      [tipo]: { ...prev[tipo], [id_ihm]: num },
+    }));
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    const entries = [];
+    (fluxo.steps || []).forEach(step => {
+      step.maquinas.forEach(m => {
+        entries.push({
+          id_ihm:       m.id_ihm,
+          tipo_maquina: step.tipo_maquina,
+          percentual:   dist[step.tipo_maquina]?.[m.id_ihm] ?? m.percentual,
+        });
+      });
+    });
+    await fetch(`${API_BASE}/api/ordens/${op.id}/distribuicao`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(entries),
+    });
+    setSaving(false);
+    setSavedOk(true);
+    setTimeout(() => setSavedOk(false), 2500);
+    if (onSave) onSave();
+  }
+
+  return (
+    <div className="fluxo-root">
+      <div className="fluxo-scroll">
+        {/* Nó de entrada */}
+        <div className="fluxo-node fluxo-node--entrada">
+          <div className="fluxo-node-label">Entrada</div>
+          <div className="fluxo-node-qty">{op.quantidade.toLocaleString("pt-BR")} un</div>
+        </div>
+
+        {(fluxo.steps || []).map((step, i) => {
+          const isParalelo = step.maquinas.length > 1;
+          return (
+            <div key={i} className="fluxo-step-wrap">
+              <div className="fluxo-arrow">→</div>
+              <div className={`fluxo-step${isParalelo ? " fluxo-step--paralelo" : ""}`}>
+                <div className="fluxo-step-tipo">{step.tipo_maquina}</div>
+                {step.producao_teorica > 0 && (
+                  <div className="fluxo-step-teorica">{step.producao_teorica} pç/h</div>
+                )}
+                <div className="fluxo-maquinas">
+                  {step.maquinas.map(m => {
+                    const pct = dist[step.tipo_maquina]?.[m.id_ihm] ?? m.percentual;
+                    const qty = Math.round(op.quantidade * pct / 100);
+                    return (
+                      <div key={m.id_ihm} className={`fluxo-maquina${pct === 0 ? " fluxo-maquina--inativa" : ""}`}>
+                        <div className="fluxo-maquina-nome">{m.nome}</div>
+                        {isParalelo ? (
+                          <div className="fluxo-maquina-split">
+                            <input
+                              className="fluxo-pct-input"
+                              type="number"
+                              min={0}
+                              max={100}
+                              value={pct}
+                              onChange={e => handlePctChange(step.tipo_maquina, m.id_ihm, e.target.value)}
+                            />
+                            <span className="fluxo-pct-label">%</span>
+                          </div>
+                        ) : (
+                          <div className="fluxo-maquina-pct">100%</div>
+                        )}
+                        <div className="fluxo-maquina-qty">{qty.toLocaleString("pt-BR")} un</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Nó de saída */}
+        <div className="fluxo-step-wrap">
+          <div className="fluxo-arrow">→</div>
+          <div className="fluxo-node fluxo-node--saida">
+            <div className="fluxo-node-label">Saída</div>
+            <div className="fluxo-node-qty">{op.quantidade.toLocaleString("pt-BR")} un</div>
+          </div>
+        </div>
+      </div>
+
+      {hasParallel && (
+        <div className="fluxo-actions">
+          <span className="fluxo-hint">Ajuste os percentuais nas etapas paralelas para distribuir a produção.</span>
+          <button className="fluxo-save-btn" onClick={handleSave} disabled={saving}>
+            {saving ? "Salvando..." : savedOk ? "Salvo!" : "Salvar Distribuição"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MapaProducao({ ordens }) {
+  const [expandedId, setExpandedId]  = useState(null);
+  const [fluxos, setFluxos]          = useState({});
+  const [loadingId, setLoadingId]    = useState(null);
+  const [filtroStatus, setFiltroStatus] = useState("ativos"); // "ativos" | "todos"
+
+  const ordensFiltradas = ordens.filter(op => {
+    if (filtroStatus === "ativos") return op.status === "fila" || op.status === "em_producao";
+    return true;
+  }).sort((a, b) => {
+    const ordem = { em_producao: 0, fila: 1, finalizado: 2, cancelado: 3 };
+    return (ordem[a.status] ?? 9) - (ordem[b.status] ?? 9);
+  });
+
+  async function toggleExpand(op) {
+    if (expandedId === op.id) {
+      setExpandedId(null);
+      return;
+    }
+    setExpandedId(op.id);
+    if (fluxos[op.id]) return; // já carregado
+    setLoadingId(op.id);
+    try {
+      const res = await fetch(`${API_BASE}/api/ordens/${op.id}/fluxo`);
+      const data = await res.json();
+      setFluxos(prev => ({ ...prev, [op.id]: data }));
+    } catch { /* silencia */ }
+    finally { setLoadingId(null); }
+  }
+
+  function refreshFluxo(opId) {
+    // Força recarregar após salvar distribuição
+    setFluxos(prev => { const n = { ...prev }; delete n[opId]; return n; });
+    fetch(`${API_BASE}/api/ordens/${opId}/fluxo`)
+      .then(r => r.json())
+      .then(data => setFluxos(prev => ({ ...prev, [opId]: data })))
+      .catch(() => {});
+  }
+
+  return (
+    <div className="mapa-root">
+      <div className="mapa-filtros">
+        <button
+          className={`mapa-filtro-btn${filtroStatus === "ativos" ? " active" : ""}`}
+          onClick={() => setFiltroStatus("ativos")}
+        >
+          Ativos (Fila + Em Produção)
+        </button>
+        <button
+          className={`mapa-filtro-btn${filtroStatus === "todos" ? " active" : ""}`}
+          onClick={() => setFiltroStatus("todos")}
+        >
+          Todas as OPs
+        </button>
+      </div>
+
+      {ordensFiltradas.length === 0 && (
+        <div className="mapa-empty">Nenhuma OP para exibir.</div>
+      )}
+
+      {ordensFiltradas.map(op => {
+        const isOpen = expandedId === op.id;
+        const isLoading = loadingId === op.id;
+        const fluxo = fluxos[op.id];
+        const badge = badgePrioridade(op.prioridade);
+        const cor = STATUS_CORES[op.status] ?? "#6b7280";
+
+        return (
+          <div key={op.id} className={`mapa-op-card${isOpen ? " mapa-op-card--open" : ""}`}>
+            <div className="mapa-op-header" onClick={() => toggleExpand(op)}>
+              <div className="mapa-op-header-left">
+                <span className="mapa-op-status-dot" style={{ background: cor }} />
+                <span className="mapa-op-numero">{op.numero_op}</span>
+                <span className="mapa-op-linha">{op.linha_nome}</span>
+                <span className="mapa-op-peca">{op.peca || "—"}</span>
+              </div>
+              <div className="mapa-op-header-right">
+                <span className="mapa-op-qty">{op.quantidade.toLocaleString("pt-BR")} un</span>
+                <span
+                  className="mapa-op-status-badge"
+                  style={{ background: cor + "22", color: cor, border: `1px solid ${cor}55` }}
+                >
+                  {STATUS_LABELS[op.status]}
+                </span>
+                {op.prioridade > 0 && (
+                  <span className={`badge-prioridade ${badge.cls}`}>{badge.label}</span>
+                )}
+                <span className="mapa-op-expand-icon">{isOpen ? "▲" : "▼"}</span>
+              </div>
+            </div>
+
+            {isOpen && (
+              <div className="mapa-op-body">
+                {isLoading && (
+                  <div className="mapa-loading">Carregando fluxo...</div>
+                )}
+                {!isLoading && fluxo && fluxo.steps?.length > 0 && (
+                  <FluxogramaOP
+                    op={op}
+                    fluxo={fluxo}
+                    onSave={() => refreshFluxo(op.id)}
+                  />
+                )}
+                {!isLoading && fluxo && (!fluxo.steps || fluxo.steps.length === 0) && (
+                  <div className="mapa-sem-rota">
+                    Esta OP não tem roteiro configurado.
+                    Configure em Configurações → Peças e Roteiros.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ---- Página principal ----
 export default function OrdensProducao() {
   const [ordens, setOrdens]       = useState([]);
@@ -331,6 +579,7 @@ export default function OrdensProducao() {
   const [search, setSearch]       = useState("");
   const [filterLinha, setFilterLinha] = useState("");
   const [wsOk, setWsOk]           = useState(false);
+  const [tab, setTab]             = useState("kanban");
   const wsRef = useRef(null);
 
   // WebSocket live updates
@@ -515,29 +764,52 @@ export default function OrdensProducao() {
         )}
       </div>
 
-      {/* Board Kanban */}
-      <DndContext
-        sensors={sensors}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-      >
-        <div className="op-board">
-          {COLUNAS.map((col) => (
-            <Coluna
-              key={col.id}
-              coluna={col}
-              ordens={ordensFiltradas.filter((o) => o.status === col.id)}
-              onDelete={handleDelete}
-            />
-          ))}
-        </div>
+      {/* Abas */}
+      <div className="op-tabs">
+        <button
+          className={`op-tab-btn${tab === "kanban" ? " op-tab-btn--active" : ""}`}
+          onClick={() => setTab("kanban")}
+        >
+          Kanban
+        </button>
+        <button
+          className={`op-tab-btn${tab === "mapa" ? " op-tab-btn--active" : ""}`}
+          onClick={() => setTab("mapa")}
+        >
+          Mapa de Produção
+        </button>
+      </div>
 
-        <DragOverlay>
-          {activeOp && (
-            <OPCard op={activeOp} onDelete={() => {}} isOverlay />
-          )}
-        </DragOverlay>
-      </DndContext>
+      {/* Board Kanban */}
+      {tab === "kanban" && (
+        <DndContext
+          sensors={sensors}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+        >
+          <div className="op-board">
+            {COLUNAS.map((col) => (
+              <Coluna
+                key={col.id}
+                coluna={col}
+                ordens={ordensFiltradas.filter((o) => o.status === col.id)}
+                onDelete={handleDelete}
+              />
+            ))}
+          </div>
+
+          <DragOverlay>
+            {activeOp && (
+              <OPCard op={activeOp} onDelete={() => {}} isOverlay />
+            )}
+          </DragOverlay>
+        </DndContext>
+      )}
+
+      {/* Mapa de Produção */}
+      {tab === "mapa" && (
+        <MapaProducao ordens={ordensFiltradas} />
+      )}
 
       {/* Modal */}
       {showModal && linhas.length > 0 && (

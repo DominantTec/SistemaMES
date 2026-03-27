@@ -186,6 +186,8 @@ function GestaoPecas() {
   const [saving, setSaving]             = useState(false);
   const [savedMsg, setSavedMsg]         = useState("");
   const [loading, setLoading]           = useState(false);
+  // mapa id_ihm -> tipo_maquina local (para edição inline)
+  const [tiposMaquinas, setTiposMaquinas] = useState({});
 
   useEffect(() => {
     fetch(`${API_BASE}/api/config/lines`)
@@ -202,10 +204,34 @@ function GestaoPecas() {
       fetch(`${API_BASE}/api/config/lines/${selectedLinha}/pecas`).then(r => r.json()),
       fetch(`${API_BASE}/api/config/lines/${selectedLinha}/machines`).then(r => r.json()),
     ])
-      .then(([p, m]) => { setPecas(p); setMaquinas(m); })
+      .then(([p, m]) => {
+        setPecas(p);
+        setMaquinas(m);
+        // inicializa o mapa de tipos com o que veio do servidor
+        const map = {};
+        m.forEach(maq => { map[maq.id] = maq.tipo_maquina ?? ""; });
+        setTiposMaquinas(map);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [selectedLinha]);
+
+  function handleTipoChange(id_ihm, valor) {
+    setTiposMaquinas(prev => ({ ...prev, [id_ihm]: valor }));
+  }
+
+  async function handleTipoBlur(id_ihm, valor) {
+    // salva silenciosamente ao sair do campo
+    try {
+      await fetch(`${API_BASE}/api/config/machines/${id_ihm}/tipo`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tipo: valor }),
+      });
+      // Atualiza também a lista de máquinas para refletir na seção de disponíveis
+      setMaquinas(prev => prev.map(m => m.id === id_ihm ? { ...m, tipo_maquina: valor } : m));
+    } catch { /* silencia */ }
+  }
 
   useEffect(() => {
     if (!selectedPeca) { setRota([]); return; }
@@ -389,6 +415,16 @@ function GestaoPecas() {
                 <div key={m.id_ihm} className="cfg-rota-item">
                   <span className="cfg-rota-ordem">{idx + 1}</span>
                   <span className="cfg-rota-nome">{m.nome}</span>
+                  <div className="cfg-rota-tipo">
+                    <input
+                      className="cfg-rota-tipo-input"
+                      placeholder="Tipo (ex: Pintura)"
+                      value={tiposMaquinas[m.id_ihm] ?? ""}
+                      onChange={e => handleTipoChange(m.id_ihm, e.target.value)}
+                      onBlur={e => handleTipoBlur(m.id_ihm, e.target.value)}
+                      title="Tipo da máquina — máquinas com o mesmo tipo são intercambiáveis"
+                    />
+                  </div>
                   <div className="cfg-rota-prod">
                     <input
                       className="cfg-rota-prod-input"
@@ -414,6 +450,9 @@ function GestaoPecas() {
                   {maquinasDisponiveis.map(m => (
                     <div key={m.id} className="cfg-rota-disponivel-item" onClick={() => addToRota(m)}>
                       <span>{m.nome}</span>
+                      {(tiposMaquinas[m.id] || m.tipo_maquina) && (
+                        <span className="cfg-tipo-badge">{tiposMaquinas[m.id] || m.tipo_maquina}</span>
+                      )}
                       <span className="cfg-rota-add-btn">+ Adicionar</span>
                     </div>
                   ))}

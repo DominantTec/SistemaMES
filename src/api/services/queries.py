@@ -91,13 +91,35 @@ def _ensure_schema():
             )
                 ALTER TABLE dbo.tb_ordem_producao ADD id_peca INT NULL
         """)
+        # tx_tipo_maquina em tb_ihm
+        run_query_update("""
+            IF NOT EXISTS (
+                SELECT * FROM sys.columns
+                WHERE object_id = OBJECT_ID('dbo.tb_ihm') AND name = 'tx_tipo_maquina'
+            )
+                ALTER TABLE dbo.tb_ihm ADD tx_tipo_maquina NVARCHAR(120) NULL
+        """)
+        # tb_op_distribuicao – split de produção entre máquinas do mesmo tipo
+        run_query_update("""
+            IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.tb_op_distribuicao') AND type = 'U')
+            BEGIN
+                CREATE TABLE dbo.tb_op_distribuicao (
+                    id_distribuicao  INT IDENTITY(1,1) PRIMARY KEY,
+                    id_ordem         INT            NOT NULL,
+                    id_ihm           INT            NOT NULL,
+                    tx_tipo_maquina  NVARCHAR(120)  NOT NULL,
+                    nu_percentual    DECIMAL(5,2)   NOT NULL DEFAULT 100.0,
+                    CONSTRAINT UQ_op_dist UNIQUE (id_ordem, id_ihm, tx_tipo_maquina)
+                )
+            END
+        """)
         _schema_ensured = True
     except Exception:
         pass  # não travar se o banco ainda não estiver disponível
 
 def get_machines_by_line_df(line_id: int):
     df = run_query("""
-        SELECT id_ihm, tx_name
+        SELECT id_ihm, tx_name, COALESCE(tx_tipo_maquina, '') AS tx_tipo_maquina
         FROM dbo.tb_ihm
         WHERE id_linha_producao = :line_id
         ORDER BY id_ihm
@@ -754,15 +776,30 @@ _DEPARA_STATUS_CFG = {
 def get_all_machines() -> list:
     """Lista todas as IHMs com nome e linha."""
     df = run_query("""
-        SELECT i.id_ihm, i.tx_name, l.tx_name AS linha_nome
+        SELECT i.id_ihm, i.tx_name, l.tx_name AS linha_nome,
+               COALESCE(i.tx_tipo_maquina, '') AS tx_tipo_maquina
         FROM dbo.tb_ihm i
         JOIN dbo.tb_linha_producao l ON l.id_linha_producao = i.id_linha_producao
         ORDER BY i.id_ihm
     """)
     return [
-        {"id": int(r["id_ihm"]), "nome": r["tx_name"], "linha": r["linha_nome"]}
+        {
+            "id": int(r["id_ihm"]),
+            "nome": r["tx_name"],
+            "linha": r["linha_nome"],
+            "tipo_maquina": r["tx_tipo_maquina"],
+        }
         for _, r in df.iterrows()
     ]
+
+
+def update_machine_tipo(machine_id: int, tipo: str) -> None:
+    """Atualiza o tipo da máquina (usado para agrupar máquinas intercambiáveis)."""
+    _ensure_schema()
+    run_query_update(
+        "UPDATE dbo.tb_ihm SET tx_tipo_maquina = :tipo WHERE id_ihm = :id",
+        {"tipo": tipo.strip() if tipo else None, "id": machine_id},
+    )
 
 
 def get_line_shifts(line_id: int) -> dict:
@@ -1724,11 +1761,12 @@ def delete_peca(peca_id: int) -> None:
 
 
 def get_rota_peca(peca_id: int) -> list:
-    """Retorna o roteiro ordenado de uma peça: lista de {id_ihm, nome, nu_ordem, producao_teorica}."""
+    """Retorna o roteiro ordenado de uma peça: lista de {id_ihm, nome, nu_ordem, producao_teorica, tipo_maquina}."""
     _ensure_schema()
     df = run_query("""
         SELECT r.id_ihm, i.tx_name AS nome, r.nu_ordem,
-               COALESCE(r.nu_producao_teorica, 0) AS nu_producao_teorica
+               COALESCE(r.nu_producao_teorica, 0) AS nu_producao_teorica,
+               COALESCE(i.tx_tipo_maquina, '') AS tx_tipo_maquina
         FROM dbo.tb_peca_rota r
         JOIN dbo.tb_ihm i ON i.id_ihm = r.id_ihm
         WHERE r.id_peca = :id ORDER BY r.nu_ordem
@@ -1741,6 +1779,7 @@ def get_rota_peca(peca_id: int) -> list:
             "nome": r["nome"],
             "nu_ordem": int(r["nu_ordem"]),
             "producao_teorica": int(r["nu_producao_teorica"]),
+            "tipo_maquina": r["tx_tipo_maquina"],
         }
         for _, r in df.iterrows()
     ]
@@ -1860,3 +1899,142 @@ def recalcular_turno_ordens_ativas() -> None:
             _set_meta_rota(peca_id_op, linha_id, "")
         else:
             _set_meta_linha(linha_id, nova_meta)
+
+
+# ─── Distribuição e Fluxo de Produção ────────────────────────────────────────
+
+def save_op_distribuicao(op_id: int, distribuicao: list) -> None:
+    """
+    Salva a distribuição de produção de uma OP entre máquinas do mesmo tipo.
+    distribuicao = lista de {id_ihm, tipo_maquina, percentual}
+    """
+    _ensure_schema()
+    # Remove entradas existentes e reinseere
+    run_query_update("DELETE FROM dbo.tb_op_distribuicao WHERE id_ordem = :id", {"id": op_id})
+    for entry in distribuicao:
+        run_query_update("""
+            INSERT INTO dbo.tb_op_distribuicao (id_ordem, id_ihm, tx_tipo_maquina, nu_percentual)
+            VALUES (:ordem, :ihm, :tipo, :pct)
+        """, {
+            "ordem": op_id,
+            "ihm":   entry["id_ihm"],
+            "tipo":  entry["tipo_maquina"],
+            "pct":   float(entry.get("percentual", 100.0)),
+        })
+
+
+def get_op_fluxo(op_id: int) -> dict:
+    """
+    Retorna os dados de fluxograma para uma OP:
+    - Informações da OP
+    - Etapas do roteiro agrupadas por tipo_maquina
+    - Para cada tipo, lista de máquinas com percentual e quantidade calculada
+    - Máquinas paralelas (mesmo tipo, mesma linha) também inclusas
+    """
+    _ensure_schema()
+
+    # Busca OP
+    df_op = run_query("""
+        SELECT o.id_ordem, o.nu_numero_op, o.tx_peca, o.nu_quantidade,
+               o.tx_status, o.id_linha_producao, o.id_peca
+        FROM dbo.tb_ordem_producao o
+        WHERE o.id_ordem = :id
+    """, {"id": op_id})
+    if df_op.empty:
+        return {}
+
+    op = df_op.iloc[0]
+    linha_id = int(op["id_linha_producao"])
+    quantidade = int(op["nu_quantidade"])
+    peca_id = op["id_peca"]
+
+    steps = []
+
+    if peca_id is not None:
+        rota = get_rota_peca(int(peca_id))
+
+        # Agrupa máquinas da linha por tipo
+        df_linha = run_query("""
+            SELECT id_ihm, tx_name, COALESCE(tx_tipo_maquina, '') AS tx_tipo_maquina
+            FROM dbo.tb_ihm
+            WHERE id_linha_producao = :lid
+        """, {"lid": linha_id})
+        maquinas_por_tipo: dict = {}
+        for _, m in df_linha.iterrows():
+            t = m["tx_tipo_maquina"]
+            if t:
+                maquinas_por_tipo.setdefault(t, []).append({
+                    "id_ihm": int(m["id_ihm"]),
+                    "nome": m["tx_name"],
+                })
+
+        # Busca distribuição existente para esta OP
+        df_dist = run_query("""
+            SELECT id_ihm, tx_tipo_maquina, nu_percentual
+            FROM dbo.tb_op_distribuicao
+            WHERE id_ordem = :id
+        """, {"id": op_id})
+        dist_map: dict = {}  # (id_ihm, tipo) -> percentual
+        if not df_dist.empty:
+            for _, d in df_dist.iterrows():
+                dist_map[(int(d["id_ihm"]), d["tx_tipo_maquina"])] = float(d["nu_percentual"])
+
+        # Monta etapas sem duplicar tipos já vistos
+        seen_tipos: set = set()
+        for step in rota:
+            tipo = step["tipo_maquina"]
+
+            if tipo and tipo in seen_tipos:
+                continue  # já processou este tipo de máquina
+
+            if tipo and tipo in maquinas_por_tipo:
+                seen_tipos.add(tipo)
+                alternativas = maquinas_por_tipo[tipo]
+
+                # Monta distribuição: usa salva ou divide igualmente
+                total_pct = sum(dist_map.get((m["id_ihm"], tipo), 0) for m in alternativas)
+                maquinas_etapa = []
+                for m in alternativas:
+                    if total_pct > 0:
+                        pct = dist_map.get((m["id_ihm"], tipo), 0.0)
+                    else:
+                        # default: só a máquina da rota original recebe 100%
+                        pct = 100.0 if m["id_ihm"] == step["id_ihm"] else 0.0
+                    maquinas_etapa.append({
+                        "id_ihm": m["id_ihm"],
+                        "nome": m["nome"],
+                        "percentual": round(pct, 1),
+                        "quantidade": round(quantidade * pct / 100),
+                    })
+
+                steps.append({
+                    "ordem": step["nu_ordem"],
+                    "tipo_maquina": tipo,
+                    "producao_teorica": step["producao_teorica"],
+                    "maquinas": maquinas_etapa,
+                })
+            else:
+                # Máquina sem tipo definido — aparece sozinha, sem paralelas
+                pct = dist_map.get((step["id_ihm"], ""), 100.0)
+                steps.append({
+                    "ordem": step["nu_ordem"],
+                    "tipo_maquina": tipo or step["nome"],
+                    "producao_teorica": step["producao_teorica"],
+                    "maquinas": [{
+                        "id_ihm": step["id_ihm"],
+                        "nome": step["nome"],
+                        "percentual": 100.0,
+                        "quantidade": quantidade,
+                    }],
+                })
+
+    return {
+        "op": {
+            "id": int(op["id_ordem"]),
+            "numero_op": op["nu_numero_op"],
+            "peca": op["tx_peca"],
+            "quantidade": quantidade,
+            "status": op["tx_status"],
+        },
+        "steps": steps,
+    }

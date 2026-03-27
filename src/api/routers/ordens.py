@@ -14,6 +14,8 @@ from api.services.queries import (
     recalcular_turno_ordens_ativas,
     ConflictError,
     STATUSES_VALIDOS,
+    get_op_fluxo,
+    save_op_distribuicao,
 )
 
 router = APIRouter(prefix="/api/ordens", tags=["ordens"])
@@ -75,6 +77,28 @@ def update_status(ordem_id: int, body: UpdateStatusBody):
 @router.delete("/{ordem_id}")
 def delete_ordem_endpoint(ordem_id: int):
     return delete_ordem(ordem_id)
+
+
+class DistribuicaoEntry(BaseModel):
+    id_ihm: int
+    tipo_maquina: str
+    percentual: float
+
+
+@router.get("/{ordem_id}/fluxo")
+def get_fluxo(ordem_id: int):
+    """Retorna os dados do fluxograma de produção de uma OP."""
+    result = get_op_fluxo(ordem_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="OP não encontrada")
+    return result
+
+
+@router.put("/{ordem_id}/distribuicao")
+def save_distribuicao(ordem_id: int, body: list[DistribuicaoEntry]):
+    """Salva a distribuição de produção entre máquinas do mesmo tipo para uma OP."""
+    save_op_distribuicao(ordem_id, [e.model_dump() for e in body])
+    return {"ok": True}
 
 
 @router.websocket("/ws")
