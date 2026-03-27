@@ -99,6 +99,14 @@ def _ensure_schema():
             )
                 ALTER TABLE dbo.tb_ihm ADD tx_tipo_maquina NVARCHAR(120) NULL
         """)
+        # nu_meta_turno em tb_ihm — meta calculada pelo PCP para o turno atual
+        run_query_update("""
+            IF NOT EXISTS (
+                SELECT * FROM sys.columns
+                WHERE object_id = OBJECT_ID('dbo.tb_ihm') AND name = 'nu_meta_turno'
+            )
+                ALTER TABLE dbo.tb_ihm ADD nu_meta_turno INT NOT NULL DEFAULT 0
+        """)
         # tb_op_distribuicao – split de produção entre máquinas do mesmo tipo
         run_query_update("""
             IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.tb_op_distribuicao') AND type = 'U')
@@ -397,7 +405,16 @@ def get_meta(machine_id: int, data_ref: Optional[Any] = None) -> int:
 
         return int(resultado["nu_valor_bruto"].tolist()[0])
     except Exception:
-        return 1
+        # Fallback: lê diretamente da coluna nu_meta_turno de tb_ihm
+        try:
+            df_ihm = run_query("""
+                SELECT nu_meta_turno FROM dbo.tb_ihm WHERE id_ihm = :id
+            """, {"id": machine_id})
+            if not df_ihm.empty:
+                return int(df_ihm.iloc[0]["nu_meta_turno"])
+        except Exception:
+            pass
+        return 0
 
 
 def get_meta_register(machine_id: int) -> int:
@@ -498,10 +515,15 @@ def get_metrics_machine(machine_id: int, data_inicio: Optional[Any] = None, data
             df_registradores = df_registradores[df_registradores["status_maquina"].notna()].copy()
 
         if df_registradores.empty:
+            # Sem dados do simulador: máquina parada, mas meta definida pelo PCP
+            df_ihm_meta = run_query("""
+                SELECT nu_meta_turno FROM dbo.tb_ihm WHERE id_ihm = :id
+            """, {"id": machine_id})
+            meta_pcp = int(df_ihm_meta.iloc[0]["nu_meta_turno"]) if not df_ihm_meta.empty else 0
             return {
-                "status_maquina": "-", "oee": "-", "disponibilidade": "-",
-                "performance": "-", "qualidade": "-", "meta": "-",
-                "produzido": "-", "reprovado": "-", "total_produzido": "-",
+                "status_maquina": "Parada", "oee": 0, "disponibilidade": 0,
+                "performance": 0, "qualidade": 0, "meta": meta_pcp,
+                "produzido": 0, "reprovado": 0, "total_produzido": 0,
                 "operador": "-", "manutentor": "-", "engenheiro": "-",
             }
 
@@ -1729,6 +1751,14 @@ def _recalcular_metas_linha(linha_id: int) -> None:
             metas[iid] = min(metas[iid], caps[iid])
 
     for iid, meta_total in metas.items():
+        # Persiste diretamente em tb_ihm — funciona mesmo sem registradores configurados
+        try:
+            run_query_update("""
+                UPDATE dbo.tb_ihm SET nu_meta_turno = :meta WHERE id_ihm = :id
+            """, {"meta": meta_total, "id": iid})
+        except Exception:
+            pass
+        # Tenta também via registrador (mantém compatibilidade com IHMs reais)
         try:
             update_machine_config(iid, meta_total, pecas_nome.get(iid, ""))
         except Exception:
@@ -1736,8 +1766,15 @@ def _recalcular_metas_linha(linha_id: int) -> None:
 
 
 def _set_meta_linha(linha_id: int, meta: int, peca: str = None) -> None:
-    """Seta a meta de todas as máquinas de uma linha.
+    """Zera a meta de todas as máquinas de uma linha (chamado quando não há OPs ativas).
     Se peca=None, mantém a peça atual de cada máquina."""
+    try:
+        run_query_update("""
+            UPDATE dbo.tb_ihm SET nu_meta_turno = :meta
+            WHERE id_linha_producao = :lid
+        """, {"meta": meta, "lid": linha_id})
+    except Exception:
+        pass
     df_m = run_query("""
         SELECT id_ihm FROM dbo.tb_ihm WHERE id_linha_producao = :lid
     """, {"lid": linha_id})

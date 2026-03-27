@@ -863,18 +863,28 @@
 }
 
 .fluxo-pct-input {
-  width: 72px;
+  width: 68px;
+  box-sizing: border-box;
   background: var(--input-bg, #0d1117);
   border: 1px solid var(--border, #30363d);
   border-radius: 5px;
   color: var(--text, #e6edf3);
   font-size: 0.85rem;
-  padding: 4px 8px;
+  padding: 4px 6px;
   text-align: right;
 }
 .fluxo-pct-input:focus {
   outline: none;
   border-color: var(--brand, #58a6ff);
+}
+/* Remove setas do input number que causam scroll interno */
+.fluxo-pct-input::-webkit-outer-spin-button,
+.fluxo-pct-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.fluxo-pct-input[type=number] {
+  -moz-appearance: textfield;
 }
 
 .fluxo-pct-label {
