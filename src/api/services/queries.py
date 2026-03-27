@@ -1366,6 +1366,133 @@ STATUSES_VALIDOS = {"fila", "em_producao", "finalizado", "cancelado"}
 
 # ─── Helpers internos de OP ──────────────────────────────────────────────────
 
+def _recalcular_metas_linha(linha_id: int) -> None:
+    """
+    Recalcula e aplica a meta de cada máquina como SOMA das contribuições
+    de todas as OPs em_producao da linha. Deve ser chamado sempre que uma OP
+    mudar de status nesta linha.
+
+    Regras:
+    - Sem OPs ativas → meta = 0 em todas as máquinas da linha.
+    - Máquinas paralelas (mesmo tipo_maquina): a meta é dividida proporcionalmente
+      à producao_teorica de cada uma, salvo se houver distribuição manual salva
+      em tb_op_distribuicao.
+    - Por OP: contrib de cada máquina = min(meta_op * pct/100, cap_máquina_no_turno).
+    - Múltiplas OPs: contribuições se somam, capadas pela capacidade da máquina.
+    """
+    horas = _get_horas_restantes_turno(linha_id)
+
+    df_ops = run_query("""
+        SELECT id_ordem, tx_peca, id_peca, nu_meta_turno_atual
+        FROM dbo.tb_ordem_producao
+        WHERE id_linha_producao = :lid AND tx_status = 'em_producao'
+    """, {"lid": linha_id})
+
+    if df_ops.empty:
+        _set_meta_linha(linha_id, 0)
+        return
+
+    # Carrega todas as máquinas da linha com producao_teorica, agrupadas por tipo
+    df_linha = run_query("""
+        SELECT i.id_ihm, COALESCE(i.tx_tipo_maquina, '') AS tx_tipo_maquina,
+               COALESCE(c.nu_producao_teorica, 0) AS nu_producao_teorica
+        FROM dbo.tb_ihm i
+        LEFT JOIN dbo.tb_config_producao_teorica c ON c.id_ihm = i.id_ihm
+        WHERE i.id_linha_producao = :lid
+    """, {"lid": linha_id})
+    maquinas_por_tipo: dict = {}
+    for _, m in df_linha.iterrows():
+        t = m["tx_tipo_maquina"]
+        if t:
+            maquinas_por_tipo.setdefault(t, []).append({
+                "id_ihm": int(m["id_ihm"]),
+                "producao_teorica": int(m["nu_producao_teorica"]),
+            })
+
+    metas: dict = {}       # id_ihm -> meta_soma
+    caps: dict = {}        # id_ihm -> capacidade máxima no turno
+    pecas_nome: dict = {}  # id_ihm -> último nome de peça
+
+    for _, op in df_ops.iterrows():
+        peca_id = int(op["id_peca"]) if op["id_peca"] is not None and not pd.isna(op["id_peca"]) else None
+        pn      = op["tx_peca"]
+        meta_op = int(op["nu_meta_turno_atual"])
+        op_id   = int(op["id_ordem"])
+
+        if peca_id:
+            rota = get_rota_peca(peca_id)
+
+            # Distribuição manual salva para esta OP
+            df_dist = run_query("""
+                SELECT id_ihm, tx_tipo_maquina, nu_percentual
+                FROM dbo.tb_op_distribuicao
+                WHERE id_ordem = :id
+            """, {"id": op_id})
+            dist_map: dict = {}
+            if not df_dist.empty:
+                for _, d in df_dist.iterrows():
+                    dist_map[(int(d["id_ihm"]), d["tx_tipo_maquina"])] = float(d["nu_percentual"])
+
+            seen_tipos: set = set()
+            for step in rota:
+                tipo = step["tipo_maquina"]
+
+                if tipo and tipo in seen_tipos:
+                    continue
+
+                if tipo and tipo in maquinas_por_tipo:
+                    seen_tipos.add(tipo)
+                    alternativas = maquinas_por_tipo[tipo]
+
+                    total_pct  = sum(dist_map.get((m["id_ihm"], tipo), 0.0) for m in alternativas)
+                    total_prod = sum(m["producao_teorica"] for m in alternativas)
+
+                    for m in alternativas:
+                        iid         = m["id_ihm"]
+                        cap_maquina = int(m["producao_teorica"] * horas)
+                        caps[iid]   = cap_maquina
+
+                        if total_pct > 0:
+                            # Usa distribuição manual
+                            pct = dist_map.get((iid, tipo), 0.0)
+                        elif total_prod > 0:
+                            # Padrão: proporcional à capacidade de cada máquina
+                            pct = 100.0 * m["producao_teorica"] / total_prod
+                        else:
+                            pct = 100.0 if iid == step["id_ihm"] else 0.0
+
+                        contrib = min(round(meta_op * pct / 100), cap_maquina)
+                        metas[iid]      = metas.get(iid, 0) + contrib
+                        pecas_nome[iid] = pn
+                else:
+                    # Máquina sem tipo definido ou sem paralelas — usa direto da rota
+                    iid         = step["id_ihm"]
+                    cap_maquina = int(step.get("producao_teorica", 0) * horas)
+                    caps[iid]   = cap_maquina
+                    contrib     = min(meta_op, cap_maquina)
+                    metas[iid]      = metas.get(iid, 0) + contrib
+                    pecas_nome[iid] = pn
+        else:
+            # Sem roteiro configurado: distribui meta_op em todas as máquinas da linha
+            df_m = run_query("SELECT id_ihm FROM dbo.tb_ihm WHERE id_linha_producao = :lid",
+                             {"lid": linha_id})
+            for _, m in df_m.iterrows():
+                iid = int(m["id_ihm"])
+                metas[iid]      = metas.get(iid, 0) + meta_op
+                pecas_nome[iid] = pn
+
+    # Garante que a soma de múltiplas OPs não ultrapassa a capacidade da máquina
+    for iid in metas:
+        if iid in caps:
+            metas[iid] = min(metas[iid], caps[iid])
+
+    for iid, meta_total in metas.items():
+        try:
+            update_machine_config(iid, meta_total, pecas_nome.get(iid, ""))
+        except Exception:
+            pass
+
+
 def _set_meta_linha(linha_id: int, meta: int, peca: str = None) -> None:
     """Seta a meta de todas as máquinas de uma linha.
     Se peca=None, mantém a peça atual de cada máquina."""
@@ -1432,10 +1559,8 @@ def _ativar_proxima_op(linha_id: int) -> None:
         "dt_fim":   metas["dt_fim_turno"],
         "id":       prox_id,
     })
-    if peca_id:
-        _set_meta_rota(peca_id, linha_id, peca)
-    else:
-        _set_meta_linha(linha_id, metas["meta_turno_atual"], peca)
+    # Recalcula metas das máquinas somando todas as OPs ativas da linha
+    _recalcular_metas_linha(linha_id)
 
 
 # ─── Status da OP ────────────────────────────────────────────────────────────
@@ -1472,16 +1597,8 @@ def update_ordem_status(ordem_id: int, new_status: str) -> dict:
 
     # ── fila / finalizado → em_producao ──────────────────────────────────────
     if new_status == "em_producao":
-        # Bloqueia se já há outra OP ativa na mesma linha
-        ativa = _op_ativa_linha(linha_id, excluir_id=ordem_id)
-        if ativa:
-            raise ConflictError(
-                f"Já existe uma OP em produção nesta linha (OP #{ativa['id']}). "
-                "Finalize ou pause-a antes de iniciar uma nova."
-            )
-
         # Recalcula metas com base no momento atual (não na criação)
-        metas = calcular_metas_op(linha_id, quantidade)
+        metas = calcular_metas_op(linha_id, quantidade, peca_id)
 
         run_query_update("""
             UPDATE dbo.tb_ordem_producao
@@ -1498,15 +1615,13 @@ def update_ordem_status(ordem_id: int, new_status: str) -> dict:
             "dt_fim":   metas["dt_fim_turno"],
             "id":       ordem_id,
         })
-        if peca_id:
-            _set_meta_rota(peca_id, linha_id, peca)
-        else:
-            _set_meta_linha(linha_id, metas["meta_turno_atual"], peca)
+        # Recalcula meta das máquinas somando todas as OPs ativas da linha
+        _recalcular_metas_linha(linha_id)
 
     # ── em_producao → fila  (pausa) ───────────────────────────────────────────
     elif new_status == "fila" and status_ant == "em_producao":
         # Recalcula metas para quando for reativada
-        metas = calcular_metas_op(linha_id, quantidade)
+        metas = calcular_metas_op(linha_id, quantidade, peca_id)
 
         run_query_update("""
             UPDATE dbo.tb_ordem_producao
@@ -1523,11 +1638,8 @@ def update_ordem_status(ordem_id: int, new_status: str) -> dict:
             "dt_fim":   metas["dt_fim_turno"],
             "id":       ordem_id,
         })
-        # Limpa meta das máquinas (sem OP ativa = sem meta)
-        if peca_id:
-            _clear_meta_rota(peca_id)
-        else:
-            _set_meta_linha(linha_id, 0)
+        # Recalcula meta das máquinas (remove a contribuição desta OP)
+        _recalcular_metas_linha(linha_id)
 
     # ── → finalizado ─────────────────────────────────────────────────────────
     elif new_status == "finalizado":
@@ -1538,10 +1650,7 @@ def update_ordem_status(ordem_id: int, new_status: str) -> dict:
         """, {"id": ordem_id})
 
         if status_ant == "em_producao":
-            if peca_id:
-                _clear_meta_rota(peca_id)
-            else:
-                _set_meta_linha(linha_id, 0)
+            _recalcular_metas_linha(linha_id)
             _ativar_proxima_op(linha_id)
 
     # ── → cancelado ──────────────────────────────────────────────────────────
@@ -1557,10 +1666,7 @@ def update_ordem_status(ordem_id: int, new_status: str) -> dict:
         """, {"id": ordem_id})
 
         if status_ant == "em_producao":
-            if peca_id:
-                _clear_meta_rota(peca_id)
-            else:
-                _set_meta_linha(linha_id, 0)
+            _recalcular_metas_linha(linha_id)
             _ativar_proxima_op(linha_id)
 
     # ── finalizado / cancelado → fila  (reabertura) ───────────────────────────
@@ -1658,8 +1764,12 @@ def get_producao_teorica_linha(linha_id: int) -> int:
 def calcular_metas_op(linha_id: int, quantidade: int, peca_id: int = None) -> dict:
     """
     Calcula meta_turno_atual, pecas_proximos_turnos e dt_fim_turno.
-    Se peca_id fornecido, usa a menor prod_teorica do roteiro (gargalo).
-    Caso contrário, usa a soma da linha (compatibilidade).
+
+    Capacidade de cada etapa sequencial do roteiro:
+      - Máquinas do MESMO tipo na linha trabalham em PARALELO → suas capacidades se SOMAM.
+      - Etapas de tipos DIFERENTES são sequenciais → o gargalo é o MÍNIMO entre elas.
+
+    Sem peca_id, usa a soma total da linha (compatibilidade).
     """
     _ensure_schema()
     agora = datetime.now()
@@ -1683,10 +1793,42 @@ def calcular_metas_op(linha_id: int, quantidade: int, peca_id: int = None) -> di
         rota = get_rota_peca(peca_id)
         if not rota:
             return {"meta_turno_atual": 0, "pecas_proximos_turnos": quantidade, "dt_fim_turno": None}
-        teoricas = [m.get("producao_teorica", 0) for m in rota]
-        gargalo  = min(t for t in teoricas if t > 0) if any(t > 0 for t in teoricas) else 0
-        if gargalo <= 0:
+
+        # Soma capacidade de todas as máquinas de cada tipo na linha (paralelas somam)
+        df_linha = run_query("""
+            SELECT i.id_ihm, COALESCE(i.tx_tipo_maquina, '') AS tx_tipo_maquina,
+                   COALESCE(c.nu_producao_teorica, 0) AS nu_producao_teorica
+            FROM dbo.tb_ihm i
+            LEFT JOIN dbo.tb_config_producao_teorica c ON c.id_ihm = i.id_ihm
+            WHERE i.id_linha_producao = :lid
+        """, {"lid": linha_id})
+        cap_por_tipo: dict = {}  # tipo -> soma das capacidades das máquinas paralelas
+        for _, m in df_linha.iterrows():
+            t = m["tx_tipo_maquina"]
+            if t:
+                cap_por_tipo[t] = cap_por_tipo.get(t, 0) + int(m["nu_producao_teorica"])
+
+        # Percorre o roteiro: cada tipo aparece uma só vez; gargalo = mínimo entre tipos
+        seen_tipos: set = set()
+        caps_sequenciais: list = []
+        for step in rota:
+            tipo = step["tipo_maquina"]
+            key  = tipo if tipo else str(step["id_ihm"])
+            if key in seen_tipos:
+                continue
+            seen_tipos.add(key)
+            if tipo and tipo in cap_por_tipo:
+                caps_sequenciais.append(cap_por_tipo[tipo])
+            else:
+                # Máquina sem tipo: usa producao_teorica do próprio step
+                c = step.get("producao_teorica", 0)
+                if c > 0:
+                    caps_sequenciais.append(c)
+
+        if not caps_sequenciais or not any(c > 0 for c in caps_sequenciais):
             return {"meta_turno_atual": 0, "pecas_proximos_turnos": quantidade, "dt_fim_turno": None}
+
+        gargalo   = min(c for c in caps_sequenciais if c > 0)
         capacidade = int(gargalo * horas_restantes)
     else:
         prod_teorica = get_producao_teorica_linha(linha_id)
@@ -1853,6 +1995,8 @@ def recalcular_turno_ordens_ativas() -> None:
           AND dt_fim_turno_calculado < :agora
     """, {"agora": agora})
 
+    linhas_atualizadas: set = set()
+
     for _, op in df.iterrows():
         linha_id    = int(op["id_linha_producao"])
         quantidade  = int(op["nu_quantidade"])
@@ -1877,9 +2021,11 @@ def recalcular_turno_ordens_ativas() -> None:
 
         dt_fim_turno    = df_turno.iloc[0]["dt_fim"]
         horas_restantes = max(0.0, (dt_fim_turno - agora).total_seconds() / 3600)
-        prod_teorica    = get_producao_teorica_linha(linha_id)
-        nova_meta       = int(min(pecas_restantes, prod_teorica * horas_restantes))
-        novas_proximas  = pecas_restantes - nova_meta
+
+        # Usa gargalo do roteiro da peça para calcular nova meta
+        metas = calcular_metas_op(linha_id, pecas_restantes, peca_id_op)
+        nova_meta      = metas["meta_turno_atual"]
+        novas_proximas = metas["pecas_proximos_turnos"]
 
         run_query_update("""
             UPDATE dbo.tb_ordem_producao
@@ -1894,22 +2040,23 @@ def recalcular_turno_ordens_ativas() -> None:
             "id":       int(op["id_ordem"]),
         })
 
-        # Atualiza a meta nas máquinas da linha
-        if peca_id_op:
-            _set_meta_rota(peca_id_op, linha_id, "")
-        else:
-            _set_meta_linha(linha_id, nova_meta)
+        linhas_atualizadas.add(linha_id)
+
+    # Recalcula metas das máquinas uma vez por linha (soma todas as OPs ativas)
+    for lid in linhas_atualizadas:
+        _recalcular_metas_linha(lid)
 
 
 # ─── Distribuição e Fluxo de Produção ────────────────────────────────────────
 
 def save_op_distribuicao(op_id: int, distribuicao: list) -> None:
     """
-    Salva a distribuição de produção de uma OP entre máquinas do mesmo tipo.
+    Salva a distribuição de produção de uma OP entre máquinas do mesmo tipo
+    e recalcula as metas das máquinas da linha imediatamente.
     distribuicao = lista de {id_ihm, tipo_maquina, percentual}
     """
     _ensure_schema()
-    # Remove entradas existentes e reinseere
+    # Remove entradas existentes e reinsere
     run_query_update("DELETE FROM dbo.tb_op_distribuicao WHERE id_ordem = :id", {"id": op_id})
     for entry in distribuicao:
         run_query_update("""
@@ -1921,6 +2068,11 @@ def save_op_distribuicao(op_id: int, distribuicao: list) -> None:
             "tipo":  entry["tipo_maquina"],
             "pct":   float(entry.get("percentual", 100.0)),
         })
+
+    # Recalcula metas das máquinas da linha desta OP
+    df = run_query("SELECT id_linha_producao FROM dbo.tb_ordem_producao WHERE id_ordem = :id", {"id": op_id})
+    if not df.empty:
+        _recalcular_metas_linha(int(df.iloc[0]["id_linha_producao"]))
 
 
 def get_op_fluxo(op_id: int) -> dict:
@@ -1953,11 +2105,13 @@ def get_op_fluxo(op_id: int) -> dict:
     if peca_id is not None:
         rota = get_rota_peca(int(peca_id))
 
-        # Agrupa máquinas da linha por tipo
+        # Agrupa máquinas da linha por tipo (inclui producao_teorica para distribuição proporcional)
         df_linha = run_query("""
-            SELECT id_ihm, tx_name, COALESCE(tx_tipo_maquina, '') AS tx_tipo_maquina
-            FROM dbo.tb_ihm
-            WHERE id_linha_producao = :lid
+            SELECT i.id_ihm, i.tx_name, COALESCE(i.tx_tipo_maquina, '') AS tx_tipo_maquina,
+                   COALESCE(c.nu_producao_teorica, 0) AS nu_producao_teorica
+            FROM dbo.tb_ihm i
+            LEFT JOIN dbo.tb_config_producao_teorica c ON c.id_ihm = i.id_ihm
+            WHERE i.id_linha_producao = :lid
         """, {"lid": linha_id})
         maquinas_por_tipo: dict = {}
         for _, m in df_linha.iterrows():
@@ -1966,6 +2120,7 @@ def get_op_fluxo(op_id: int) -> dict:
                 maquinas_por_tipo.setdefault(t, []).append({
                     "id_ihm": int(m["id_ihm"]),
                     "nome": m["tx_name"],
+                    "producao_teorica": int(m["nu_producao_teorica"]),
                 })
 
         # Busca distribuição existente para esta OP
@@ -1991,14 +2146,17 @@ def get_op_fluxo(op_id: int) -> dict:
                 seen_tipos.add(tipo)
                 alternativas = maquinas_por_tipo[tipo]
 
-                # Monta distribuição: usa salva ou divide igualmente
+                # Monta distribuição: usa salva ou proporcional à producao_teorica
                 total_pct = sum(dist_map.get((m["id_ihm"], tipo), 0) for m in alternativas)
+                total_prod = sum(m.get("producao_teorica", 0) for m in alternativas)
                 maquinas_etapa = []
                 for m in alternativas:
                     if total_pct > 0:
                         pct = dist_map.get((m["id_ihm"], tipo), 0.0)
+                    elif total_prod > 0:
+                        # default: proporcional à capacidade de produção de cada máquina
+                        pct = 100.0 * m.get("producao_teorica", 0) / total_prod
                     else:
-                        # default: só a máquina da rota original recebe 100%
                         pct = 100.0 if m["id_ihm"] == step["id_ihm"] else 0.0
                     maquinas_etapa.append({
                         "id_ihm": m["id_ihm"],
