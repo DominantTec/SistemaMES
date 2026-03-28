@@ -480,6 +480,20 @@
   flex-shrink: 0;
 }
 
+/* ---- Resultado de OP finalizada ---- */
+.op-card-resultado {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.op-card-rendimento {
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  margin-bottom: 2px;
+}
+
 /* ---- Preview de distribuição no modal ---- */
 .op-modal-preview {
   background: #f8fafc;

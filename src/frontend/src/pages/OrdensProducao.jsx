@@ -71,21 +71,57 @@ function OPCard({ op, onDelete, isOverlay = false }) {
 
       <hr className="op-card-divider" />
 
-      <div className="op-card-info">
-        <div className="op-card-info-item">
-          <span className="op-card-info-label">Quantidade total</span>
-          <span className="op-card-info-value">{op.quantidade.toLocaleString("pt-BR")} un</span>
+      {op.status === "finalizado" ? (
+        <div className="op-card-resultado">
+          {(() => {
+            const rendimento = op.quantidade > 0
+              ? Math.round(100 * (op.produzido ?? 0) / op.quantidade)
+              : 0;
+            const corRendimento = rendimento >= 90 ? "#16a34a" : rendimento >= 70 ? "#d97706" : "#dc2626";
+            return (
+              <>
+                <div className="op-card-rendimento" style={{ color: corRendimento }}>
+                  {rendimento}% rendimento
+                </div>
+                <div className="op-card-info">
+                  <div className="op-card-info-item">
+                    <span className="op-card-info-label">Planejado</span>
+                    <span className="op-card-info-value">{op.quantidade.toLocaleString("pt-BR")} un</span>
+                  </div>
+                  <div className="op-card-info-item">
+                    <span className="op-card-info-label">Conformes</span>
+                    <span className="op-card-info-value" style={{ color: "#16a34a" }}>{(op.produzido ?? 0).toLocaleString("pt-BR")} un</span>
+                  </div>
+                  {(op.refugo ?? 0) > 0 && (
+                    <div className="op-card-info-item">
+                      <span className="op-card-info-label">Refugo</span>
+                      <span className="op-card-info-value" style={{ color: "#dc2626" }}>{op.refugo.toLocaleString("pt-BR")} un</span>
+                    </div>
+                  )}
+                </div>
+              </>
+            );
+          })()}
         </div>
-        <div className="op-card-info-item">
-          <span className="op-card-info-label">Meta turno atual</span>
-          <span className="op-card-info-value">{(op.meta_turno_atual ?? 0).toLocaleString("pt-BR")} un</span>
-        </div>
-      </div>
-      {(op.pecas_proximos_turnos ?? 0) > 0 && (
-        <div className="op-card-proximos-turnos">
-          <span className="op-card-proximos-icon">⏭</span>
-          <span>{(op.pecas_proximos_turnos).toLocaleString("pt-BR")} un em turnos futuros</span>
-        </div>
+      ) : (
+        <>
+          <div className="op-card-info">
+            <div className="op-card-info-item">
+              <span className="op-card-info-label">Quantidade total</span>
+              <span className="op-card-info-value">{op.quantidade.toLocaleString("pt-BR")} un</span>
+            </div>
+            <div className="op-card-info-item">
+              <span className="op-card-info-label">Meta turno atual</span>
+              <span className="op-card-info-value">{(op.meta_turno_atual ?? 0).toLocaleString("pt-BR")} un</span>
+            </div>
+          </div>
+          {(op.pecas_proximos_turnos ?? 0) > 0 && (
+            <div className="op-card-proximos-turnos">
+              <span className="op-card-proximos-icon">⏭</span>
+              <span>{(op.pecas_proximos_turnos).toLocaleString("pt-BR")} un em turnos futuros</span>
+            </div>
+          )}
+        </>
       )}
 
       {op.observacoes && (

@@ -45,6 +45,8 @@ def _ensure_schema():
             ("nu_meta_turno_atual",      "INT  NOT NULL DEFAULT 0"),
             ("nu_pecas_proximos_turnos", "INT  NOT NULL DEFAULT 0"),
             ("dt_fim_turno_calculado",   "DATETIME NULL"),
+            ("nu_produzido",             "INT  NOT NULL DEFAULT 0"),
+            ("nu_refugo",                "INT  NOT NULL DEFAULT 0"),
         ]:
             run_query_update(f"""
                 IF NOT EXISTS (
@@ -192,6 +194,18 @@ def _ensure_schema():
                     ADD CONSTRAINT DF_tb_log_registrador_created
                     DEFAULT (GETDATE()) FOR dt_created_at
             END
+        """)
+        # Migra registros antigos com timestamp UTC para hora local.
+        # Logs gravados com SYSUTCDATETIME() ficam ~3h à frente de GETDATE();
+        # a condição WHERE garante idempotência: só converte se ainda estiver no futuro.
+        run_query_update("""
+            UPDATE dbo.tb_log_registrador
+            SET dt_created_at = DATEADD(
+                second,
+                DATEDIFF(second, SYSUTCDATETIME(), GETDATE()),
+                dt_created_at
+            )
+            WHERE dt_created_at > DATEADD(second, 30, GETDATE())
         """)
         _schema_ensured = True
     except Exception:
@@ -1561,7 +1575,9 @@ def ensure_ordens_table():
                 dt_criacao        DATETIME     NOT NULL DEFAULT GETDATE(),
                 dt_inicio         DATETIME     NULL,
                 dt_fim            DATETIME     NULL,
-                tx_observacoes    VARCHAR(500) NULL
+                tx_observacoes    VARCHAR(500) NULL,
+                nu_produzido      INT          NOT NULL DEFAULT 0,
+                nu_refugo         INT          NOT NULL DEFAULT 0
             )
         END
     """)
@@ -1580,7 +1596,9 @@ def get_all_ordens() -> list:
             o.tx_observacoes,
             o.nu_meta_turno_atual,
             o.nu_pecas_proximos_turnos,
-            o.id_peca
+            o.id_peca,
+            o.nu_produzido,
+            o.nu_refugo
         FROM dbo.tb_ordem_producao o
         JOIN dbo.tb_linha_producao l ON l.id_linha_producao = o.id_linha_producao
         ORDER BY o.nu_prioridade DESC, o.dt_criacao
@@ -1603,6 +1621,8 @@ def get_all_ordens() -> list:
             "dt_inicio":             r["dt_inicio"].isoformat()  if r["dt_inicio"]  is not None else None,
             "dt_fim":                r["dt_fim"].isoformat()      if r["dt_fim"]     is not None else None,
             "observacoes":           r["tx_observacoes"],
+            "produzido":             int(r["nu_produzido"]) if r.get("nu_produzido") is not None and not pd.isna(r["nu_produzido"]) else 0,
+            "refugo":                int(r["nu_refugo"])    if r.get("nu_refugo")    is not None and not pd.isna(r["nu_refugo"])    else 0,
         })
     return result
 
@@ -1732,16 +1752,14 @@ def _recalcular_metas_linha(linha_id: int) -> None:
                     total_prod = sum(route_prod.get(m["id_ihm"]) or m["producao_teorica"] for m in alternativas)
 
                     for m in alternativas:
-                        iid       = m["id_ihm"]
-                        prod_m    = route_prod.get(iid) or m["producao_teorica"]
+                        iid         = m["id_ihm"]
+                        prod_m      = route_prod.get(iid) or m["producao_teorica"]
                         cap_maquina = int(prod_m * horas)
                         caps[iid]   = cap_maquina
 
                         if total_pct > 0:
-                            # Usa distribuição manual
                             pct = dist_map.get((iid, tipo), 0.0)
                         elif total_prod > 0:
-                            # Padrão: proporcional à capacidade de cada máquina
                             pct = 100.0 * prod_m / total_prod
                         else:
                             pct = 100.0 if iid == step["id_ihm"] else 0.0
@@ -1882,7 +1900,7 @@ def update_ordem_status(ordem_id: int, new_status: str) -> dict:
 
     # Carrega dados atuais da OP
     df_op = run_query("""
-        SELECT tx_status, id_linha_producao, nu_quantidade, tx_peca, id_peca
+        SELECT tx_status, id_linha_producao, nu_quantidade, tx_peca, id_peca, dt_inicio
         FROM dbo.tb_ordem_producao WHERE id_ordem = :id
     """, {"id": ordem_id})
     if df_op.empty:
@@ -1894,6 +1912,7 @@ def update_ordem_status(ordem_id: int, new_status: str) -> dict:
     quantidade  = int(r["nu_quantidade"])
     peca        = r["tx_peca"]
     peca_id     = int(r["id_peca"]) if r["id_peca"] is not None and not pd.isna(r["id_peca"]) else None
+    dt_inicio   = r["dt_inicio"]
 
     # ── fila / finalizado → em_producao ──────────────────────────────────────
     if new_status == "em_producao":
@@ -1943,11 +1962,21 @@ def update_ordem_status(ordem_id: int, new_status: str) -> dict:
 
     # ── → finalizado ─────────────────────────────────────────────────────────
     elif new_status == "finalizado":
+        producao = (
+            _get_producao_refugo_op(linha_id, dt_inicio, peca_id)
+            if dt_inicio is not None
+            else {"produzido": 0, "refugo": 0}
+        )
         run_query_update("""
             UPDATE dbo.tb_ordem_producao
-            SET tx_status = 'finalizado', dt_fim = GETDATE()
+            SET tx_status                = 'finalizado',
+                dt_fim                   = GETDATE(),
+                nu_produzido             = :prod,
+                nu_refugo                = :refugo,
+                nu_meta_turno_atual      = 0,
+                nu_pecas_proximos_turnos = 0
             WHERE id_ordem = :id
-        """, {"id": ordem_id})
+        """, {"prod": producao["produzido"], "refugo": producao["refugo"], "id": ordem_id})
 
         if status_ant == "em_producao":
             _recalcular_metas_linha(linha_id)
@@ -2190,6 +2219,88 @@ def _get_producao_linha_desde(linha_id: int, dt_inicio: datetime) -> int:
     return total
 
 
+def _get_terminal_ihms(peca_id: int) -> list:
+    """Retorna os IDs das IHMs terminais do roteiro (última etapa = max nu_ordem)."""
+    df = run_query("""
+        SELECT id_ihm, nu_ordem
+        FROM dbo.tb_peca_rota
+        WHERE id_peca = :id
+    """, {"id": peca_id})
+    if df.empty:
+        return []
+    max_ordem = int(df["nu_ordem"].max())
+    return [int(r["id_ihm"]) for _, r in df.iterrows() if int(r["nu_ordem"]) == max_ordem]
+
+
+def _get_producao_refugo_op(linha_id: int, dt_inicio: datetime, peca_id: int = None) -> dict:
+    """Retorna {produzido, refugo} contando apenas as IHMs terminais do roteiro da peça.
+
+    Somente a última etapa do roteiro representa peças acabadas — a mesma peça
+    passa por múltiplas máquinas, então somar todas as etapas multiplicaria a contagem.
+    Quando peca_id não é fornecido (sem roteiro configurado), usa todas as máquinas
+    da linha como fallback.
+    """
+    terminal_ihms: list = []
+    if peca_id:
+        terminal_ihms = _get_terminal_ihms(peca_id)
+
+    if not terminal_ihms:
+        # Fallback: sem roteiro configurado — usa todas as máquinas da linha
+        df_maquinas = run_query(
+            "SELECT id_ihm FROM dbo.tb_ihm WHERE id_linha_producao = :lid",
+            {"lid": linha_id}
+        )
+        if df_maquinas.empty:
+            return {"produzido": 0, "refugo": 0}
+        terminal_ihms = [int(r["id_ihm"]) for _, r in df_maquinas.iterrows()]
+
+    conformes = 0
+    refugo    = 0
+    for iid in terminal_ihms:
+        for desc in ("produzido", "reprovado"):
+            df = run_query("""
+                SELECT MIN(lr.nu_valor_bruto) AS val_inicio,
+                       MAX(lr.nu_valor_bruto) AS val_fim
+                FROM dbo.tb_log_registrador lr
+                JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
+                WHERE lr.id_ihm      = :id
+                  AND r.tx_descricao = :desc
+                  AND lr.dt_created_at >= :dt
+            """, {"id": iid, "desc": desc, "dt": dt_inicio})
+            if not df.empty and df.iloc[0]["val_inicio"] is not None:
+                delta = float(df.iloc[0]["val_fim"]) - float(df.iloc[0]["val_inicio"])
+                if delta > 0:
+                    if desc == "produzido":
+                        conformes += int(delta)
+                    else:
+                        refugo += int(delta)
+    return {"produzido": conformes, "refugo": refugo}
+
+
+def _finalizar_op_automatico(ordem_id: int, nu_produzido: int, nu_refugo: int) -> None:
+    """Finaliza automaticamente uma OP registrando conformes e refugos produzidos."""
+    run_query_update("""
+        UPDATE dbo.tb_ordem_producao
+        SET tx_status                = 'finalizado',
+            dt_fim                   = GETDATE(),
+            nu_produzido             = :prod,
+            nu_refugo                = :refugo,
+            nu_meta_turno_atual      = 0,
+            nu_pecas_proximos_turnos = 0
+        WHERE id_ordem = :id AND tx_status = 'em_producao'
+    """, {"prod": nu_produzido, "refugo": nu_refugo, "id": ordem_id})
+
+    df = run_query(
+        "SELECT id_linha_producao FROM dbo.tb_ordem_producao WHERE id_ordem = :id",
+        {"id": ordem_id}
+    )
+    if df.empty:
+        return
+    linha_id = int(df.iloc[0]["id_linha_producao"])
+    _recalcular_metas_linha(linha_id)
+    _ativar_proxima_op(linha_id)
+
+
 # ─── Peças e Roteiros ────────────────────────────────────────────────────────
 
 def get_pecas_by_linha(linha_id: int) -> list:
@@ -2357,78 +2468,56 @@ def recalcular_turno_ordens_ativas() -> None:
     except Exception:
         pass
 
-    # === Parte 2: Rollover de OPs (lógica original) ===
+    # === Parte 2: Auto-finalização de OPs ===
 
-    df = run_query("""
-        SELECT id_ordem, id_linha_producao,
-               nu_quantidade, id_peca,
-               dt_fim_turno_calculado,
-               dt_inicio
-        FROM dbo.tb_ordem_producao
-        WHERE tx_status = 'em_producao'
-          AND dt_fim_turno_calculado IS NOT NULL
-          AND dt_fim_turno_calculado < :agora
-    """, {"agora": agora})
+    # 2a: Turno calculado expirou → finaliza com o que foi produzido
+    try:
+        df_expiradas = run_query("""
+            SELECT id_ordem, id_linha_producao, dt_inicio, id_peca
+            FROM dbo.tb_ordem_producao
+            WHERE tx_status = 'em_producao'
+              AND dt_fim_turno_calculado IS NOT NULL
+              AND dt_fim_turno_calculado < :agora
+        """, {"agora": agora})
+        for _, op in df_expiradas.iterrows():
+            try:
+                dt_ini   = op["dt_inicio"]
+                peca_id  = int(op["id_peca"]) if op.get("id_peca") is not None and not pd.isna(op["id_peca"]) else None
+                producao = _get_producao_refugo_op(int(op["id_linha_producao"]), dt_ini, peca_id) if dt_ini is not None else {"produzido": 0, "refugo": 0}
+                _finalizar_op_automatico(int(op["id_ordem"]), producao["produzido"], producao["refugo"])
+            except Exception:
+                pass
+    except Exception:
+        pass
 
-    linhas_atualizadas: set = set()
-
-    for _, op in df.iterrows():
-        linha_id    = int(op["id_linha_producao"])
-        quantidade  = int(op["nu_quantidade"])
-        peca_id_op  = int(op["id_peca"]) if op["id_peca"] is not None and not pd.isna(op["id_peca"]) else None
-        dt_inicio_op = op["dt_inicio"]
-
-        # Produção real desde início da OP
-        produzido = _get_producao_linha_desde(linha_id, dt_inicio_op) if dt_inicio_op is not None else 0
-        pecas_restantes = max(0, quantidade - produzido)
-
-        df_turno = run_query("""
-            SELECT TOP 1 dt_inicio, dt_fim
-            FROM dbo.tb_turno_ocorrencia
-            WHERE id_linha_producao = :lid AND tx_status = 'em_andamento'
-            ORDER BY dt_inicio
-        """, {"lid": linha_id})
-
-        # Fallback legado
-        if df_turno.empty:
-            df_turno = run_query("""
-                SELECT TOP 1 dt_inicio, dt_fim
-                FROM dbo.tb_turnos
-                WHERE id_linha_producao = :lid
-                  AND dt_inicio <= :agora
-                  AND dt_fim    >= :agora
-                ORDER BY dt_inicio
-            """, {"lid": linha_id, "agora": agora})
-
-        if df_turno.empty:
-            continue  # sem turno ativo agora, aguarda próximo tick
-
-        dt_fim_turno    = df_turno.iloc[0]["dt_fim"]
-        horas_restantes = max(0.0, (dt_fim_turno - agora).total_seconds() / 3600)
-
-        # Usa gargalo do roteiro da peça para calcular nova meta
-        metas = calcular_metas_op(linha_id, pecas_restantes, peca_id_op)
-        nova_meta      = metas["meta_turno_atual"]
-        novas_proximas = metas["pecas_proximos_turnos"]
-
-        run_query_update("""
-            UPDATE dbo.tb_ordem_producao
-            SET nu_meta_turno_atual      = :meta,
-                nu_pecas_proximos_turnos = :proximas,
-                dt_fim_turno_calculado   = :dt_fim
-            WHERE id_ordem = :id
-        """, {
-            "meta":     nova_meta,
-            "proximas": novas_proximas,
-            "dt_fim":   dt_fim_turno,
-            "id":       int(op["id_ordem"]),
-        })
-
-        linhas_atualizadas.add(linha_id)
-
-    # Recalcula metas das máquinas uma vez por linha (soma todas as OPs ativas)
-    for lid in linhas_atualizadas:
-        _recalcular_metas_linha(lid)
+    # 2b: Meta atingida (terminais produziram >= meta_op) → finaliza
+    try:
+        df_ativas = run_query("""
+            SELECT id_ordem, id_linha_producao, nu_meta_turno_atual, dt_inicio, id_peca
+            FROM dbo.tb_ordem_producao
+            WHERE tx_status = 'em_producao'
+              AND nu_meta_turno_atual > 0
+              AND dt_inicio IS NOT NULL
+        """, {})
+        for _, op in df_ativas.iterrows():
+            try:
+                dt_ini  = op["dt_inicio"]
+                meta    = int(op["nu_meta_turno_atual"])
+                peca_id = int(op["id_peca"]) if op.get("id_peca") is not None and not pd.isna(op["id_peca"]) else None
+                # Período de carência: aguarda ao menos 120 s desde dt_inicio antes de
+                # auto-finalizar, para evitar falso-positivo com logs antigos (UTC).
+                dt_ini_py = pd.Timestamp(dt_ini).to_pydatetime() if not isinstance(dt_ini, datetime) else dt_ini
+                age_s = (datetime.now() - dt_ini_py.replace(tzinfo=None)).total_seconds()
+                if age_s < 120:
+                    continue
+                # Conta apenas a última etapa do roteiro (peças realmente acabadas)
+                producao = _get_producao_refugo_op(int(op["id_linha_producao"]), dt_ini, peca_id)
+                if producao["produzido"] >= meta:
+                    _finalizar_op_automatico(int(op["id_ordem"]), producao["produzido"], producao["refugo"])
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 
 # ─── Distribuição e Fluxo de Produção ────────────────────────────────────────
