@@ -172,6 +172,27 @@ def _ensure_schema():
                 CREATE INDEX IX_ocorrencia_inicio
                     ON dbo.tb_turno_ocorrencia(dt_inicio)
         """)
+        # Migra dt_created_at de SYSUTCDATETIME() → GETDATE() para alinhar com
+        # datetime.now() (hora local do servidor) e evitar exclusão de dados recentes.
+        run_query_update("""
+            IF NOT EXISTS (
+                SELECT 1 FROM sys.default_constraints
+                WHERE name = 'DF_tb_log_registrador_created'
+                  AND definition = '(getdate())'
+            )
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM sys.default_constraints
+                    WHERE name = 'DF_tb_log_registrador_created'
+                )
+                    ALTER TABLE dbo.tb_log_registrador
+                        DROP CONSTRAINT DF_tb_log_registrador_created
+
+                ALTER TABLE dbo.tb_log_registrador
+                    ADD CONSTRAINT DF_tb_log_registrador_created
+                    DEFAULT (GETDATE()) FOR dt_created_at
+            END
+        """)
         _schema_ensured = True
     except Exception:
         pass  # não travar se o banco ainda não estiver disponível
@@ -1466,7 +1487,7 @@ def get_line_detail(line_id: int) -> dict:
                 ORDER BY lr.dt_created_at DESC
             """, {"id": machine_id})
             if not df_parada.empty:
-                delta      = datetime.utcnow() - df_parada.iloc[0]["dt_created_at"]
+                delta      = datetime.now() - df_parada.iloc[0]["dt_created_at"]
                 h, resto   = divmod(max(0, int(delta.total_seconds())), 3600)
                 parada_ha  = f"{h:02d}:{resto // 60:02d}"
 

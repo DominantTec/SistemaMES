@@ -51,7 +51,7 @@ CREATE TABLE dbo.tb_log_registrador (
     id_registrador     INT                 NOT NULL,
     nu_valor_bruto     DECIMAL(18,4)       NOT NULL,
     dt_created_at      DATETIME2(0)        NOT NULL
-        CONSTRAINT DF_tb_log_registrador_created DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT DF_tb_log_registrador_created DEFAULT (GETDATE()),
     CONSTRAINT PK_tb_log_registrador PRIMARY KEY CLUSTERED (id_log_registrador),
     CONSTRAINT FK_tb_log_registrador_ihm FOREIGN KEY (id_ihm)
         REFERENCES dbo.tb_ihm (id_ihm),
