@@ -414,6 +414,11 @@
   font-size: 15px;
 }
 
+.ov-prod-sep {
+  font-size: 13px;
+  color: var(--muted);
+}
+
 .ov-prod-meta {
   font-size: 12px;
   color: var(--muted);

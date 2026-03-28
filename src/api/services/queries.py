@@ -1319,6 +1319,7 @@ def get_overview_linhas() -> list:
             metrics    = get_metrics_machine(machine_id)
 
             produzido = metrics["produzido"] if isinstance(metrics["produzido"], (int, float)) else 0
+            reprovado = metrics["reprovado"] if isinstance(metrics["reprovado"], (int, float)) else 0
             meta      = metrics["meta"]      if isinstance(metrics["meta"],      (int, float)) else 0
             total_produzido += produzido
             total_meta      += meta
@@ -1333,6 +1334,7 @@ def get_overview_linhas() -> list:
                 "qualidade":       metrics["qualidade"],
                 "performance":     metrics["performance"],
                 "produzido":       produzido,
+                "reprovado":       reprovado,
                 "meta":            meta,
             })
 
@@ -1978,6 +1980,7 @@ def update_ordem_status(ordem_id: int, new_status: str) -> dict:
             WHERE id_ordem = :id
         """, {"prod": producao["produzido"], "refugo": producao["refugo"], "id": ordem_id})
 
+        _criar_complemento_se_necessario(ordem_id, producao["produzido"])
         if status_ant == "em_producao":
             _recalcular_metas_linha(linha_id)
             _ativar_proxima_op(linha_id)
@@ -2277,6 +2280,38 @@ def _get_producao_refugo_op(linha_id: int, dt_inicio: datetime, peca_id: int = N
     return {"produzido": conformes, "refugo": refugo}
 
 
+def _criar_complemento_se_necessario(ordem_id: int, nu_produzido: int) -> None:
+    """Se a OP foi finalizada com menos conformes do que o solicitado, cria uma nova OP
+    na fila com a quantidade faltante, marcada como complemento da OP original."""
+    df = run_query("""
+        SELECT nu_numero_op, id_linha_producao, tx_peca, id_peca,
+               nu_quantidade, nu_prioridade
+        FROM dbo.tb_ordem_producao
+        WHERE id_ordem = :id
+    """, {"id": ordem_id})
+    if df.empty:
+        return
+    r          = df.iloc[0]
+    quantidade = int(r["nu_quantidade"])
+    faltante   = quantidade - nu_produzido
+    if faltante <= 0:
+        return  # eficiência 100% — nenhum complemento necessário
+
+    numero_op_original = r["nu_numero_op"]
+    novo_numero        = proximo_numero_op()
+    obs                = f"Complemento da OP {numero_op_original} ({faltante} peça(s) reprovada(s))"
+
+    create_ordem(
+        numero_op   = novo_numero,
+        linha_id    = int(r["id_linha_producao"]),
+        peca        = r["tx_peca"],
+        quantidade  = faltante,
+        prioridade  = int(r["nu_prioridade"]) if r["nu_prioridade"] is not None else 0,
+        observacoes = obs,
+        peca_id     = int(r["id_peca"]) if r["id_peca"] is not None and not pd.isna(r["id_peca"]) else None,
+    )
+
+
 def _finalizar_op_automatico(ordem_id: int, nu_produzido: int, nu_refugo: int) -> None:
     """Finaliza automaticamente uma OP registrando conformes e refugos produzidos."""
     run_query_update("""
@@ -2297,6 +2332,7 @@ def _finalizar_op_automatico(ordem_id: int, nu_produzido: int, nu_refugo: int) -
     if df.empty:
         return
     linha_id = int(df.iloc[0]["id_linha_producao"])
+    _criar_complemento_se_necessario(ordem_id, nu_produzido)
     _recalcular_metas_linha(linha_id)
     _ativar_proxima_op(linha_id)
 
@@ -2510,9 +2546,12 @@ def recalcular_turno_ordens_ativas() -> None:
                 age_s = (datetime.now() - dt_ini_py.replace(tzinfo=None)).total_seconds()
                 if age_s < 120:
                     continue
-                # Conta apenas a última etapa do roteiro (peças realmente acabadas)
+                # Conta apenas a última etapa do roteiro.
+                # Aprovadas + reprovadas somam ao total processado: se uma peça
+                # foi reprovada, ela já foi consumida da OP — não precisa refazer.
                 producao = _get_producao_refugo_op(int(op["id_linha_producao"]), dt_ini, peca_id)
-                if producao["produzido"] >= meta:
+                total_processado = producao["produzido"] + producao["refugo"]
+                if total_processado >= meta:
                     _finalizar_op_automatico(int(op["id_ordem"]), producao["produzido"], producao["refugo"])
             except Exception:
                 pass

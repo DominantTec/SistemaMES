@@ -77,7 +77,9 @@ function MachineCard({ machine }) {
         <div className="ov-prod-row">
           <span className="ov-prod-label">Prod.</span>
           <span className="ov-prod-value">
-            <strong>{machine.produzido}</strong>
+            <strong style={{ color: "#16a34a" }}>{machine.produzido}</strong>
+            <span className="ov-prod-sep"> / </span>
+            <strong style={{ color: "#dc2626" }}>{machine.reprovado ?? 0}</strong>
             <span className="ov-prod-meta"> / {machine.meta}</span>
           </span>
         </div>

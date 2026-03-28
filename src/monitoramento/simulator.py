@@ -329,7 +329,9 @@ class MachineState:
         self.produzido        += boas
         self.reprovado        += reprov
         self.total_produzido  += n
-        self._produzido_na_op += boas
+        # Tanto aprovadas quanto reprovadas contam para o fechamento da OP:
+        # uma peça reprovada já foi processada e não precisa ser refeita.
+        self._produzido_na_op += n
 
         # Peças aprovadas alimentam o WIP do próximo estágio (com limite superior)
         if boas > 0 and self.stage_idx < len(STAGES) - 1:
