@@ -749,7 +749,174 @@
   padding: 20px;
 }
 
-/* ===== FLUXOGRAMA ===== */
+/* ===== LIVE BADGE ===== */
+.mapa-op-live-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: #16a34a;
+  animation: fpp-pulse 1.4s ease-in-out infinite;
+}
+@keyframes fpp-pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+/* ===== FLUXOGRAMA EM PRODUÇÃO (piece tracking) ===== */
+.fpp-root {
+  padding: 12px 0 4px;
+}
+
+.fpp-stage-headers {
+  display: flex;
+  gap: 8px;
+  padding: 0 4px 10px;
+  border-bottom: 1px solid var(--line, #30363d);
+  margin-bottom: 10px;
+  overflow-x: auto;
+}
+
+.fpp-stage-header {
+  min-width: 130px;
+  background: var(--card, #161b22);
+  border: 1px solid var(--line, #30363d);
+  border-radius: 8px;
+  padding: 8px 10px;
+  flex-shrink: 0;
+}
+
+.fpp-stage-tipo {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--muted, #8b949e);
+  margin-bottom: 6px;
+}
+
+.fpp-machine-info {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.fpp-mach-nome {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text, #e6edf3);
+  width: 100%;
+}
+
+.fpp-mach-stat { font-size: 11px; font-weight: 600; }
+.fpp-mach-stat--ok  { color: #16a34a; }
+.fpp-mach-stat--err { color: #dc2626; }
+
+.fpp-mach-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.fpp-mach-badge--produzindo { background: #1d4ed822; color: #3b82f6; border: 1px solid #3b82f644; }
+.fpp-mach-badge--parada     { background: #dc262622; color: #dc2626; border: 1px solid #dc262644; }
+.fpp-mach-badge--limpeza    { background: #0891b222; color: #0891b2; border: 1px solid #0891b244; }
+.fpp-mach-badge--manutencao { background: #7c3aed22; color: #7c3aed; border: 1px solid #7c3aed44; }
+
+.fpp-stage-totals {
+  font-size: 11px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line, #30363d);
+  color: var(--muted, #8b949e);
+}
+
+.fpp-grid-wrap {
+  overflow-x: auto;
+  max-height: 460px;
+  overflow-y: auto;
+}
+
+.fpp-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12px;
+}
+
+.fpp-table th, .fpp-table td {
+  border: 1px solid var(--line, #30363d);
+  padding: 0;
+}
+
+.fpp-th {
+  background: var(--card, #161b22);
+  color: var(--muted, #8b949e);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 6px 10px;
+  text-align: center;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.fpp-th-num {
+  width: 40px;
+  background: var(--bg, #0d1117);
+  position: sticky;
+  left: 0;
+  z-index: 2;
+}
+
+.fpp-td {
+  text-align: center;
+  padding: 3px 6px;
+  min-width: 70px;
+  transition: background 0.3s;
+}
+
+.fpp-td-num {
+  text-align: right;
+  padding: 3px 8px;
+  color: var(--muted, #8b949e);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  background: var(--bg, #0d1117);
+  position: sticky;
+  left: 0;
+  width: 40px;
+}
+
+.fpp-cell-icon {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.fpp-td-hidden {
+  text-align: center;
+  padding: 8px;
+  color: var(--muted, #8b949e);
+  font-size: 12px;
+  font-style: italic;
+  background: var(--card, #161b22);
+}
+
+.fpp-legend {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 10px 4px 0;
+  font-size: 12px;
+  color: var(--muted, #8b949e);
+}
+
+.fpp-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ===== FLUXOGRAMA (fila) ===== */
 .fluxo-root {
   display: flex;
   flex-direction: column;

@@ -488,11 +488,151 @@ function FluxogramaOP({ op, fluxo, onSave }) {
   );
 }
 
+// ─── Algoritmo de rastreamento de peças ──────────────────────────────────────
+// Dado N peças e estágios em sequência, infere o status de cada peça em cada estágio.
+// Peças são numeradas 1..N e processadas em ordem. Estágios com máquinas paralelas
+// dividem o range de peças pelo percentual de cada máquina.
+function computePieceGrid(quantidade, steps) {
+  if (!steps || steps.length === 0) return { stages: [], rows: [] };
+  const sorted = [...steps].sort((a, b) => a.ordem - b.ordem);
+
+  // Agrega estatísticas por estágio (soma das máquinas paralelas)
+  const stages = sorted.map(step => {
+    const totalAprovado  = step.maquinas.reduce((s, m) => s + (m.aprovado  || 0), 0);
+    const totalReprovado = step.maquinas.reduce((s, m) => s + (m.reprovado || 0), 0);
+    const anyProduzindo  = step.maquinas.some(m => (m.status_maquina || "") === "produzindo");
+    return {
+      ordem:             step.ordem,
+      tipo:              step.tipo_maquina,
+      maquinas:          step.maquinas,
+      total_aprovado:    totalAprovado,
+      total_reprovado:   totalReprovado,
+      total_processado:  totalAprovado + totalReprovado,
+      any_produzindo:    anyProduzindo,
+    };
+  });
+
+  const rows = [];
+  for (let j = 1; j <= quantidade; j++) {
+    const cells = [];
+    let rejected = false;
+
+    for (let si = 0; si < stages.length; si++) {
+      const stage = stages[si];
+      if (rejected) { cells.push("na"); continue; }
+
+      // Quantidade de peças que chegam a este estágio
+      const inputCount = si === 0 ? quantidade : stages[si - 1].total_aprovado;
+
+      if (j > inputCount) { cells.push("aguardando"); continue; }
+
+      const { total_aprovado, total_processado, any_produzindo } = stage;
+      if      (j <= total_aprovado)                                     cells.push("aprovado");
+      else if (j <= total_processado)                                  { cells.push("reprovado"); rejected = true; }
+      else if (j === total_processado + 1 && any_produzindo)            cells.push("produzindo");
+      else                                                              cells.push("aguardando");
+    }
+    rows.push({ peca: j, cells });
+  }
+  return { stages, rows };
+}
+
+const PIECE_STATUS = {
+  aprovado:  { bg: "#dcfce7", color: "#16a34a", icon: "✓", label: "Aprovado"  },
+  reprovado: { bg: "#fee2e2", color: "#dc2626", icon: "✗", label: "Reprovado" },
+  produzindo:{ bg: "#dbeafe", color: "#2563eb", icon: "⟳", label: "Produzindo"},
+  aguardando:{ bg: "#f3f4f6", color: "#9ca3af", icon: "–", label: "Aguardando"},
+  na:        { bg: "transparent", color: "#e5e7eb", icon: "·", label: "N/A"   },
+};
+
+function FluxogramaProducao({ op, fluxo }) {
+  const { stages, rows } = computePieceGrid(op.quantidade, fluxo.steps || []);
+  const MAX_VISIBLE = 80;
+  const visibleRows = rows.slice(0, MAX_VISIBLE);
+  const hidden = rows.length - visibleRows.length;
+
+  return (
+    <div className="fpp-root">
+      {/* Cabeçalho de estágios com sub-info por máquina */}
+      <div className="fpp-stage-headers">
+        {stages.map((st, si) => (
+          <div key={si} className="fpp-stage-header">
+            <div className="fpp-stage-tipo">{st.tipo}</div>
+            {st.maquinas.map(m => (
+              <div key={m.id_ihm} className="fpp-machine-info">
+                <span className="fpp-mach-nome">{m.nome}</span>
+                <span className="fpp-mach-stat fpp-mach-stat--ok">✓ {m.aprovado ?? 0}</span>
+                <span className="fpp-mach-stat fpp-mach-stat--err">✗ {m.reprovado ?? 0}</span>
+                <span className={`fpp-mach-badge fpp-mach-badge--${m.status_maquina ?? "parada"}`}>
+                  {m.status_maquina ?? "parada"}
+                </span>
+              </div>
+            ))}
+            <div className="fpp-stage-totals">
+              <span style={{ color: "#16a34a" }}>✓ {st.total_aprovado}</span>
+              {" / "}
+              <span style={{ color: "#dc2626" }}>✗ {st.total_reprovado}</span>
+              {" / "}
+              <span style={{ color: "#6b7280" }}>{st.total_processado} proc.</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Grade de peças */}
+      <div className="fpp-grid-wrap">
+        <table className="fpp-table">
+          <thead>
+            <tr>
+              <th className="fpp-th fpp-th-num">#</th>
+              {stages.map((st, si) => (
+                <th key={si} className="fpp-th">{st.tipo}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {visibleRows.map(row => (
+              <tr key={row.peca}>
+                <td className="fpp-td-num">{row.peca}</td>
+                {row.cells.map((status, ci) => {
+                  const s = PIECE_STATUS[status] || PIECE_STATUS.aguardando;
+                  return (
+                    <td key={ci} className="fpp-td" style={{ background: s.bg }}>
+                      <span className="fpp-cell-icon" style={{ color: s.color }}>{s.icon}</span>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+            {hidden > 0 && (
+              <tr>
+                <td className="fpp-td-hidden" colSpan={stages.length + 1}>
+                  + {hidden} peças aguardando
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Legenda */}
+      <div className="fpp-legend">
+        {Object.entries(PIECE_STATUS).filter(([k]) => k !== "na").map(([key, val]) => (
+          <span key={key} className="fpp-legend-item">
+            <span style={{ color: val.color, fontWeight: 700 }}>{val.icon}</span> {val.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function MapaProducao({ ordens }) {
-  const [expandedId, setExpandedId]  = useState(null);
-  const [fluxos, setFluxos]          = useState({});
-  const [loadingId, setLoadingId]    = useState(null);
-  const [filtroStatus, setFiltroStatus] = useState("ativos"); // "ativos" | "todos"
+  const [expandedId, setExpandedId]     = useState(null);
+  const [fluxos, setFluxos]             = useState({});
+  const [loadingId, setLoadingId]       = useState(null);
+  const [filtroStatus, setFiltroStatus] = useState("ativos");
+  const refreshTimerRef                 = useRef(null);
 
   const ordensFiltradas = ordens.filter(op => {
     if (filtroStatus === "ativos") return op.status === "fila" || op.status === "em_producao";
@@ -502,13 +642,27 @@ function MapaProducao({ ordens }) {
     return (ordem[a.status] ?? 9) - (ordem[b.status] ?? 9);
   });
 
+  // Auto-refresh quando uma OP em_producao está expandida
+  useEffect(() => {
+    if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
+    if (!expandedId) return;
+    const op = ordens.find(o => o.id === expandedId);
+    if (!op || op.status !== "em_producao") return;
+
+    refreshTimerRef.current = setInterval(() => {
+      fetch(`${API_BASE}/api/ordens/${expandedId}/fluxo`)
+        .then(r => r.json())
+        .then(data => setFluxos(prev => ({ ...prev, [expandedId]: data })))
+        .catch(() => {});
+    }, 2000);
+
+    return () => clearInterval(refreshTimerRef.current);
+  }, [expandedId, ordens]);
+
   async function toggleExpand(op) {
-    if (expandedId === op.id) {
-      setExpandedId(null);
-      return;
-    }
+    if (expandedId === op.id) { setExpandedId(null); return; }
     setExpandedId(op.id);
-    if (fluxos[op.id]) return; // já carregado
+    if (fluxos[op.id] && op.status !== "em_producao") return; // fila: usa cache
     setLoadingId(op.id);
     try {
       const res = await fetch(`${API_BASE}/api/ordens/${op.id}/fluxo`);
@@ -519,7 +673,6 @@ function MapaProducao({ ordens }) {
   }
 
   function refreshFluxo(opId) {
-    // Força recarregar após salvar distribuição
     setFluxos(prev => { const n = { ...prev }; delete n[opId]; return n; });
     fetch(`${API_BASE}/api/ordens/${opId}/fluxo`)
       .then(r => r.json())
@@ -549,11 +702,12 @@ function MapaProducao({ ordens }) {
       )}
 
       {ordensFiltradas.map(op => {
-        const isOpen = expandedId === op.id;
+        const isOpen    = expandedId === op.id;
         const isLoading = loadingId === op.id;
-        const fluxo = fluxos[op.id];
-        const badge = badgePrioridade(op.prioridade);
-        const cor = STATUS_CORES[op.status] ?? "#6b7280";
+        const fluxo     = fluxos[op.id];
+        const badge     = badgePrioridade(op.prioridade);
+        const cor       = STATUS_CORES[op.status] ?? "#6b7280";
+        const emProd    = op.status === "em_producao";
 
         return (
           <div key={op.id} className={`mapa-op-card${isOpen ? " mapa-op-card--open" : ""}`}>
@@ -575,22 +729,23 @@ function MapaProducao({ ordens }) {
                 {op.prioridade > 0 && (
                   <span className={`badge-prioridade ${badge.cls}`}>{badge.label}</span>
                 )}
+                {emProd && isOpen && (
+                  <span className="mapa-op-live-badge">● ao vivo</span>
+                )}
                 <span className="mapa-op-expand-icon">{isOpen ? "▲" : "▼"}</span>
               </div>
             </div>
 
             {isOpen && (
               <div className="mapa-op-body">
-                {isLoading && (
-                  <div className="mapa-loading">Carregando fluxo...</div>
-                )}
+                {isLoading && <div className="mapa-loading">Carregando fluxo...</div>}
+
                 {!isLoading && fluxo && fluxo.steps?.length > 0 && (
-                  <FluxogramaOP
-                    op={op}
-                    fluxo={fluxo}
-                    onSave={() => refreshFluxo(op.id)}
-                  />
+                  emProd
+                    ? <FluxogramaProducao op={op} fluxo={fluxo} />
+                    : <FluxogramaOP op={op} fluxo={fluxo} onSave={() => refreshFluxo(op.id)} />
                 )}
+
                 {!isLoading && fluxo && (!fluxo.steps || fluxo.steps.length === 0) && (
                   <div className="mapa-sem-rota">
                     Esta OP não tem roteiro configurado.

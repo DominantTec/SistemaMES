@@ -2587,6 +2587,40 @@ def save_op_distribuicao(op_id: int, distribuicao: list) -> None:
         _recalcular_metas_linha(int(df.iloc[0]["id_linha_producao"]))
 
 
+def _get_machine_stats_op(ihm_id: int, dt_inicio) -> dict:
+    """Aprovado, reprovado e status atual de uma IHM desde dt_inicio (início da OP)."""
+    aprovado  = 0
+    reprovado = 0
+    for desc in ("produzido", "reprovado"):
+        df = run_query("""
+            SELECT MIN(lr.nu_valor_bruto) AS v_ini,
+                   MAX(lr.nu_valor_bruto) AS v_fim
+            FROM dbo.tb_log_registrador lr
+            JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
+            WHERE lr.id_ihm = :id AND r.tx_descricao = :desc
+              AND lr.dt_created_at >= :dt
+        """, {"id": ihm_id, "desc": desc, "dt": dt_inicio})
+        if not df.empty and df.iloc[0]["v_ini"] is not None:
+            delta = float(df.iloc[0]["v_fim"]) - float(df.iloc[0]["v_ini"])
+            if delta > 0:
+                if desc == "produzido": aprovado  = int(delta)
+                else:                  reprovado = int(delta)
+
+    df_st = run_query("""
+        SELECT TOP 1 lr.nu_valor_bruto
+        FROM dbo.tb_log_registrador lr
+        JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
+        WHERE lr.id_ihm = :id AND r.tx_descricao = 'status_maquina'
+        ORDER BY lr.dt_created_at DESC
+    """, {"id": ihm_id})
+    status = "parada"
+    if not df_st.empty:
+        v = int(df_st.iloc[0]["nu_valor_bruto"])
+        status = {49: "produzindo", 4: "limpeza", 52: "manutencao"}.get(v, "parada")
+
+    return {"aprovado": aprovado, "reprovado": reprovado, "status_maquina": status}
+
+
 def get_op_fluxo(op_id: int) -> dict:
     """
     Retorna os dados de fluxograma para uma OP:
@@ -2594,13 +2628,14 @@ def get_op_fluxo(op_id: int) -> dict:
     - Etapas do roteiro agrupadas por tipo_maquina
     - Para cada tipo, lista de máquinas com percentual e quantidade calculada
     - Máquinas paralelas (mesmo tipo, mesma linha) também inclusas
+    - Quando em_producao: adiciona stats live (aprovado/reprovado/status) por máquina
     """
     _ensure_schema()
 
     # Busca OP
     df_op = run_query("""
         SELECT o.id_ordem, o.nu_numero_op, o.tx_peca, o.nu_quantidade,
-               o.tx_status, o.id_linha_producao, o.id_peca
+               o.tx_status, o.id_linha_producao, o.id_peca, o.dt_inicio
         FROM dbo.tb_ordem_producao o
         WHERE o.id_ordem = :id
     """, {"id": op_id})
@@ -2608,9 +2643,11 @@ def get_op_fluxo(op_id: int) -> dict:
         return {}
 
     op = df_op.iloc[0]
-    linha_id = int(op["id_linha_producao"])
+    linha_id   = int(op["id_linha_producao"])
     quantidade = int(op["nu_quantidade"])
-    peca_id = op["id_peca"]
+    peca_id    = op["id_peca"]
+    dt_inicio  = op["dt_inicio"]
+    em_prod    = op["tx_status"] == "em_producao"
 
     steps = []
 
@@ -2673,12 +2710,15 @@ def get_op_fluxo(op_id: int) -> dict:
                         pct = 100.0 * m.get("producao_teorica", 0) / total_prod
                     else:
                         pct = 100.0 if m["id_ihm"] == step["id_ihm"] else 0.0
-                    maquinas_etapa.append({
+                    entry = {
                         "id_ihm": m["id_ihm"],
                         "nome": m["nome"],
                         "percentual": round(pct, 1),
                         "quantidade": round(quantidade * pct / 100),
-                    })
+                    }
+                    if em_prod and dt_inicio is not None:
+                        entry.update(_get_machine_stats_op(m["id_ihm"], dt_inicio))
+                    maquinas_etapa.append(entry)
 
                 steps.append({
                     "ordem": step["nu_ordem"],
@@ -2689,16 +2729,19 @@ def get_op_fluxo(op_id: int) -> dict:
             else:
                 # Máquina sem tipo definido — aparece sozinha, sem paralelas
                 pct = dist_map.get((step["id_ihm"], ""), 100.0)
+                entry = {
+                    "id_ihm": step["id_ihm"],
+                    "nome": step["nome"],
+                    "percentual": 100.0,
+                    "quantidade": quantidade,
+                }
+                if em_prod and dt_inicio is not None:
+                    entry.update(_get_machine_stats_op(step["id_ihm"], dt_inicio))
                 steps.append({
                     "ordem": step["nu_ordem"],
                     "tipo_maquina": tipo or step["nome"],
                     "producao_teorica": step["producao_teorica"],
-                    "maquinas": [{
-                        "id_ihm": step["id_ihm"],
-                        "nome": step["nome"],
-                        "percentual": 100.0,
-                        "quantidade": quantidade,
-                    }],
+                    "maquinas": [entry],
                 })
 
     return {
