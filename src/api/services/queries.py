@@ -491,7 +491,7 @@ def _get_current_shift_window(machine_id: int, agora: datetime):
 def get_metrics_machine(machine_id: int, data_inicio: Optional[Any] = None, data_fim: Optional[Any] = None) -> Dict[str, Any]:
     """Retorna as principais informações de uma IHM para o turno atual (ou período informado)."""
     try:
-        agora = datetime.utcnow()
+        agora = datetime.now()
 
         # Quando não há filtro de data, calcula apenas para o turno atual.
         # Isso evita acumular histórico de dias/turnos anteriores no OEE.

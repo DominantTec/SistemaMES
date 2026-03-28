@@ -1,25 +1,49 @@
+import platform
 import pyodbc
 from logger import logger
 import os
 import pandas as pd
 from dotenv import load_dotenv
+from pathlib import Path
 
-load_dotenv()
+# Carrega .env.local primeiro (overrides para rodar fora do Docker, ex: Windows)
+_local_env = Path(__file__).parent / ".env.local"
+if _local_env.exists():
+    load_dotenv(_local_env, override=True)
+
+# Carrega .env principal (credenciais e configurações padrão)
+load_dotenv(Path(__file__).parent.parent / ".env")
+
+
+def _default_driver() -> str:
+    """Retorna o driver ODBC adequado ao sistema operacional."""
+    if platform.system() == "Windows":
+        for drv in ("{ODBC Driver 18 for SQL Server}", "{ODBC Driver 17 for SQL Server}"):
+            if drv.strip("{}") in [d for d in pyodbc.drivers()]:
+                return drv
+        return "{ODBC Driver 17 for SQL Server}"
+    return "{FreeTDS}"
 
 
 def get_connection_db(driver=None, server=None, database=None):
     try:
-        driver = os.getenv('DB_DRIVER', '{FreeTDS}')
-        server = os.getenv('DB_HOST')
-        port = os.getenv('DB_PORT')
+        driver   = os.getenv('DB_DRIVER') or _default_driver()
+        host     = os.getenv('DB_HOST', 'localhost')
+        port     = os.getenv('DB_PORT', '1433')
         database = os.getenv("DB_NAME")
-        user = os.getenv("DB_USER")
+        user     = os.getenv("DB_USER")
         password = os.getenv("DB_PASSWORD")
+
+        # FreeTDS aceita PORT= como keyword separada.
+        # ODBC Driver 17/18 exige porta embutida no SERVER: "host,porta"
+        if "FreeTDS" in driver:
+            server_str = f"SERVER={host};PORT={port};"
+        else:
+            server_str = f"SERVER={host},{port};"
 
         connection_string = (
             f"DRIVER={driver};"
-            f"SERVER={server};"
-            f"PORT={port};"
+            f"{server_str}"
             f"DATABASE={database};"
             f"UID={user};"
             f"PWD={password};"

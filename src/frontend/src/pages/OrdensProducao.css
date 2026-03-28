@@ -797,17 +797,17 @@
 
 /* Caixa de etapa */
 .fluxo-step {
-  border: 1px solid var(--border, #30363d);
+  border: 1px solid var(--line, #e5e7eb);
   border-radius: 10px;
-  background: var(--card, #161b22);
+  background: var(--card, #ffffff);
   padding: 10px 12px;
   min-width: 140px;
   max-width: 260px;
   flex-shrink: 0;
 }
 .fluxo-step--paralelo {
-  border-color: var(--brand, #58a6ff);
-  background: #1f2b3e;
+  border-color: var(--brand, #1f6feb);
+  background: #eff6ff;
 }
 
 .fluxo-step-tipo {
@@ -815,13 +815,13 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--brand, #58a6ff);
+  color: var(--brand, #1f6feb);
   margin-bottom: 2px;
 }
 
 .fluxo-step-teorica {
   font-size: 0.7rem;
-  color: var(--muted, #8b949e);
+  color: var(--muted, #6b7280);
   margin-bottom: 8px;
 }
 
@@ -833,10 +833,10 @@
 }
 
 .fluxo-maquina {
-  background: var(--sidebar-bg, #0d1117);
+  background: var(--sidebar-bg, #f3f4f6);
   border-radius: 6px;
   padding: 6px 8px;
-  border: 1px solid var(--border, #30363d);
+  border: 1px solid var(--line, #e5e7eb);
 }
 .fluxo-maquina--inativa {
   opacity: 0.45;
@@ -865,17 +865,17 @@
 .fluxo-pct-input {
   width: 68px;
   box-sizing: border-box;
-  background: var(--input-bg, #0d1117);
-  border: 1px solid var(--border, #30363d);
+  background: var(--card, #ffffff);
+  border: 1px solid var(--line, #d0d7de);
   border-radius: 5px;
-  color: var(--text, #e6edf3);
+  color: var(--text, #111827);
   font-size: 0.85rem;
   padding: 4px 6px;
   text-align: right;
 }
 .fluxo-pct-input:focus {
   outline: none;
-  border-color: var(--brand, #58a6ff);
+  border-color: var(--brand, #1f6feb);
 }
 /* Remove setas do input number que causam scroll interno */
 .fluxo-pct-input::-webkit-outer-spin-button,

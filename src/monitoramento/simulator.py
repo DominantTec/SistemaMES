@@ -5,10 +5,17 @@ Execute manualmente (fora do Docker):
     cd src/monitoramento
     python simulator.py
 
+Fluxo de linha:
+  Estágio 1 (paralelo): IHM 3 | IHM 4  — alimentados pela matéria-prima
+  Estágio 2 (paralelo): IHM 5 | IHM 6  — alimentados pelo aprovado do estágio 1
+  Estágio 3 (série):    IHM 7           — alimentado pelo aprovado do estágio 2
+
+  Se uma peça for reprovada no estágio 1, ela não chega ao estágio 2.
+  O WIP (estoque entre estágios) limita o quanto cada estágio pode produzir.
+
 Comportamento orientado a OP:
   - Máquina só produz quando há uma OP ativa (em_producao) na linha.
   - Para quando a meta do turno é atingida.
-  - Retoma automaticamente se a meta aumentar (OP paralela adicionada).
   - Se não houver OP ativa: fica PARADA.
 
 Taxa de produção:
@@ -42,6 +49,19 @@ MACHINE_RATES = {
 
 GHOST_IHM_IDS = list(MACHINE_RATES.keys())
 
+# Fluxo da linha: lista de estágios, cada estágio é uma lista de IHM IDs (paralelas).
+# Estágio N só processa peças aprovadas pelo estágio N-1.
+STAGES = [
+    [3, 4],   # Estágio 1: TRATAMENTO 1 | PRIMER 1  (paralelas, alimentadas por matéria-prima)
+    [5, 6],   # Estágio 2: PINTURA 1 | PINTURA 2    (paralelas, alimentadas pelo estágio 1)
+    [7],      # Estágio 3: ESTUFA 1                 (série, alimentada pelo estágio 2)
+]
+
+# WIP: estoque de peças aprovadas disponíveis para cada estágio.
+# Estágio 0 tem WIP infinito (matéria-prima); demais são limitados pelo anterior.
+# Chave: índice do estágio (0-based). wip[0] = infinito (não usado para limitar).
+_wip: dict[int, int] = {i: 0 for i in range(len(STAGES))}  # peças disponíveis por estágio
+
 STATUS_PRODUZINDO = 49
 STATUS_PARADA     = 0
 STATUS_LIMPEZA    = 4
@@ -70,7 +90,8 @@ PROB_TROCA_OPERADOR = 0.15
 
 class MachineState:
     def __init__(self, id_ihm, pecas_por_hora, reg_ids,
-                 operadores, motivos, manutentores, engenheiros, modelos):
+                 operadores, motivos, manutentores, engenheiros, modelos,
+                 stage_idx: int = 0):
         self.id_ihm          = id_ihm
         self.pecas_por_hora  = pecas_por_hora
         self.reg_ids         = reg_ids
@@ -79,6 +100,7 @@ class MachineState:
         self.manutentores    = manutentores
         self.engenheiros     = engenheiros
         self.modelos         = modelos
+        self.stage_idx       = stage_idx   # índice do estágio no fluxo da linha
 
         self.operador        = operadores[0] if operadores else 1
         self.status          = STATUS_PARADA
@@ -169,11 +191,14 @@ class MachineState:
             self._produzido_na_op = 0
             self._parada_por_meta = False
             self._acum = 0.0
-            logger.info(f"IHM {self.id_ihm}: nova OP detectada, meta={nova_meta}. Iniciando produção.")
+            # Reseta WIP do estágio (nova partida de produção)
+            if self.stage_idx > 0:
+                _wip[self.stage_idx - 1] = 0
+            logger.info(f"IHM {self.id_ihm}: nova OP detectada, meta={nova_meta}. Iniciando producao.")
 
         # Meta aumentou (OP paralela adicionada)
         elif nova_meta > self._meta_anterior and self._meta_anterior > 0:
-            logger.info(f"IHM {self.id_ihm}: meta aumentou {self._meta_anterior} → {nova_meta} (OP paralela).")
+            logger.info(f"IHM {self.id_ihm}: meta aumentou {self._meta_anterior} -> {nova_meta} (OP paralela).")
             if self._parada_por_meta:
                 self._parada_por_meta = False
 
@@ -248,14 +273,14 @@ class MachineState:
 
     def _produzir(self):
         """
-        Produz peças respeitando a taxa teórica da máquina.
+        Produz peças respeitando a taxa teórica e o WIP disponível do estágio anterior.
 
-        Acumulador fracional: a cada ciclo acumula `taxa * CYCLE_SECONDS/3600` peças
-        (com variação aleatória ±20%) e só registra quando o acumulador atinge >= 1 peça.
-        Isso garante que a produção média bata a taxa configurada independente do tamanho do ciclo.
+        - Estágio 0 (primeiro): alimentado por matéria-prima ilimitada.
+        - Demais estágios: só processa o que o estágio anterior aprovou (WIP).
+        - Peças aprovadas são somadas ao WIP do próximo estágio.
+        - Peças reprovadas são descartadas e não chegam ao próximo estágio.
         """
         pct_ciclo = self.pecas_por_hora * CYCLE_SECONDS / 3600.0
-        # Variação aleatória ±20% para simular irregularidade real
         self._acum += pct_ciclo * random.uniform(0.8, 1.2)
 
         n = int(self._acum)
@@ -269,6 +294,15 @@ class MachineState:
         if n <= 0:
             return
 
+        # Estágios 1+ precisam de WIP do estágio anterior
+        if self.stage_idx > 0:
+            wip_disponivel = _wip[self.stage_idx - 1]
+            n = min(n, wip_disponivel)
+            if n <= 0:
+                return  # sem insumos, máquina para implicitamente
+            # Consome do WIP de entrada
+            _wip[self.stage_idx - 1] -= n
+
         reprov = sum(1 for _ in range(n) if random.random() < TAXA_REPROVADO)
         boas   = n - reprov
         self.produzido        += boas
@@ -276,11 +310,15 @@ class MachineState:
         self.total_produzido  += n
         self._produzido_na_op += boas
 
+        # Peças aprovadas alimentam o WIP do próximo estágio
+        if boas > 0 and self.stage_idx < len(STAGES) - 1:
+            _wip[self.stage_idx] += boas
+
     def _transicao_parada(self):
         self.status         = STATUS_PARADA
         self.motivo_parada  = random.choice(self.motivos) if self.motivos else 1
         self.parada_duracao = 0
-        logger.info(f"IHM {self.id_ihm}: → PARADA (motivo={self.motivo_parada})")
+        logger.info(f"IHM {self.id_ihm}: -> PARADA (motivo={self.motivo_parada})")
 
     def _transicao_manutencao(self):
         self.status         = STATUS_MANUTENCAO
@@ -288,13 +326,13 @@ class MachineState:
         self.manutentor     = random.choice(self.manutentores) if self.manutentores else 1
         self.engenheiro     = random.choice(self.engenheiros)  if self.engenheiros  else 0
         self.parada_duracao = 0
-        logger.info(f"IHM {self.id_ihm}: → MANUTENÇÃO")
+        logger.info(f"IHM {self.id_ihm}: -> MANUTENCAO")
 
     def _transicao_limpeza(self):
         self.status         = STATUS_LIMPEZA
         self.motivo_parada  = 4
         self.parada_duracao = 0
-        logger.info(f"IHM {self.id_ihm}: → LIMPEZA")
+        logger.info(f"IHM {self.id_ihm}: -> LIMPEZA")
 
     def _transicao_produzindo(self):
         self.status         = STATUS_PRODUZINDO
@@ -304,7 +342,7 @@ class MachineState:
         self.parada_duracao = 0
         if self.operadores and random.random() < PROB_TROCA_OPERADOR:
             self.operador = random.choice(self.operadores)
-        logger.info(f"IHM {self.id_ihm}: → PRODUZINDO (op={self.operador})")
+        logger.info(f"IHM {self.id_ihm}: -> PRODUZINDO (op={self.operador})")
 
     # ── Serialização ─────────────────────────────────────────────────────────
 
@@ -331,8 +369,17 @@ class MachineState:
 
 # ─── Carregamento ─────────────────────────────────────────────────────────────
 
+def _stage_of(id_ihm: int) -> int:
+    """Retorna o índice do estágio de uma IHM no fluxo da linha."""
+    for idx, stage in enumerate(STAGES):
+        if id_ihm in stage:
+            return idx
+    return 0  # fallback: primeiro estágio
+
+
 def load_machine(id_ihm, conn_db):
-    pecas_por_hora = MACHINE_RATES.get(id_ihm, 60)  # fallback: 60 pç/h
+    pecas_por_hora = MACHINE_RATES.get(id_ihm, 60)
+    stage_idx      = _stage_of(id_ihm)
 
     cursor = conn_db.cursor()
     cursor.execute(f"SELECT id_registrador FROM tb_registrador WHERE id_ihm = {id_ihm} ORDER BY id_registrador ASC")
@@ -354,7 +401,8 @@ def load_machine(id_ihm, conn_db):
     modelos = [r[0] for r in cursor.fetchall()]
 
     machine = MachineState(id_ihm, pecas_por_hora, reg_ids,
-                           operadores, motivos, manutentores, engenheiros, modelos)
+                           operadores, motivos, manutentores, engenheiros, modelos,
+                           stage_idx=stage_idx)
     machine.load_from_db(conn_db)
     machine.refresh_meta(conn_db)
 
@@ -430,6 +478,11 @@ def main():
 
         while True:
             logger.info("=" * 60)
+            wip_log = " | ".join(
+                f"S{i+1}->{i+2}: {_wip[i]}pç" for i in range(len(STAGES) - 1)
+            )
+            if wip_log:
+                logger.info(f"WIP: {wip_log}")
             for machine in machines:
                 machine.refresh_meta(conn_db)
                 try:
