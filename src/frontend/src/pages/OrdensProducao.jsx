@@ -494,7 +494,12 @@ function FluxogramaOP({ op, fluxo, onSave }) {
 // dividem o range de peças pelo percentual de cada máquina.
 function computePieceGrid(quantidade, steps) {
   if (!steps || steps.length === 0) return { stages: [], rows: [] };
-  const sorted = [...steps].sort((a, b) => a.ordem - b.ordem);
+  // Sort estável: ordem primária = nu_ordem, secundária = id da primeira máquina
+  const sorted = [...steps].sort((a, b) => {
+    const d = a.ordem - b.ordem;
+    if (d !== 0) return d;
+    return (a.maquinas[0]?.id_ihm ?? 0) - (b.maquinas[0]?.id_ihm ?? 0);
+  });
 
   // Agrega estatísticas por estágio (soma das máquinas paralelas)
   const stages = sorted.map(step => {
@@ -548,8 +553,10 @@ const PIECE_STATUS = {
 function FluxogramaProducao({ op, fluxo }) {
   const { stages, rows } = computePieceGrid(op.quantidade, fluxo.steps || []);
   const MAX_VISIBLE = 80;
-  const visibleRows = rows.slice(0, MAX_VISIBLE);
-  const hidden = rows.length - visibleRows.length;
+  // Garante ordem estável: peças sempre na mesma linha da tabela
+  const sortedRows = [...rows].sort((a, b) => a.peca - b.peca);
+  const visibleRows = sortedRows.slice(0, MAX_VISIBLE);
+  const hidden = sortedRows.length - visibleRows.length;
 
   return (
     <div className="fpp-root">
@@ -635,7 +642,11 @@ function MapaProducao({ ordens }) {
   const refreshTimerRef                 = useRef(null);
 
   const ordensFiltradas = ordens.filter(op => {
-    if (filtroStatus === "ativos") return op.status === "fila" || op.status === "em_producao";
+    if (filtroStatus === "ativos") {
+      // Mantém visível mesmo que finalizada se estiver expandida no momento
+      if (op.id === expandedId) return true;
+      return op.status === "fila" || op.status === "em_producao";
+    }
     return true;
   }).sort((a, b) => {
     const ordem = { em_producao: 0, fila: 1, finalizado: 2, cancelado: 3 };

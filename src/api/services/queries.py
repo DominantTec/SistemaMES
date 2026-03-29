@@ -1,5 +1,6 @@
 from datetime import datetime, date, time, timedelta
 from typing import List, Dict, Any, Optional
+import math
 import pandas as pd
 
 from api.services.db import run_query, run_query_update, run_query_insert
@@ -1753,6 +1754,8 @@ def _recalcular_metas_linha(linha_id: int) -> None:
                     # Usa producao_teorica da rota quando disponível
                     total_prod = sum(route_prod.get(m["id_ihm"]) or m["producao_teorica"] for m in alternativas)
 
+                    # Coleta dados por máquina para aplicar LRM
+                    machines_data = []
                     for m in alternativas:
                         iid         = m["id_ihm"]
                         prod_m      = route_prod.get(iid) or m["producao_teorica"]
@@ -1766,8 +1769,22 @@ def _recalcular_metas_linha(linha_id: int) -> None:
                         else:
                             pct = 100.0 if iid == step["id_ihm"] else 0.0
 
-                        contrib = min(round(meta_op * pct / 100), cap_maquina)
-                        metas[iid]      = metas.get(iid, 0) + contrib
+                        machines_data.append((iid, pct, cap_maquina))
+
+                    # Largest Remainder Method: garante que soma == meta_op
+                    raw_vals = [(iid, meta_op * pct / 100, cap) for iid, pct, cap in machines_data]
+                    floors   = [(iid, math.floor(val), val - math.floor(val), cap)
+                                for iid, val, cap in raw_vals]
+                    remainder = meta_op - sum(f[1] for f in floors)
+                    # Ordena por fração decrescente; desempate por iid (menor primeiro = mais prioritário)
+                    sorted_f  = sorted(floors, key=lambda x: (-x[2], x[0]))
+                    contribs  = {}
+                    for i, (iid, fl, frac, cap) in enumerate(sorted_f):
+                        extra = 1 if i < remainder else 0
+                        contribs[iid] = min(fl + extra, cap)
+
+                    for iid, pct, cap in machines_data:
+                        metas[iid]      = metas.get(iid, 0) + contribs[iid]
                         pecas_nome[iid] = pn
                 else:
                     # Máquina sem tipo definido ou sem paralelas — usa direto da rota
@@ -1980,10 +1997,14 @@ def update_ordem_status(ordem_id: int, new_status: str) -> dict:
             WHERE id_ordem = :id
         """, {"prod": producao["produzido"], "refugo": producao["refugo"], "id": ordem_id})
 
-        _criar_complemento_se_necessario(ordem_id, producao["produzido"])
-        if status_ant == "em_producao":
-            _recalcular_metas_linha(linha_id)
-            _ativar_proxima_op(linha_id)
+        # Operações secundárias — não devem reverter a finalização se falharem
+        try:
+            if status_ant == "em_producao":
+                _recalcular_metas_linha(linha_id)
+                _ativar_proxima_op(linha_id)
+            _criar_complemento_se_necessario(ordem_id, producao["produzido"])
+        except Exception:
+            pass
 
     # ── → cancelado ──────────────────────────────────────────────────────────
     elif new_status == "cancelado":
@@ -2262,21 +2283,28 @@ def _get_producao_refugo_op(linha_id: int, dt_inicio: datetime, peca_id: int = N
     for iid in terminal_ihms:
         for desc in ("produzido", "reprovado"):
             df = run_query("""
-                SELECT MIN(lr.nu_valor_bruto) AS val_inicio,
-                       MAX(lr.nu_valor_bruto) AS val_fim
+                SELECT
+                    MAX(CASE WHEN lr.dt_created_at <  :dt THEN lr.nu_valor_bruto ELSE NULL END) AS v_base,
+                    MAX(CASE WHEN lr.dt_created_at >= :dt THEN lr.nu_valor_bruto ELSE NULL END) AS v_curr,
+                    MIN(CASE WHEN lr.dt_created_at >= :dt THEN lr.nu_valor_bruto ELSE NULL END) AS v_first
                 FROM dbo.tb_log_registrador lr
                 JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
                 WHERE lr.id_ihm      = :id
                   AND r.tx_descricao = :desc
-                  AND lr.dt_created_at >= :dt
             """, {"id": iid, "desc": desc, "dt": dt_inicio})
-            if not df.empty and df.iloc[0]["val_inicio"] is not None:
-                delta = float(df.iloc[0]["val_fim"]) - float(df.iloc[0]["val_inicio"])
-                if delta > 0:
-                    if desc == "produzido":
-                        conformes += int(delta)
-                    else:
-                        refugo += int(delta)
+            if not df.empty and df.iloc[0]["v_curr"] is not None:
+                row = df.iloc[0]
+                v_curr  = float(row["v_curr"])
+                v_base  = float(row["v_base"])  if row["v_base"]  is not None else None
+                v_first = float(row["v_first"]) if row["v_first"] is not None else None
+                baseline = v_base if v_base is not None else v_first
+                if baseline is not None:
+                    delta = v_curr - baseline
+                    if delta > 0:
+                        if desc == "produzido":
+                            conformes += int(delta)
+                        else:
+                            refugo += int(delta)
     return {"produzido": conformes, "refugo": refugo}
 
 
@@ -2332,9 +2360,12 @@ def _finalizar_op_automatico(ordem_id: int, nu_produzido: int, nu_refugo: int) -
     if df.empty:
         return
     linha_id = int(df.iloc[0]["id_linha_producao"])
-    _criar_complemento_se_necessario(ordem_id, nu_produzido)
-    _recalcular_metas_linha(linha_id)
-    _ativar_proxima_op(linha_id)
+    try:
+        _recalcular_metas_linha(linha_id)
+        _ativar_proxima_op(linha_id)
+        _criar_complemento_se_necessario(ordem_id, nu_produzido)
+    except Exception:
+        pass
 
 
 # ─── Peças e Roteiros ────────────────────────────────────────────────────────
@@ -2593,18 +2624,25 @@ def _get_machine_stats_op(ihm_id: int, dt_inicio) -> dict:
     reprovado = 0
     for desc in ("produzido", "reprovado"):
         df = run_query("""
-            SELECT MIN(lr.nu_valor_bruto) AS v_ini,
-                   MAX(lr.nu_valor_bruto) AS v_fim
+            SELECT
+                MAX(CASE WHEN lr.dt_created_at <  :dt THEN lr.nu_valor_bruto ELSE NULL END) AS v_base,
+                MAX(CASE WHEN lr.dt_created_at >= :dt THEN lr.nu_valor_bruto ELSE NULL END) AS v_curr,
+                MIN(CASE WHEN lr.dt_created_at >= :dt THEN lr.nu_valor_bruto ELSE NULL END) AS v_first
             FROM dbo.tb_log_registrador lr
             JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
             WHERE lr.id_ihm = :id AND r.tx_descricao = :desc
-              AND lr.dt_created_at >= :dt
         """, {"id": ihm_id, "desc": desc, "dt": dt_inicio})
-        if not df.empty and df.iloc[0]["v_ini"] is not None:
-            delta = float(df.iloc[0]["v_fim"]) - float(df.iloc[0]["v_ini"])
-            if delta > 0:
-                if desc == "produzido": aprovado  = int(delta)
-                else:                  reprovado = int(delta)
+        if not df.empty and df.iloc[0]["v_curr"] is not None:
+            row = df.iloc[0]
+            v_curr  = float(row["v_curr"])
+            v_base  = float(row["v_base"])  if row["v_base"]  is not None else None
+            v_first = float(row["v_first"]) if row["v_first"] is not None else None
+            baseline = v_base if v_base is not None else v_first
+            if baseline is not None:
+                delta = v_curr - baseline
+                if delta > 0:
+                    if desc == "produzido": aprovado  = int(delta)
+                    else:                  reprovado = int(delta)
 
     df_st = run_query("""
         SELECT TOP 1 lr.nu_valor_bruto
@@ -2664,6 +2702,7 @@ def get_op_fluxo(op_id: int) -> dict:
             FROM dbo.tb_ihm i
             LEFT JOIN dbo.tb_config_producao_teorica c ON c.id_ihm = i.id_ihm
             WHERE i.id_linha_producao = :lid
+            ORDER BY i.id_ihm
         """, {"lid": linha_id})
         maquinas_por_tipo: dict = {}
         for _, m in df_linha.iterrows():

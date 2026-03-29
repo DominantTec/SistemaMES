@@ -5,19 +5,18 @@ Execute manualmente (fora do Docker):
     cd src/monitoramento
     python simulator.py
 
-Fluxo de linha:
-  Estágio 1 (paralelo): IHM 3 | IHM 4  — alimentados pela matéria-prima
-  Estágio 2 (paralelo): IHM 5 | IHM 6  — alimentados pelo aprovado do estágio 1
-  Estágio 3 (série):    IHM 7           — alimentado pelo aprovado do estágio 2
+Fluxo real da linha (sequencial/paralelo):
+  IHM 3 (TRATAMENTO) → IHM 4 (PRIMER) → IHM 5 | IHM 6 (PINTURA, paralelas) → IHM 7 (ESTUFA)
 
-  Se uma peça for reprovada no estágio 1, ela não chega ao estágio 2.
-  O WIP (estoque entre estágios) limita o quanto cada estágio pode produzir.
+  Cada peça passa obrigatoriamente por TRATAMENTO → PRIMER, depois vai a UMA das
+  máquinas de PINTURA e finalmente pela ESTUFA.
+  Se reprovada em qualquer estágio, não avança para o próximo.
+  O WIP (estoque entre estágios) controla o quanto cada estágio pode processar.
 
-Taxa de produção:
-  - Cada máquina tem sua própria taxa teórica (pç/h) definida em MACHINE_RATES.
-  - Um acumulador fracional garante que a produção média respeite a taxa configurada.
-  - Variação aleatória de ±20% simula irregularidade real.
-  - Paradas aleatórias podem ocorrer e reduzir a produção efetiva.
+Controle de meta:
+  - Apenas a máquina terminal (último estágio) para quando atinge a meta da OP.
+  - Máquinas intermediárias continuam rodando até a OP ser finalizada (meta=0),
+    garantindo que sempre haja insumo suficiente para a máquina terminal.
 
 Ciclo: CYCLE_SECONDS segundos.
 """
@@ -33,24 +32,35 @@ from database import get_connection_db
 CYCLE_SECONDS = 5
 
 # Taxas teóricas de produção por IHM (peças/hora).
-# Estágio 0 (IHM 3+4) produz em torno de 1100 pç/h combinado — suficiente para
-# alimentar o estágio 1 (IHM 5+6 ~960 pç/h de demanda) e ainda manter WIP.
+# Cada estágio deve produzir ligeiramente mais do que o downstream consome,
+# para construir um pequeno buffer de WIP e evitar starvation.
+#
+#   IHM 3 (TRATAMENTO): 620 pç/h → aprovados ~564/h → wip[0]
+#   IHM 4 (PRIMER):     520 pç/h consumidos de wip[0] → aprovados ~473/h → wip[1]
+#   IHM 5+6 (PINTURA):  230+230=460 pç/h consumidos de wip[1] → aprovados ~419/h → wip[2]
+#   IHM 7 (ESTUFA):     380 pç/h consumidos de wip[2]
 MACHINE_RATES = {
-    3: 620,   # TRATAMENTO 1
-    4: 500,   # PRIMER 1
-    5: 480,   # PINTURA 1
-    6: 480,   # PINTURA 2
-    7: 400,   # ESTUFA 1
+    3: 620,   # TRATAMENTO 1  (alimentado por matéria-prima ilimitada)
+    4: 520,   # PRIMER 1      (alimentado pelo aprovado do TRATAMENTO)
+    5: 230,   # PINTURA 1     (paralela com PINTURA 2, alimentadas pelo PRIMER)
+    6: 230,   # PINTURA 2
+    7: 380,   # ESTUFA 1      (terminal — única que para por meta)
 }
 
 GHOST_IHM_IDS = list(MACHINE_RATES.keys())
 
-# Fluxo da linha: lista de estágios, cada estágio é uma lista de IHM IDs (paralelas).
+# Fluxo da linha: SEQUENCIAL + uma etapa paralela.
+# Cada estágio é uma lista de IHMs que processam em paralelo o mesmo lote.
+# A ordem dos estágios define o caminho obrigatório de cada peça.
 STAGES = [
-    [3, 4],   # Estágio 1: TRATAMENTO 1 | PRIMER 1  (paralelas, matéria-prima ilimitada)
-    [5, 6],   # Estágio 2: PINTURA 1 | PINTURA 2    (paralelas, alimentadas pelo estágio 1)
-    [7],      # Estágio 3: ESTUFA 1                 (série, alimentada pelo estágio 2)
+    [3],     # Estágio 0: TRATAMENTO 1      (sequencial)
+    [4],     # Estágio 1: PRIMER 1          (sequencial, consome wip[0])
+    [5, 6],  # Estágio 2: PINTURA 1 e 2     (paralelas, consomem wip[1])
+    [7],     # Estágio 3: ESTUFA 1          (terminal,  consome wip[2])
 ]
+
+# Índice do último estágio — somente essas máquinas usam a meta para parar.
+TERMINAL_STAGE_IDX = len(STAGES) - 1
 
 # WIP: peças aprovadas disponíveis para cada estágio.
 # wip[0] = peças aprovadas do estágio 0 disponíveis para o estágio 1.
@@ -127,6 +137,11 @@ class MachineState:
 
         # Acumulador fracional: garante taxa média correta mesmo com ciclos grossos
         self._acum = 0.0
+
+    @property
+    def is_terminal(self) -> bool:
+        """Verdadeiro apenas para máquinas do último estágio do fluxo."""
+        return self.stage_idx == TERMINAL_STAGE_IDX
 
     # ── Carregamento do banco ─────────────────────────────────────────────────
 
@@ -222,8 +237,11 @@ class MachineState:
             self._meta_anterior = 0
             return
 
-        # ── Meta atingida ─────────────────────────────────────────────────────
-        if self._produzido_na_op >= nova_meta and not self._parada_por_meta:
+        # ── Meta atingida — apenas na máquina terminal ────────────────────────
+        # Máquinas intermediárias NÃO param por meta: devem continuar alimentando
+        # o WIP até a OP ser finalizada (meta=0 pela API). Parar uma intermediária
+        # cedo esgota o buffer e impede a terminal de completar a OP.
+        if self.is_terminal and self._produzido_na_op >= nova_meta and not self._parada_por_meta:
             logger.info(f"IHM {self.id_ihm}: meta atingida ({self._produzido_na_op}/{nova_meta}). Parando.")
             self._parada_por_meta = True
 
@@ -310,11 +328,13 @@ class MachineState:
             return
         self._acum -= n
 
-        # Limita ao restante da meta
-        restante = self.meta - self._produzido_na_op
-        n = min(n, max(restante, 0))
-        if n <= 0:
-            return
+        # Somente a máquina terminal limita a produção ao restante da meta.
+        # Intermediárias produzem livremente para manter o WIP abastecido.
+        if self.is_terminal:
+            restante = self.meta - self._produzido_na_op
+            n = min(n, max(restante, 0))
+            if n <= 0:
+                return
 
         # Estágios 1+ precisam de WIP do estágio anterior
         if self.stage_idx > 0:
