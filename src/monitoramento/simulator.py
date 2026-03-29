@@ -162,6 +162,40 @@ def _get_n_etapas_op(conn_db, op_id: int) -> int:
         return N_ETAPAS
 
 
+def _compute_effective_meta(conn_db, op_id: int, stage_num: int, total_qty: int) -> int:
+    """
+    Meta efetiva da máquina = peças que chegam nesta etapa.
+    = total_qty − peças rejeitadas em etapas ANTERIORES a esta.
+    Stage 1 sempre recebe todas as peças.
+    """
+    if stage_num <= 1:
+        return total_qty
+    cursor = conn_db.cursor()
+    cursor.execute(f"""
+        SELECT COUNT(*) FROM dbo.tb_op_peca_producao
+        WHERE id_ordem = {op_id}
+          AND nu_etapa_erro IS NOT NULL
+          AND nu_etapa_erro < {stage_num}
+    """)
+    rejected_before = cursor.fetchone()[0]
+    return max(0, total_qty - rejected_before)
+
+
+def _pieces_remaining_in_pipeline(conn_db, op_id: int, stage_num: int) -> int:
+    """
+    Conta peças que ainda podem chegar a esta etapa (sem erro, etapa_atual <= stage_num).
+    Quando retorna 0, nenhuma peça nova chegará a este estágio.
+    """
+    cursor = conn_db.cursor()
+    cursor.execute(f"""
+        SELECT COUNT(*) FROM dbo.tb_op_peca_producao
+        WHERE id_ordem = {op_id}
+          AND nu_etapa_atual <= {stage_num}
+          AND nu_etapa_erro IS NULL
+    """)
+    return cursor.fetchone()[0]
+
+
 def _get_active_op(conn_db) -> tuple[int | None, int]:
     """Retorna (op_id, quantidade) da OP ativa na linha, ou (None, 0)."""
     cursor = conn_db.cursor()
@@ -307,9 +341,20 @@ class MachineState:
             self._meta_anterior = 0
             return
 
-        if self.is_terminal and self._produzido_na_op >= nova_meta and not self._parada_por_meta:
-            logger.info(f"IHM {self.id_ihm}: meta atingida ({self._produzido_na_op}/{nova_meta}).")
-            self._parada_por_meta = True
+        if self.is_terminal and not self._parada_por_meta:
+            meta_atingida    = self._produzido_na_op >= nova_meta
+            pipeline_esgotado = (
+                self._produzido_na_op > 0
+                and self.op_id is not None
+                and _pieces_remaining_in_pipeline(conn_db, self.op_id, self.stage_num) == 0
+            )
+            if meta_atingida or pipeline_esgotado:
+                motivo = "meta atingida" if meta_atingida else "pipeline esgotado (refugos upstream)"
+                logger.info(
+                    f"IHM {self.id_ihm}: parando — {motivo} "
+                    f"({self._produzido_na_op}/{nova_meta})."
+                )
+                self._parada_por_meta = True
 
         if self._parada_por_meta:
             self._forcar_parada()
@@ -592,6 +637,7 @@ def main():
                 # processada pelo próximo estágio no mesmo ciclo ("cascata").
                 machines_rev = sorted(machines, key=lambda m: m.stage_num, reverse=True)
                 for machine in machines_rev:
+                    # 1. Lê meta base do banco
                     try:
                         machine.refresh_meta(conn_db)
                     except Exception as e:
@@ -604,6 +650,21 @@ def main():
                         except Exception:
                             pass
 
+                    # 2. Sobrescreve com meta efetiva (cascata de refugos):
+                    #    meta_efetiva[etapa K] = total_qty − refugos_antes_da_etapa_K
+                    if (op_id and n_etapas > 0
+                            and machine.stage_num <= n_etapas
+                            and machine._meta_anterior > 0):
+                        try:
+                            eff = _compute_effective_meta(
+                                conn_db, op_id, machine.stage_num, quantidade
+                            )
+                            if eff != machine.meta:
+                                machine.meta = eff
+                        except Exception:
+                            pass
+
+                    # 3. Tick (usa machine.meta já corrigido)
                     try:
                         machine.tick(conn_db)
                     except Exception as e:
