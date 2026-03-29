@@ -208,6 +208,29 @@ def _ensure_schema():
             )
             WHERE dt_created_at > DATEADD(second, 30, GETDATE())
         """)
+        # tb_op_peca_producao – rastreamento individual de peças por OP
+        run_query_update("""
+            IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.tb_op_peca_producao') AND type = 'U')
+            BEGIN
+                CREATE TABLE dbo.tb_op_peca_producao (
+                    id_peca_producao  INT IDENTITY(1,1) PRIMARY KEY,
+                    id_ordem          INT NOT NULL,
+                    nu_peca           INT NOT NULL,
+                    nu_etapas_total   INT NOT NULL,
+                    nu_etapa_atual    INT NOT NULL,
+                    nu_etapa_erro     INT NULL,
+                    CONSTRAINT UQ_op_peca UNIQUE (id_ordem, nu_peca)
+                )
+            END
+        """)
+        run_query_update("""
+            IF NOT EXISTS (SELECT * FROM sys.indexes
+                           WHERE object_id = OBJECT_ID('dbo.tb_op_peca_producao')
+                             AND name = 'IX_peca_prod_ordem_etapa')
+                CREATE INDEX IX_peca_prod_ordem_etapa
+                    ON dbo.tb_op_peca_producao(id_ordem, nu_etapa_atual)
+                    WHERE nu_etapa_erro IS NULL
+        """)
         _schema_ensured = True
     except Exception:
         pass  # não travar se o banco ainda não estiver disponível
@@ -1898,6 +1921,10 @@ def _ativar_proxima_op(linha_id: int) -> None:
     })
     # Recalcula metas das máquinas somando todas as OPs ativas da linha
     _recalcular_metas_linha(linha_id)
+    # Inicializa rastreamento de peças
+    n_etapas = _get_n_etapas(peca_id)
+    if n_etapas > 0:
+        _init_op_pecas(prox_id, quantidade, n_etapas)
 
 
 # ─── Status da OP ────────────────────────────────────────────────────────────
@@ -1955,6 +1982,10 @@ def update_ordem_status(ordem_id: int, new_status: str) -> dict:
         })
         # Recalcula meta das máquinas somando todas as OPs ativas da linha
         _recalcular_metas_linha(linha_id)
+        # Inicializa rastreamento de peças
+        n_etapas = _get_n_etapas(peca_id)
+        if n_etapas > 0:
+            _init_op_pecas(ordem_id, quantidade, n_etapas)
 
     # ── em_producao → fila  (pausa) ───────────────────────────────────────────
     elif new_status == "fila" and status_ant == "em_producao":
@@ -2423,6 +2454,52 @@ def get_rota_peca(peca_id: int) -> list:
     ]
 
 
+def _get_n_etapas(peca_id: int | None) -> int:
+    """Retorna o número de etapas (estágios distintos) no roteiro de uma peça."""
+    if not peca_id:
+        return 0
+    rota = get_rota_peca(peca_id)
+    seen: set = set()
+    n = 0
+    for step in rota:
+        tipo = step["tipo_maquina"]
+        if tipo and tipo not in seen:
+            seen.add(tipo)
+            n += 1
+        elif not tipo:
+            n += 1
+    return n
+
+
+def _init_op_pecas(op_id: int, quantidade: int, n_etapas: int) -> None:
+    """Insere as peças de uma OP na tabela de rastreamento (idempotente)."""
+    if n_etapas <= 0:
+        return
+    _ensure_schema()
+    df = run_query(
+        "SELECT COUNT(*) AS n FROM dbo.tb_op_peca_producao WHERE id_ordem = :id",
+        {"id": op_id}
+    )
+    if not df.empty and int(df.iloc[0]["n"]) > 0:
+        return  # já inicializado
+
+    # Insere em blocos de 5000 via CTE recursiva
+    BLOCK = 5000
+    for bloco_ini in range(1, quantidade + 1, BLOCK):
+        bloco_fim = min(bloco_ini + BLOCK - 1, quantidade)
+        run_query_update(f"""
+            WITH nums AS (
+                SELECT {bloco_ini} AS n
+                UNION ALL
+                SELECT n + 1 FROM nums WHERE n < {bloco_fim}
+            )
+            INSERT INTO dbo.tb_op_peca_producao
+                (id_ordem, nu_peca, nu_etapas_total, nu_etapa_atual, nu_etapa_erro)
+            SELECT {op_id}, n, {n_etapas}, 1, NULL FROM nums
+            OPTION (MAXRECURSION 5000)
+        """)
+
+
 def update_rota_peca(peca_id: int, steps: list) -> None:
     """Salva o roteiro de uma peça. steps = lista de {id_ihm, producao_teorica}."""
     _ensure_schema()
@@ -2618,20 +2695,32 @@ def save_op_distribuicao(op_id: int, distribuicao: list) -> None:
         _recalcular_metas_linha(int(df.iloc[0]["id_linha_producao"]))
 
 
-def _get_machine_stats_op(ihm_id: int, dt_inicio) -> dict:
-    """Aprovado, reprovado e status atual de uma IHM desde dt_inicio (início da OP)."""
+def _get_machine_stats_op(ihm_id: int, dt_inicio, dt_fim=None) -> dict:
+    """Aprovado, reprovado e status de uma IHM no intervalo [dt_inicio, dt_fim].
+    dt_fim=None significa OP ainda em andamento (sem limite superior)."""
     aprovado  = 0
     reprovado = 0
     for desc in ("produzido", "reprovado"):
-        df = run_query("""
-            SELECT
-                MAX(CASE WHEN lr.dt_created_at <  :dt THEN lr.nu_valor_bruto ELSE NULL END) AS v_base,
-                MAX(CASE WHEN lr.dt_created_at >= :dt THEN lr.nu_valor_bruto ELSE NULL END) AS v_curr,
-                MIN(CASE WHEN lr.dt_created_at >= :dt THEN lr.nu_valor_bruto ELSE NULL END) AS v_first
-            FROM dbo.tb_log_registrador lr
-            JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
-            WHERE lr.id_ihm = :id AND r.tx_descricao = :desc
-        """, {"id": ihm_id, "desc": desc, "dt": dt_inicio})
+        if dt_fim is not None:
+            df = run_query("""
+                SELECT
+                    MAX(CASE WHEN lr.dt_created_at <  :dt_ini THEN lr.nu_valor_bruto ELSE NULL END) AS v_base,
+                    MAX(CASE WHEN lr.dt_created_at >= :dt_ini AND lr.dt_created_at <= :dt_fim THEN lr.nu_valor_bruto ELSE NULL END) AS v_curr,
+                    MIN(CASE WHEN lr.dt_created_at >= :dt_ini AND lr.dt_created_at <= :dt_fim THEN lr.nu_valor_bruto ELSE NULL END) AS v_first
+                FROM dbo.tb_log_registrador lr
+                JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
+                WHERE lr.id_ihm = :id AND r.tx_descricao = :desc
+            """, {"id": ihm_id, "desc": desc, "dt_ini": dt_inicio, "dt_fim": dt_fim})
+        else:
+            df = run_query("""
+                SELECT
+                    MAX(CASE WHEN lr.dt_created_at <  :dt THEN lr.nu_valor_bruto ELSE NULL END) AS v_base,
+                    MAX(CASE WHEN lr.dt_created_at >= :dt THEN lr.nu_valor_bruto ELSE NULL END) AS v_curr,
+                    MIN(CASE WHEN lr.dt_created_at >= :dt THEN lr.nu_valor_bruto ELSE NULL END) AS v_first
+                FROM dbo.tb_log_registrador lr
+                JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
+                WHERE lr.id_ihm = :id AND r.tx_descricao = :desc
+            """, {"id": ihm_id, "desc": desc, "dt": dt_inicio})
         if not df.empty and df.iloc[0]["v_curr"] is not None:
             row = df.iloc[0]
             v_curr  = float(row["v_curr"])
@@ -2644,17 +2733,21 @@ def _get_machine_stats_op(ihm_id: int, dt_inicio) -> dict:
                     if desc == "produzido": aprovado  = int(delta)
                     else:                  reprovado = int(delta)
 
-    df_st = run_query("""
-        SELECT TOP 1 lr.nu_valor_bruto
-        FROM dbo.tb_log_registrador lr
-        JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
-        WHERE lr.id_ihm = :id AND r.tx_descricao = 'status_maquina'
-        ORDER BY lr.dt_created_at DESC
-    """, {"id": ihm_id})
-    status = "parada"
-    if not df_st.empty:
-        v = int(df_st.iloc[0]["nu_valor_bruto"])
-        status = {49: "produzindo", 4: "limpeza", 52: "manutencao"}.get(v, "parada")
+    # Para OP finalizada, o status no dt_fim é sempre parada
+    if dt_fim is not None:
+        status = "parada"
+    else:
+        df_st = run_query("""
+            SELECT TOP 1 lr.nu_valor_bruto
+            FROM dbo.tb_log_registrador lr
+            JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
+            WHERE lr.id_ihm = :id AND r.tx_descricao = 'status_maquina'
+            ORDER BY lr.dt_created_at DESC
+        """, {"id": ihm_id})
+        status = "parada"
+        if not df_st.empty:
+            v = int(df_st.iloc[0]["nu_valor_bruto"])
+            status = {49: "produzindo", 4: "limpeza", 52: "manutencao"}.get(v, "parada")
 
     return {"aprovado": aprovado, "reprovado": reprovado, "status_maquina": status}
 
@@ -2673,7 +2766,7 @@ def get_op_fluxo(op_id: int) -> dict:
     # Busca OP
     df_op = run_query("""
         SELECT o.id_ordem, o.nu_numero_op, o.tx_peca, o.nu_quantidade,
-               o.tx_status, o.id_linha_producao, o.id_peca, o.dt_inicio
+               o.tx_status, o.id_linha_producao, o.id_peca, o.dt_inicio, o.dt_fim
         FROM dbo.tb_ordem_producao o
         WHERE o.id_ordem = :id
     """, {"id": op_id})
@@ -2685,7 +2778,9 @@ def get_op_fluxo(op_id: int) -> dict:
     quantidade = int(op["nu_quantidade"])
     peca_id    = op["id_peca"]
     dt_inicio  = op["dt_inicio"]
-    em_prod    = op["tx_status"] == "em_producao"
+    dt_fim_op  = op["dt_fim"]
+    status_op  = op["tx_status"]
+    em_prod    = status_op in ("em_producao", "finalizado")
 
     steps = []
 
@@ -2756,7 +2851,8 @@ def get_op_fluxo(op_id: int) -> dict:
                         "quantidade": round(quantidade * pct / 100),
                     }
                     if em_prod and dt_inicio is not None:
-                        entry.update(_get_machine_stats_op(m["id_ihm"], dt_inicio))
+                        _dt_fim = dt_fim_op if status_op == "finalizado" else None
+                        entry.update(_get_machine_stats_op(m["id_ihm"], dt_inicio, _dt_fim))
                     maquinas_etapa.append(entry)
 
                 steps.append({
@@ -2775,7 +2871,8 @@ def get_op_fluxo(op_id: int) -> dict:
                     "quantidade": quantidade,
                 }
                 if em_prod and dt_inicio is not None:
-                    entry.update(_get_machine_stats_op(step["id_ihm"], dt_inicio))
+                    _dt_fim = dt_fim_op if status_op == "finalizado" else None
+                    entry.update(_get_machine_stats_op(step["id_ihm"], dt_inicio, _dt_fim))
                 steps.append({
                     "ordem": step["nu_ordem"],
                     "tipo_maquina": tipo or step["nome"],
@@ -2783,13 +2880,31 @@ def get_op_fluxo(op_id: int) -> dict:
                     "maquinas": [entry],
                 })
 
+    # Rastreamento individual de peças (sempre que existir na tabela)
+    df_pieces = run_query("""
+        SELECT nu_peca, nu_etapas_total, nu_etapa_atual, nu_etapa_erro
+        FROM dbo.tb_op_peca_producao
+        WHERE id_ordem = :id
+        ORDER BY nu_peca
+    """, {"id": op_id})
+    pieces = []
+    if not df_pieces.empty:
+        for _, r in df_pieces.iterrows():
+            pieces.append({
+                "peca":         int(r["nu_peca"]),
+                "etapas_total": int(r["nu_etapas_total"]),
+                "etapa_atual":  int(r["nu_etapa_atual"]),
+                "etapa_erro":   int(r["nu_etapa_erro"]) if r["nu_etapa_erro"] is not None and not pd.isna(r["nu_etapa_erro"]) else None,
+            })
+
     return {
         "op": {
-            "id": int(op["id_ordem"]),
-            "numero_op": op["nu_numero_op"],
-            "peca": op["tx_peca"],
+            "id":         int(op["id_ordem"]),
+            "numero_op":  op["nu_numero_op"],
+            "peca":       op["tx_peca"],
             "quantidade": quantidade,
-            "status": op["tx_status"],
+            "status":     op["tx_status"],
         },
-        "steps": steps,
+        "steps":  steps,
+        "pieces": pieces,
     }

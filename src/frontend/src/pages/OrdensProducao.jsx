@@ -492,53 +492,51 @@ function FluxogramaOP({ op, fluxo, onSave }) {
 // Dado N peças e estágios em sequência, infere o status de cada peça em cada estágio.
 // Peças são numeradas 1..N e processadas em ordem. Estágios com máquinas paralelas
 // dividem o range de peças pelo percentual de cada máquina.
-function computePieceGrid(quantidade, steps) {
+function computePieceGrid(pieces, steps) {
   if (!steps || steps.length === 0) return { stages: [], rows: [] };
-  // Sort estável: ordem primária = nu_ordem, secundária = id da primeira máquina
-  const sorted = [...steps].sort((a, b) => {
-    const d = a.ordem - b.ordem;
-    if (d !== 0) return d;
-    return (a.maquinas[0]?.id_ihm ?? 0) - (b.maquinas[0]?.id_ihm ?? 0);
-  });
 
-  // Agrega estatísticas por estágio (soma das máquinas paralelas)
-  const stages = sorted.map(step => {
-    const totalAprovado  = step.maquinas.reduce((s, m) => s + (m.aprovado  || 0), 0);
-    const totalReprovado = step.maquinas.reduce((s, m) => s + (m.reprovado || 0), 0);
-    const anyProduzindo  = step.maquinas.some(m => (m.status_maquina || "") === "produzindo");
-    return {
-      ordem:             step.ordem,
-      tipo:              step.tipo_maquina,
-      maquinas:          step.maquinas,
-      total_aprovado:    totalAprovado,
-      total_reprovado:   totalReprovado,
-      total_processado:  totalAprovado + totalReprovado,
-      any_produzindo:    anyProduzindo,
-    };
-  });
+  // Agrega estatísticas de etapa por tipo de máquina (mantém header funcionando)
+  const stages = [...steps]
+    .sort((a, b) => {
+      const d = a.ordem - b.ordem;
+      if (d !== 0) return d;
+      return (a.maquinas[0]?.id_ihm ?? 0) - (b.maquinas[0]?.id_ihm ?? 0);
+    })
+    .map(step => ({
+      ordem:   step.ordem,
+      tipo:    step.tipo_maquina,
+      maquinas: step.maquinas,
+      total_aprovado:   step.maquinas.reduce((s, m) => s + (m.aprovado  || 0), 0),
+      total_reprovado:  step.maquinas.reduce((s, m) => s + (m.reprovado || 0), 0),
+      get total_processado() { return this.total_aprovado + this.total_reprovado; },
+      any_produzindo:   step.maquinas.some(m => (m.status_maquina || "") === "produzindo"),
+    }));
 
-  const rows = [];
-  for (let j = 1; j <= quantidade; j++) {
+  if (!pieces || pieces.length === 0) return { stages, rows: [] };
+
+  const n_etapas = stages.length;
+
+  // Para cada etapa, verifica se alguma máquina está produzindo
+  const produzindoPorEtapa = {};
+  stages.forEach((st, i) => { produzindoPorEtapa[i + 1] = st.any_produzindo; });
+
+  const rows = pieces.map(({ peca, etapa_atual, etapa_erro }) => {
     const cells = [];
-    let rejected = false;
-
-    for (let si = 0; si < stages.length; si++) {
-      const stage = stages[si];
-      if (rejected) { cells.push("na"); continue; }
-
-      // Quantidade de peças que chegam a este estágio
-      const inputCount = si === 0 ? quantidade : stages[si - 1].total_aprovado;
-
-      if (j > inputCount) { cells.push("aguardando"); continue; }
-
-      const { total_aprovado, total_processado, any_produzindo } = stage;
-      if      (j <= total_aprovado)                                     cells.push("aprovado");
-      else if (j <= total_processado)                                  { cells.push("reprovado"); rejected = true; }
-      else if (j === total_processado + 1 && any_produzindo)            cells.push("produzindo");
-      else                                                              cells.push("aguardando");
+    for (let stage_num = 1; stage_num <= n_etapas; stage_num++) {
+      if (etapa_erro != null) {
+        if (stage_num < etapa_erro)       cells.push("aprovado");
+        else if (stage_num === etapa_erro) cells.push("reprovado");
+        else                              cells.push("na");
+      } else {
+        if (stage_num < etapa_atual)      cells.push("aprovado");
+        else if (stage_num === etapa_atual)
+          cells.push(produzindoPorEtapa[stage_num] ? "produzindo" : "aguardando");
+        else                              cells.push("aguardando");
+      }
     }
-    rows.push({ peca: j, cells });
-  }
+    return { peca, cells };
+  });
+
   return { stages, rows };
 }
 
@@ -551,7 +549,7 @@ const PIECE_STATUS = {
 };
 
 function FluxogramaProducao({ op, fluxo }) {
-  const { stages, rows } = computePieceGrid(op.quantidade, fluxo.steps || []);
+  const { stages, rows } = computePieceGrid(fluxo.pieces || [], fluxo.steps || []);
   const MAX_VISIBLE = 80;
   // Garante ordem estável: peças sempre na mesma linha da tabela
   const sortedRows = [...rows].sort((a, b) => a.peca - b.peca);
@@ -638,7 +636,7 @@ function MapaProducao({ ordens }) {
   const [expandedId, setExpandedId]     = useState(null);
   const [fluxos, setFluxos]             = useState({});
   const [loadingId, setLoadingId]       = useState(null);
-  const [filtroStatus, setFiltroStatus] = useState("ativos");
+  const [filtroStatus, setFiltroStatus] = useState("todos");
   const refreshTimerRef                 = useRef(null);
 
   const ordensFiltradas = ordens.filter(op => {
@@ -752,9 +750,17 @@ function MapaProducao({ ordens }) {
                 {isLoading && <div className="mapa-loading">Carregando fluxo...</div>}
 
                 {!isLoading && fluxo && fluxo.steps?.length > 0 && (
-                  emProd
+                  (emProd || op.status === "finalizado")
                     ? <FluxogramaProducao op={op} fluxo={fluxo} />
                     : <FluxogramaOP op={op} fluxo={fluxo} onSave={() => refreshFluxo(op.id)} />
+                )}
+
+                {!isLoading && fluxo && fluxo.steps?.length > 0 &&
+                  op.status === "finalizado" && (!fluxo.pieces || fluxo.pieces.length === 0) && (
+                  <div className="mapa-sem-rota" style={{marginTop: 8}}>
+                    Dados de rastreamento de peças não disponíveis para esta OP
+                    (produzida antes do novo sistema de rastreamento).
+                  </div>
                 )}
 
                 {!isLoading && fluxo && (!fluxo.steps || fluxo.steps.length === 0) && (
