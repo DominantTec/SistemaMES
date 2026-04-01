@@ -1730,20 +1730,27 @@ def _recalcular_metas_linha(linha_id: int) -> None:
     """, {"lid": linha_id})
 
     if df_ops.empty:
-        # Sem OPs ativas: zera meta de todas as máquinas da linha
-        df_curr_empty = run_query("""
-            SELECT id_ihm FROM dbo.tb_ihm WHERE id_linha_producao = :lid
-        """, {"lid": linha_id})
-        for _, row in df_curr_empty.iterrows():
-            iid = int(row["id_ihm"])
-            try:
-                run_query_update("""
-                    UPDATE dbo.tb_ihm SET nu_meta_turno = 0, nu_meta_ativo = 0 WHERE id_ihm = :id
-                """, {"id": iid})
-                update_machine_config(iid, 0, get_selected_piece(iid))
-            except Exception:
-                pass
+        # Sem OPs ativas: preserva nu_meta_turno (acumulado do turno), apenas zera nu_meta_ativo
+        try:
+            run_query_update("""
+                UPDATE dbo.tb_ihm SET nu_meta_ativo = 0
+                WHERE id_linha_producao = :lid
+            """, {"lid": linha_id})
+        except Exception:
+            pass
         return
+
+    # Estado atual das máquinas para fórmula de acumulação
+    df_curr = run_query("""
+        SELECT id_ihm,
+               COALESCE(nu_meta_turno, 0) AS nu_meta_turno,
+               COALESCE(nu_meta_ativo, 0) AS nu_meta_ativo
+        FROM dbo.tb_ihm WHERE id_linha_producao = :lid
+    """, {"lid": linha_id})
+    curr_state = {
+        int(r["id_ihm"]): (int(r["nu_meta_turno"]), int(r["nu_meta_ativo"]))
+        for _, r in df_curr.iterrows()
+    }
 
     # Carrega todas as máquinas da linha com producao_teorica, agrupadas por tipo
     df_linha = run_query("""
@@ -1775,6 +1782,20 @@ def _recalcular_metas_linha(linha_id: int) -> None:
         meta_op    = meta_turno if meta_turno > 0 else quantidade
         op_id      = int(op["id_ordem"])
 
+        # Rejeições por etapa: reduz meta das máquinas downstream
+        rej_by_stage: dict = {}
+        try:
+            df_rej = run_query("""
+                SELECT nu_etapa_erro, COUNT(*) AS cnt
+                FROM dbo.tb_op_peca_producao
+                WHERE id_ordem = :id AND nu_etapa_erro IS NOT NULL
+                GROUP BY nu_etapa_erro
+            """, {"id": op_id})
+            for _, r in df_rej.iterrows():
+                rej_by_stage[int(r["nu_etapa_erro"])] = int(r["cnt"])
+        except Exception:
+            pass
+
         if peca_id:
             rota = get_rota_peca(peca_id)
 
@@ -1793,11 +1814,17 @@ def _recalcular_metas_linha(linha_id: int) -> None:
                     dist_map[(int(d["id_ihm"]), d["tx_tipo_maquina"])] = float(d["nu_percentual"])
 
             seen_tipos: set = set()
+            stage_num = 0
             for step in rota:
                 tipo = step["tipo_maquina"]
 
                 if tipo and tipo in seen_tipos:
                     continue
+
+                stage_num += 1
+                # Meta efetiva para esta etapa: desconta peças reprovadas em etapas anteriores
+                rejected_upstream = sum(v for s, v in rej_by_stage.items() if s < stage_num)
+                eff_meta = max(0, meta_op - rejected_upstream)
 
                 if tipo and tipo in maquinas_por_tipo:
                     seen_tipos.add(tipo)
@@ -1824,11 +1851,11 @@ def _recalcular_metas_linha(linha_id: int) -> None:
 
                         machines_data.append((iid, pct, cap_maquina))
 
-                    # Largest Remainder Method: garante que soma == meta_op
-                    raw_vals = [(iid, meta_op * pct / 100, cap) for iid, pct, cap in machines_data]
+                    # Largest Remainder Method: garante que soma == eff_meta
+                    raw_vals = [(iid, eff_meta * pct / 100, cap) for iid, pct, cap in machines_data]
                     floors   = [(iid, math.floor(val), val - math.floor(val), cap)
                                 for iid, val, cap in raw_vals]
-                    remainder = meta_op - sum(f[1] for f in floors)
+                    remainder = eff_meta - sum(f[1] for f in floors)
                     # Ordena por fração decrescente; desempate por iid (menor primeiro = mais prioritário)
                     sorted_f  = sorted(floors, key=lambda x: (-x[2], x[0]))
                     contribs  = {}
@@ -1844,7 +1871,7 @@ def _recalcular_metas_linha(linha_id: int) -> None:
                     iid         = step["id_ihm"]
                     cap_maquina = int(step.get("producao_teorica", 0) * horas)
                     caps[iid]   = cap_maquina
-                    contrib     = min(meta_op, cap_maquina)
+                    contrib     = min(eff_meta, cap_maquina)
                     metas[iid]      = metas.get(iid, 0) + contrib
                     pecas_nome[iid] = pn
         else:
@@ -1863,26 +1890,30 @@ def _recalcular_metas_linha(linha_id: int) -> None:
 
     all_iids = {int(m["id_ihm"]) for _, m in df_linha.iterrows()}
 
-    # Aplica metas diretamente — sem fórmula delta para evitar duplicações
-    for iid, new_meta in metas.items():
+    # Aplica metas com fórmula de acumulação por turno:
+    # nu_meta_turno acumula contribuições de todas as OPs do turno;
+    # nu_meta_ativo é a contribuição da OP ativa atual.
+    # Formula: new_turno = curr_turno + new_ativo - prev_ativo
+    for iid, new_ativo in metas.items():
+        curr_turno, prev_ativo = curr_state.get(iid, (0, 0))
+        new_turno = max(0, curr_turno + new_ativo - prev_ativo)
         try:
             run_query_update("""
-                UPDATE dbo.tb_ihm SET nu_meta_turno = :meta, nu_meta_ativo = :meta WHERE id_ihm = :id
-            """, {"meta": new_meta, "id": iid})
+                UPDATE dbo.tb_ihm SET nu_meta_turno = :turno, nu_meta_ativo = :ativo WHERE id_ihm = :id
+            """, {"turno": new_turno, "ativo": new_ativo, "id": iid})
         except Exception:
             pass
         try:
-            update_machine_config(iid, new_meta, pecas_nome.get(iid, ""))
+            update_machine_config(iid, new_turno, pecas_nome.get(iid, ""))
         except Exception:
             pass
 
-    # Máquinas sem contribuição ativa: zera meta
+    # Máquinas sem contribuição ativa: preserva nu_meta_turno, apenas zera nu_meta_ativo
     for iid in all_iids - set(metas.keys()):
         try:
             run_query_update("""
-                UPDATE dbo.tb_ihm SET nu_meta_turno = 0, nu_meta_ativo = 0 WHERE id_ihm = :id
+                UPDATE dbo.tb_ihm SET nu_meta_ativo = 0 WHERE id_ihm = :id
             """, {"id": iid})
-            update_machine_config(iid, 0, pecas_nome.get(iid, ""))
         except Exception:
             pass
 
@@ -2737,6 +2768,22 @@ def recalcular_turno_ordens_ativas() -> None:
                 peca_id = int(op["id_peca"]) if op.get("id_peca") is not None and not pd.isna(op["id_peca"]) else None
                 producao = _get_producao_refugo_op(int(op["id_linha_producao"]), dt_ini, peca_id)
                 _finalizar_op_automatico(int(op["id_ordem"]), producao["produzido"], producao["refugo"])
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # === Parte 3: Recalcula metas para linhas com OPs ativas ===
+    # Aplica redução de meta por rejeições upstream em tempo real.
+    try:
+        df_linhas_ativas = run_query("""
+            SELECT DISTINCT id_linha_producao
+            FROM dbo.tb_ordem_producao
+            WHERE tx_status = 'em_producao'
+        """, {})
+        for _, row in df_linhas_ativas.iterrows():
+            try:
+                _recalcular_metas_linha(int(row["id_linha_producao"]))
             except Exception:
                 pass
     except Exception:
