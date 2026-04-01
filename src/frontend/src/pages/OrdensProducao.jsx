@@ -633,16 +633,28 @@ function FluxogramaProducao({ op, fluxo }) {
 }
 
 function MapaProducao({ ordens }) {
-  const [expandedId, setExpandedId]     = useState(null);
-  const [fluxos, setFluxos]             = useState({});
-  const [loadingId, setLoadingId]       = useState(null);
-  const [filtroStatus, setFiltroStatus] = useState("todos");
-  const refreshTimerRef                 = useRef(null);
+  const [expandedId, setExpandedId]           = useState(null);
+  const [fluxos, setFluxos]                   = useState({});
+  const [loadingId, setLoadingId]             = useState(null);
+  const [filtroStatus, setFiltroStatus]       = useState("todos");
+  const [recentlyFinished, setRecentlyFinished] = useState(new Set());
+  const refreshTimerRef                       = useRef(null);
+
+  // Mantém OP visível no filtro "ativos" por 30 s após finalizar
+  useEffect(() => {
+    if (!expandedId) return;
+    const op = ordens.find(o => o.id === expandedId);
+    if (!op || op.status !== "finalizado") return;
+    setRecentlyFinished(prev => new Set(prev).add(expandedId));
+    const t = setTimeout(() => {
+      setRecentlyFinished(prev => { const s = new Set(prev); s.delete(expandedId); return s; });
+    }, 30000);
+    return () => clearTimeout(t);
+  }, [expandedId, ordens]);
 
   const ordensFiltradas = ordens.filter(op => {
     if (filtroStatus === "ativos") {
-      // Mantém visível mesmo que finalizada se estiver expandida no momento
-      if (op.id === expandedId) return true;
+      if (op.id === expandedId || recentlyFinished.has(op.id)) return true;
       return op.status === "fila" || op.status === "em_producao";
     }
     return true;

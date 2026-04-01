@@ -1,76 +1,74 @@
 """
-Simulador de produção para as IHMs fantasma (Linha Pintura).
+Simulador de operadores para as IHMs fantasma (Linha Pintura).
 
-Execute manualmente (fora do Docker):
+Representa um operador por máquina. Cada operador produz peças, pode reprovar
+peças defeituosas, e tem paradas aleatórias (parada, manutenção, limpeza).
+
+Regra de linha: toda peça percorre as etapas em ordem sequencial.
+Uma peça só chega à etapa N se foi aprovada em todas as anteriores.
+
+IMPORTANTE: o simulador NÃO gerencia metas. Metas são responsabilidade exclusiva
+da API/MES via _recalcular_metas_linha. Ao desligar o simulador, o MES continua
+funcionando normalmente — apenas sem atualização de produção em tempo real.
+
+Execute:
     cd src/monitoramento
     python simulator.py
-
-Fluxo real da linha (sequencial/paralelo):
-  IHM 3 (TRATAMENTO) → IHM 4 (PRIMER) → IHM 5 | IHM 6 (PINTURA, paralelas) → IHM 7 (ESTUFA)
-
-  Cada peça passa obrigatoriamente por TRATAMENTO → PRIMER → uma PINTURA → ESTUFA.
-  Se reprovada em qualquer estágio, não avança.
-
-  O rastreamento é feito na tabela tb_op_peca_producao: cada linha é uma peça
-  com nu_etapa_atual (estágio atual) e nu_etapa_erro (estágio onde falhou, ou NULL).
-
-Ciclo: CYCLE_SECONDS segundos.
 """
 
 import time
 import random
-import os
 from logger import logger
 from database import get_connection_db
 
-# ─── Configuração ─────────────────────────────────────────────────────────────
+# ─── Configuração da linha ─────────────────────────────────────────────────────
 
 CYCLE_SECONDS = 5
 
-MACHINE_RATES = {
-    3: 620,   # TRATAMENTO 1
-    4: 520,   # PRIMER 1
-    5: 230,   # PINTURA 1
-    6: 230,   # PINTURA 2
-    7: 380,   # ESTUFA 1  (terminal)
-}
-
-GHOST_IHM_IDS = list(MACHINE_RATES.keys())
-
-# Estágios: cada lista contém as IHMs que processam em paralelo naquele estágio.
-# A ORDER dos estágios define o caminho obrigatório de cada peça.
+# Sequência de etapas. Cada sublista tem as IHMs paralelas no mesmo estágio.
 STAGES = [
-    [3],     # Estágio 1: TRATAMENTO
-    [4],     # Estágio 2: PRIMER
-    [5, 6],  # Estágio 3: PINTURA (paralelas)
-    [7],     # Estágio 4: ESTUFA (terminal)
+    [3],     # Etapa 1 — TRATAMENTO
+    [4],     # Etapa 2 — PRIMER
+    [5, 6],  # Etapa 3 — PINTURA (paralelas)
+    [7],     # Etapa 4 — ESTUFA
 ]
 
-TERMINAL_STAGE_IDX = len(STAGES) - 1   # índice 0-based do último estágio
-N_ETAPAS           = len(STAGES)       # número total de estágios
+N_ETAPAS      = len(STAGES)
+GHOST_IHM_IDS = [ihm for stage in STAGES for ihm in stage]
+
+# Peças produzidas por hora por máquina
+MACHINE_RATES = {3: 620, 4: 520, 5: 230, 6: 230, 7: 380}
+
+# Um operador fixo por máquina — código numérico + nome exibido no MES
+OPERATORS = {
+    3: {"cod": 1, "nome": "Carlos Silva"},
+    4: {"cod": 2, "nome": "Ana Souza"},
+    5: {"cod": 3, "nome": "João Pereira"},
+    6: {"cod": 4, "nome": "Marcos Oliveira"},
+    7: {"cod": 5, "nome": "Fernanda Costa"},
+}
+
+# ─── Status de máquina ─────────────────────────────────────────────────────────
 
 STATUS_PRODUZINDO = 49
 STATUS_PARADA     = 0
 STATUS_LIMPEZA    = 4
 STATUS_MANUTENCAO = 52
 
-PROB_IR_PARADA     = 0.010
-PROB_IR_MANUTENCAO = 0.003
-PROB_IR_LIMPEZA    = 0.002
-
+PROB_IR_PARADA           = 0.010
+PROB_IR_MANUTENCAO       = 0.003
+PROB_IR_LIMPEZA          = 0.002
 PROB_VOLTA_DE_PARADA     = 0.18
 PROB_VOLTA_DE_MANUTENCAO = 0.07
 PROB_VOLTA_DE_LIMPEZA    = 0.30
+MIN_CICLOS_PARADA        = 2
+MIN_CICLOS_MANUTENCAO    = 4
+MIN_CICLOS_LIMPEZA       = 2
 
-MIN_CICLOS_PARADA     = 2
-MIN_CICLOS_MANUTENCAO = 4
-MIN_CICLOS_LIMPEZA    = 2
-
-TAXA_REPROVADO      = 0.09
-PROB_TROCA_OPERADOR = 0.15
+TAXA_REPROVADO = 0.09
 
 
-# ─── Acesso à tabela de rastreamento de peças ─────────────────────────────────
+# ─── Acesso ao rastreamento de peças ──────────────────────────────────────────
 
 def _process_pieces(conn_db, op_id: int, stage_num: int, n_max: int) -> tuple[int, int]:
     """
@@ -98,7 +96,7 @@ def _process_pieces(conn_db, op_id: int, stage_num: int, n_max: int) -> tuple[in
         else:
             approved.append(pid)
 
-    next_stage = stage_num + 1   # stage_num + 1 > N_ETAPAS significa concluída
+    next_stage = stage_num + 1   # > N_ETAPAS significa concluída
 
     if approved:
         ids = ','.join(str(x) for x in approved)
@@ -120,21 +118,17 @@ def _process_pieces(conn_db, op_id: int, stage_num: int, n_max: int) -> tuple[in
     return len(approved), len(rejected)
 
 
-def _init_pieces_if_needed(conn_db, op_id: int, quantidade: int) -> bool:
-    """
-    Garante que as peças da OP existem em tb_op_peca_producao.
-    Retorna True se as peças existem (ou foram criadas agora).
-    """
+def _init_pieces_if_needed(conn_db, op_id: int, quantidade: int) -> None:
+    """Garante que as peças da OP existem em tb_op_peca_producao."""
     cursor = conn_db.cursor()
     cursor.execute(f"SELECT COUNT(*) FROM dbo.tb_op_peca_producao WHERE id_ordem = {op_id}")
-    count = cursor.fetchone()[0]
-    if count > 0:
-        return True
+    if cursor.fetchone()[0] > 0:
+        return
 
-    logger.info(f"OP {op_id}: inicializando {quantidade} peças no simulador ({N_ETAPAS} etapas)…")
+    logger.info(f"OP {op_id}: inicializando {quantidade} peças ({N_ETAPAS} etapas)…")
     BATCH = 1000
     for start in range(1, quantidade + 1, BATCH):
-        end = min(start + BATCH - 1, quantidade)
+        end  = min(start + BATCH - 1, quantidade)
         rows = [(op_id, i, N_ETAPAS, 1) for i in range(start, end + 1)]
         cursor.executemany(
             "INSERT INTO dbo.tb_op_peca_producao "
@@ -144,11 +138,10 @@ def _init_pieces_if_needed(conn_db, op_id: int, quantidade: int) -> bool:
         )
     conn_db.commit()
     logger.info(f"OP {op_id}: {quantidade} peças inicializadas.")
-    return True
 
 
 def _get_n_etapas_op(conn_db, op_id: int) -> int:
-    """Lê nu_etapas_total das peças da OP (inserido pela API via rota). Fallback: N_ETAPAS."""
+    """Lê nu_etapas_total das peças da OP. Fallback: N_ETAPAS."""
     try:
         cursor = conn_db.cursor()
         cursor.execute(f"""
@@ -162,42 +155,8 @@ def _get_n_etapas_op(conn_db, op_id: int) -> int:
         return N_ETAPAS
 
 
-def _compute_effective_meta(conn_db, op_id: int, stage_num: int, total_qty: int) -> int:
-    """
-    Meta efetiva da máquina = peças que chegam nesta etapa.
-    = total_qty − peças rejeitadas em etapas ANTERIORES a esta.
-    Stage 1 sempre recebe todas as peças.
-    """
-    if stage_num <= 1:
-        return total_qty
-    cursor = conn_db.cursor()
-    cursor.execute(f"""
-        SELECT COUNT(*) FROM dbo.tb_op_peca_producao
-        WHERE id_ordem = {op_id}
-          AND nu_etapa_erro IS NOT NULL
-          AND nu_etapa_erro < {stage_num}
-    """)
-    rejected_before = cursor.fetchone()[0]
-    return max(0, total_qty - rejected_before)
-
-
-def _pieces_remaining_in_pipeline(conn_db, op_id: int, stage_num: int) -> int:
-    """
-    Conta peças que ainda podem chegar a esta etapa (sem erro, etapa_atual <= stage_num).
-    Quando retorna 0, nenhuma peça nova chegará a este estágio.
-    """
-    cursor = conn_db.cursor()
-    cursor.execute(f"""
-        SELECT COUNT(*) FROM dbo.tb_op_peca_producao
-        WHERE id_ordem = {op_id}
-          AND nu_etapa_atual <= {stage_num}
-          AND nu_etapa_erro IS NULL
-    """)
-    return cursor.fetchone()[0]
-
-
 def _get_active_op(conn_db) -> tuple[int | None, int]:
-    """Retorna (op_id, quantidade) da OP ativa na linha, ou (None, 0)."""
+    """Retorna (op_id, quantidade) da OP em_producao da linha, ou (None, 0)."""
     cursor = conn_db.cursor()
     cursor.execute(f"""
         SELECT TOP 1 o.id_ordem, o.nu_quantidade
@@ -208,29 +167,28 @@ def _get_active_op(conn_db) -> tuple[int | None, int]:
         ORDER BY o.dt_inicio DESC
     """)
     row = cursor.fetchone()
-    if row:
-        return int(row[0]), int(row[1])
-    return None, 0
+    return (int(row[0]), int(row[1])) if row else (None, 0)
 
 
-# ─── Estado de cada máquina ───────────────────────────────────────────────────
+# ─── Estado de cada operador/máquina ──────────────────────────────────────────
 
 class MachineState:
-    def __init__(self, id_ihm, pecas_por_hora, reg_ids,
-                 operadores, motivos, manutentores, engenheiros, modelos,
-                 stage_idx: int = 0):
+    """Estado de um operador em sua máquina na linha de produção."""
+
+    def __init__(self, id_ihm: int, stage_idx: int, pecas_por_hora: int,
+                 reg_ids: list, operador_cod: int,
+                 motivos: list, manutentores: list, engenheiros: list, modelos: list):
         self.id_ihm          = id_ihm
+        self.stage_num       = stage_idx + 1   # 1-indexed (= nu_etapa_atual no banco)
         self.pecas_por_hora  = pecas_por_hora
         self.reg_ids         = reg_ids
-        self.operadores      = operadores
+
+        self.operador        = operador_cod    # código fixo por máquina
         self.motivos         = motivos
         self.manutentores    = manutentores
         self.engenheiros     = engenheiros
         self.modelos         = modelos
-        self.stage_idx       = stage_idx
-        self.stage_num       = stage_idx + 1   # 1-indexed, igual ao nu_etapa_atual na tabela
 
-        self.operador        = operadores[0] if operadores else 1
         self.status          = STATUS_PARADA
         self.motivo_parada   = 0
         self.produzido       = 0
@@ -238,131 +196,81 @@ class MachineState:
         self.total_produzido = 0
         self.manutentor      = 0
         self.engenheiro      = 0
-        self.meta            = 0
         self.modelo          = modelos[0] if modelos else 1
 
         self.parada_duracao  = 0
         self.prev_values     = None
 
-        self.op_id            = None   # OP ativa conhecida por esta máquina
-        self.n_etapas         = N_ETAPAS  # atualizado a cada ciclo com o valor real da rota
-        self._produzido_na_op = 0
-        self._meta_anterior   = 0
-        self._parada_por_meta = False
-        self._acum            = 0.0
-
-    @property
-    def is_terminal(self) -> bool:
-        """Terminal = última etapa da rota ativa (dinâmico, não fixo no STAGES)."""
-        return self.n_etapas > 0 and self.stage_num == self.n_etapas
-
-    # ── Carregamento do banco ─────────────────────────────────────────────────
+        self._acum           = 0.0    # acumulador fracionário de peças por ciclo
+        self._op_id_atual    = None   # detecta troca de OP
 
     def load_from_db(self, conn_db):
+        """Restaura contadores de produção do último registro gravado."""
         try:
             cursor = conn_db.cursor()
             cursor.execute(f"""
-                SELECT TOP 1 dt_created_at
-                FROM tb_log_registrador
-                WHERE id_ihm = {self.id_ihm}
-                ORDER BY dt_created_at DESC
+                SELECT TOP 1 dt_created_at FROM tb_log_registrador
+                WHERE id_ihm = {self.id_ihm} ORDER BY dt_created_at DESC
             """)
             row = cursor.fetchone()
             if not row:
                 return
-
             cursor.execute(f"""
-                SELECT nu_valor_bruto
-                FROM tb_log_registrador
+                SELECT nu_valor_bruto FROM tb_log_registrador
                 WHERE id_ihm = {self.id_ihm} AND dt_created_at = '{row[0]}'
                 ORDER BY id_log_registrador ASC
             """)
             vals = [int(r[0]) for r in cursor.fetchall()]
             if len(vals) != 10:
                 return
-
+            # posições: 0=operador, 1=status(ignorado), 2=motivo, 3=produzido,
+            #           4=reprovado, 5=total, 6=manutentor, 7=engenheiro,
+            #           8=meta(ignorado), 9=modelo
             self.operador, _, self.motivo_parada, \
             self.produzido, self.reprovado, self.total_produzido, \
             self.manutentor, self.engenheiro, _, self.modelo = vals
-
             self.prev_values = vals[:]
         except Exception as e:
-            logger.warning(f"IHM {self.id_ihm}: falha ao restaurar: {e}")
+            logger.warning(f"IHM {self.id_ihm}: falha ao restaurar estado: {e}")
 
-    def refresh_meta(self, conn_db):
-        try:
-            cursor = conn_db.cursor()
-            cursor.execute(f"""
-                SELECT TOP 1 nu_valor_bruto
-                FROM tb_log_registrador
-                WHERE id_registrador = (
-                    SELECT id_registrador FROM tb_registrador
-                    WHERE id_ihm = {self.id_ihm} AND tx_descricao = 'meta'
-                )
-                ORDER BY dt_created_at DESC
-            """)
-            row = cursor.fetchone()
-            self.meta = int(row[0]) if row else 0
-        except Exception as e:
-            logger.warning(f"IHM {self.id_ihm}: falha ao ler meta: {e}")
+    def current_values(self) -> list:
+        return [
+            self.operador,
+            self.status,
+            self.motivo_parada,
+            self.produzido,
+            self.reprovado,
+            self.total_produzido,
+            self.manutentor,
+            self.engenheiro,
+            0,              # meta: sempre 0 — gerenciada exclusivamente pela API
+            self.modelo,
+        ]
 
-    # ── Lógica principal de tick ──────────────────────────────────────────────
+    def build_insert_str(self) -> str:
+        parts = [
+            f"({self.id_ihm}, {reg_id}, {val})"
+            for reg_id, val in zip(self.reg_ids, self.current_values())
+        ]
+        return ", ".join(parts)
 
-    def tick(self, conn_db):
-        # Máquina além da rota ativa: fica parada sem processar peças
-        if self.n_etapas > 0 and self.stage_num > self.n_etapas:
+    # ── Tick principal ─────────────────────────────────────────────────────────
+
+    def tick(self, conn_db, op_id: int | None, n_etapas: int):
+        """Avança um ciclo de simulação."""
+        # Sem OP ativa ou etapa além da rota: fica parada
+        if op_id is None or (n_etapas > 0 and self.stage_num > n_etapas):
             self._forcar_parada()
             return
 
-        nova_meta = self.meta
-
-        if nova_meta > 0 and self._meta_anterior == 0:
-            self._iniciar_nova_op(nova_meta)
-
-        elif self._parada_por_meta and nova_meta != self._meta_anterior and nova_meta > 0:
-            logger.info(
-                f"IHM {self.id_ihm}: meta mudou {self._meta_anterior} -> {nova_meta} (nova OP), retomando."
-            )
-            self._iniciar_nova_op(nova_meta)
-
-        elif nova_meta > self._meta_anterior and self._meta_anterior > 0:
-            logger.info(f"IHM {self.id_ihm}: meta aumentou {self._meta_anterior} -> {nova_meta}.")
-            if self._parada_por_meta:
-                self._parada_por_meta = False
-
-        if nova_meta == 0:
-            if self._meta_anterior > 0:
-                logger.info(f"IHM {self.id_ihm}: meta zerada, OP encerrada.")
-                self._produzido_na_op = 0
-                self._parada_por_meta = False
-                self._acum = 0.0
-                self.op_id = None
-            self._forcar_parada()
-            self._meta_anterior = 0
-            return
-
-        if self.is_terminal and not self._parada_por_meta:
-            meta_atingida    = self._produzido_na_op >= nova_meta
-            pipeline_esgotado = (
-                self._produzido_na_op > 0
-                and self.op_id is not None
-                and _pieces_remaining_in_pipeline(conn_db, self.op_id, self.stage_num) == 0
-            )
-            if meta_atingida or pipeline_esgotado:
-                motivo = "meta atingida" if meta_atingida else "pipeline esgotado (refugos upstream)"
-                logger.info(
-                    f"IHM {self.id_ihm}: parando — {motivo} "
-                    f"({self._produzido_na_op}/{nova_meta})."
-                )
-                self._parada_por_meta = True
-
-        if self._parada_por_meta:
-            self._forcar_parada()
-            self._meta_anterior = nova_meta
-            return
+        # Nova OP detectada: reinicia acumulador
+        if op_id != self._op_id_atual:
+            logger.info(f"IHM {self.id_ihm}: nova OP {op_id} (etapa {self.stage_num}).")
+            self._acum = 0.0
+            self._op_id_atual = op_id
 
         if self.status == STATUS_PRODUZINDO:
-            self._tick_produzindo(conn_db)
+            self._tick_produzindo(conn_db, op_id)
         elif self.status == STATUS_PARADA:
             self._tick_parada()
         elif self.status == STATUS_MANUTENCAO:
@@ -370,25 +278,7 @@ class MachineState:
         elif self.status == STATUS_LIMPEZA:
             self._tick_limpeza()
 
-        self._meta_anterior = nova_meta
-
-    def _iniciar_nova_op(self, nova_meta: int):
-        self._produzido_na_op = 0
-        self._parada_por_meta = False
-        self._acum = 0.0
-        logger.info(f"IHM {self.id_ihm}: nova OP detectada, meta={nova_meta}.")
-
-    def _forcar_parada(self):
-        if self.status != STATUS_PARADA:
-            self.status         = STATUS_PARADA
-            self.motivo_parada  = 0
-            self.manutentor     = 0
-            self.engenheiro     = 0
-            self.parada_duracao = 0
-
-    # ── Transições de estado ──────────────────────────────────────────────────
-
-    def _tick_produzindo(self, conn_db):
+    def _tick_produzindo(self, conn_db, op_id: int):
         r = random.random()
         if r < PROB_IR_PARADA:
             self._transicao_parada()
@@ -397,7 +287,24 @@ class MachineState:
         elif r < PROB_IR_PARADA + PROB_IR_MANUTENCAO + PROB_IR_LIMPEZA:
             self._transicao_limpeza()
         else:
-            self._produzir(conn_db)
+            self._produzir(conn_db, op_id)
+
+    def _produzir(self, conn_db, op_id: int):
+        pct_ciclo = self.pecas_por_hora * CYCLE_SECONDS / 3600.0
+        self._acum += pct_ciclo * random.uniform(0.8, 1.2)
+        n = int(self._acum)
+        if n <= 0:
+            return
+        self._acum -= n
+
+        approved, rejected = _process_pieces(conn_db, op_id, self.stage_num, n)
+        total = approved + rejected
+        if total == 0:
+            return   # nenhuma peça disponível nesta etapa ainda
+
+        self.produzido       += approved
+        self.reprovado       += rejected
+        self.total_produzido += total
 
     def _tick_parada(self):
         self.parada_duracao += 1
@@ -414,35 +321,13 @@ class MachineState:
         if self.parada_duracao >= MIN_CICLOS_LIMPEZA and random.random() < PROB_VOLTA_DE_LIMPEZA:
             self._transicao_produzindo()
 
-    def _produzir(self, conn_db):
-        if not self.op_id:
-            # Sem OP rastreável: apenas avança status, sem registrar peças
-            self._transicao_produzindo()
-            return
-
-        pct_ciclo = self.pecas_por_hora * CYCLE_SECONDS / 3600.0
-        self._acum += pct_ciclo * random.uniform(0.8, 1.2)
-
-        n = int(self._acum)
-        if n <= 0:
-            return
-        self._acum -= n
-
-        if self.is_terminal:
-            restante = self.meta - self._produzido_na_op
-            n = min(n, max(restante, 0))
-            if n <= 0:
-                return
-
-        approved, rejected = _process_pieces(conn_db, self.op_id, self.stage_num, n)
-        total = approved + rejected
-        if total == 0:
-            return   # nenhuma peça disponível neste estágio ainda
-
-        self.produzido        += approved
-        self.reprovado        += rejected
-        self.total_produzido  += total
-        self._produzido_na_op += total
+    def _forcar_parada(self):
+        if self.status != STATUS_PARADA:
+            self.status         = STATUS_PARADA
+            self.motivo_parada  = 0
+            self.manutentor     = 0
+            self.engenheiro     = 0
+            self.parada_duracao = 0
 
     def _transicao_parada(self):
         self.status         = STATUS_PARADA
@@ -467,33 +352,9 @@ class MachineState:
         self.manutentor     = 0
         self.engenheiro     = 0
         self.parada_duracao = 0
-        if self.operadores and random.random() < PROB_TROCA_OPERADOR:
-            self.operador = random.choice(self.operadores)
-
-    # ── Serialização ─────────────────────────────────────────────────────────
-
-    def current_values(self):
-        return [
-            self.operador,
-            self.status,
-            self.motivo_parada,
-            self.produzido,
-            self.reprovado,
-            self.total_produzido,
-            self.manutentor,
-            self.engenheiro,
-            self.meta,
-            self.modelo,
-        ]
-
-    def build_insert_str(self):
-        vals  = self.current_values()
-        parts = [f"({self.id_ihm}, {reg_id}, {val})"
-                 for reg_id, val in zip(self.reg_ids, vals)]
-        return ", ".join(parts)
 
 
-# ─── Carregamento ─────────────────────────────────────────────────────────────
+# ─── Carregamento ──────────────────────────────────────────────────────────────
 
 def _stage_of(id_ihm: int) -> int:
     for idx, stage in enumerate(STAGES):
@@ -502,47 +363,45 @@ def _stage_of(id_ihm: int) -> int:
     return 0
 
 
-def load_machine(id_ihm, conn_db):
-    pecas_por_hora = MACHINE_RATES.get(id_ihm, 60)
-    stage_idx      = _stage_of(id_ihm)
-
+def load_machine(id_ihm: int, conn_db) -> MachineState:
     cursor = conn_db.cursor()
+
     cursor.execute(f"SELECT id_registrador FROM tb_registrador WHERE id_ihm = {id_ihm} ORDER BY id_registrador ASC")
     reg_ids = [r[0] for r in cursor.fetchall()]
-
-    cursor.execute(f"SELECT nu_cod_operador      FROM tb_depara_operador      WHERE id_ihm = {id_ihm}")
-    operadores = [r[0] for r in cursor.fetchall()]
 
     cursor.execute(f"SELECT nu_cod_motivo_parada FROM tb_depara_motivo_parada WHERE id_ihm = {id_ihm}")
     motivos = [r[0] for r in cursor.fetchall()]
 
-    cursor.execute(f"SELECT nu_cod_manutentor    FROM tb_depara_manutentor    WHERE id_ihm = {id_ihm}")
+    cursor.execute(f"SELECT nu_cod_manutentor FROM tb_depara_manutentor WHERE id_ihm = {id_ihm}")
     manutentores = [r[0] for r in cursor.fetchall()]
 
-    cursor.execute(f"SELECT nu_cod_engenheiro    FROM tb_depara_engenheiro    WHERE id_ihm = {id_ihm}")
+    cursor.execute(f"SELECT nu_cod_engenheiro FROM tb_depara_engenheiro WHERE id_ihm = {id_ihm}")
     engenheiros = [r[0] for r in cursor.fetchall()]
 
-    cursor.execute(f"SELECT nu_cod_peca          FROM tb_depara_peca          WHERE id_ihm = {id_ihm}")
+    cursor.execute(f"SELECT nu_cod_peca FROM tb_depara_peca WHERE id_ihm = {id_ihm}")
     modelos = [r[0] for r in cursor.fetchall()]
 
-    machine = MachineState(id_ihm, pecas_por_hora, reg_ids,
-                           operadores, motivos, manutentores, engenheiros, modelos,
-                           stage_idx=stage_idx)
+    op = OPERATORS.get(id_ihm, {"cod": 1, "nome": "Operador"})
+
+    machine = MachineState(
+        id_ihm         = id_ihm,
+        stage_idx      = _stage_of(id_ihm),
+        pecas_por_hora = MACHINE_RATES.get(id_ihm, 60),
+        reg_ids        = reg_ids,
+        operador_cod   = op["cod"],
+        motivos        = motivos,
+        manutentores   = manutentores,
+        engenheiros    = engenheiros,
+        modelos        = modelos,
+    )
     machine.load_from_db(conn_db)
-    machine.refresh_meta(conn_db)
-
-    machine.status         = STATUS_PARADA
-    machine.motivo_parada  = 0
-    machine.manutentor     = 0
-    machine.engenheiro     = 0
-    machine.parada_duracao = 0
-
+    logger.info(f"IHM {id_ihm} carregada: etapa {machine.stage_num}, operador={op['nome']}")
     return machine
 
 
-# ─── Persistência de contadores (para OEE) ───────────────────────────────────
+# ─── Persistência ──────────────────────────────────────────────────────────────
 
-def insert_if_changed(machine, conn_db):
+def insert_if_changed(machine: MachineState, conn_db):
     curr = machine.current_values()
     if curr == machine.prev_values:
         return conn_db
@@ -558,8 +417,7 @@ def insert_if_changed(machine, conn_db):
         machine.prev_values = curr[:]
         logger.info(
             f"IHM {machine.id_ihm} (etapa {machine.stage_num}): "
-            f"status={machine.status} prod={machine.produzido} reprov={machine.reprovado} "
-            f"op={machine._produzido_na_op}/{machine.meta}"
+            f"status={machine.status} prod={machine.produzido} reprov={machine.reprovado}"
         )
     except Exception as e:
         logger.error(f"IHM {machine.id_ihm}: erro ao inserir: {e}")
@@ -576,7 +434,7 @@ def insert_if_changed(machine, conn_db):
     return conn_db
 
 
-def _reconectar(max_tentativas: int = 10) -> object:
+def _reconectar(max_tentativas: int = 10):
     for tentativa in range(1, max_tentativas + 1):
         try:
             conn = get_connection_db()
@@ -590,7 +448,7 @@ def _reconectar(max_tentativas: int = 10) -> object:
     return None
 
 
-# ─── Entry point ──────────────────────────────────────────────────────────────
+# ─── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
     while True:
@@ -598,75 +456,33 @@ def main():
         try:
             conn_db = get_connection_db()
 
-            machines = []
-            for id_ihm in GHOST_IHM_IDS:
-                m = load_machine(id_ihm, conn_db)
-                machines.append(m)
-                logger.info(f"IHM {id_ihm} carregada: etapa {m.stage_num}, meta={m.meta}")
-
-            logger.info(f"Simulador iniciado — {len(machines)} máquinas, ciclo {CYCLE_SECONDS}s.")
+            machines = [load_machine(id_ihm, conn_db) for id_ihm in GHOST_IHM_IDS]
+            logger.info(f"Simulador iniciado — {len(machines)} operadores, ciclo {CYCLE_SECONDS}s.")
 
             while True:
                 logger.info("=" * 60)
 
-                # Obtém OP ativa e garante que as peças estão inicializadas
+                # Obtém OP ativa e inicializa rastreamento de peças
                 try:
                     op_id, quantidade = _get_active_op(conn_db)
                 except Exception as e:
                     logger.warning(f"Erro ao obter OP ativa: {e}")
                     op_id, quantidade = None, 0
 
-                n_etapas = 0
+                n_etapas = N_ETAPAS
                 if op_id:
                     try:
                         _init_pieces_if_needed(conn_db, op_id, quantidade)
                         n_etapas = _get_n_etapas_op(conn_db, op_id)
                     except Exception as e:
-                        logger.warning(f"Erro ao inicializar peças da OP {op_id}: {e}")
+                        logger.warning(f"Erro ao inicializar peças OP {op_id}: {e}")
 
-                if n_etapas > 0:
-                    logger.info(f"OP {op_id}: {n_etapas} etapas, {quantidade} peças.")
-
-                # Propaga op_id e n_etapas para todas as máquinas
-                for machine in machines:
-                    machine.op_id    = op_id
-                    machine.n_etapas = n_etapas if n_etapas > 0 else N_ETAPAS
-
-                # Tick em ordem INVERSA de estágio (terminal primeiro).
-                # Isso evita que uma peça avançada por um estágio seja imediatamente
-                # processada pelo próximo estágio no mesmo ciclo ("cascata").
+                # Tick em ordem INVERSA de etapa — evita que uma peça avançada num
+                # estágio seja imediatamente processada pelo próximo no mesmo ciclo.
                 machines_rev = sorted(machines, key=lambda m: m.stage_num, reverse=True)
                 for machine in machines_rev:
-                    # 1. Lê meta base do banco
                     try:
-                        machine.refresh_meta(conn_db)
-                    except Exception as e:
-                        logger.warning(f"IHM {machine.id_ihm}: erro ao ler meta: {e}")
-                        conn_db = _reconectar()
-                        if conn_db is None:
-                            raise RuntimeError("Sem conexão.")
-                        try:
-                            machine.refresh_meta(conn_db)
-                        except Exception:
-                            pass
-
-                    # 2. Sobrescreve com meta efetiva (cascata de refugos):
-                    #    meta_efetiva[etapa K] = total_qty − refugos_antes_da_etapa_K
-                    if (op_id and n_etapas > 0
-                            and machine.stage_num <= n_etapas
-                            and machine._meta_anterior > 0):
-                        try:
-                            eff = _compute_effective_meta(
-                                conn_db, op_id, machine.stage_num, quantidade
-                            )
-                            if eff != machine.meta:
-                                machine.meta = eff
-                        except Exception:
-                            pass
-
-                    # 3. Tick (usa machine.meta já corrigido)
-                    try:
-                        machine.tick(conn_db)
+                        machine.tick(conn_db, op_id, n_etapas)
                     except Exception as e:
                         logger.error(f"IHM {machine.id_ihm}: erro no tick: {e}")
 

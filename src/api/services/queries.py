@@ -110,6 +110,14 @@ def _ensure_schema():
             )
                 ALTER TABLE dbo.tb_ihm ADD nu_meta_turno INT NOT NULL DEFAULT 0
         """)
+        # nu_meta_ativo em tb_ihm — contribuição das OPs ativas no momento (usado para delta acumulativo)
+        run_query_update("""
+            IF NOT EXISTS (
+                SELECT * FROM sys.columns
+                WHERE object_id = OBJECT_ID('dbo.tb_ihm') AND name = 'nu_meta_ativo'
+            )
+                ALTER TABLE dbo.tb_ihm ADD nu_meta_ativo INT NOT NULL DEFAULT 0
+        """)
         # tb_op_distribuicao – split de produção entre máquinas do mesmo tipo
         run_query_update("""
             IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.tb_op_distribuicao') AND type = 'U')
@@ -1155,6 +1163,12 @@ def _abrir_turno(id_ocorrencia: int, linha_id: int) -> None:
         WHERE id_ocorrencia = :id
     """, {"agora": agora, "meta": nu_meta, "id": id_ocorrencia})
 
+    # Reseta meta das máquinas ao iniciar novo turno
+    run_query_update("""
+        UPDATE dbo.tb_ihm SET nu_meta_turno = 0, nu_meta_ativo = 0
+        WHERE id_linha_producao = :lid
+    """, {"lid": linha_id})
+
 
 def _fechar_turno(id_ocorrencia: int, linha_id: int) -> None:
     """Fecha um turno em_andamento: registra produção real e seta status=finalizado."""
@@ -1699,23 +1713,36 @@ def _recalcular_metas_linha(linha_id: int) -> None:
     mudar de status nesta linha.
 
     Regras:
-    - Sem OPs ativas → meta = 0 em todas as máquinas da linha.
+    - Sem OPs ativas → zera nu_meta_turno e nu_meta_ativo de todas as máquinas.
     - Máquinas paralelas (mesmo tipo_maquina): a meta é dividida proporcionalmente
       à producao_teorica de cada uma, salvo se houver distribuição manual salva
       em tb_op_distribuicao.
     - Por OP: contrib de cada máquina = min(meta_op * pct/100, cap_máquina_no_turno).
     - Múltiplas OPs: contribuições se somam, capadas pela capacidade da máquina.
+    - Atribuição direta: nu_meta_turno = nu_meta_ativo = contribuição calculada.
     """
     horas = _get_horas_restantes_turno(linha_id)
 
     df_ops = run_query("""
-        SELECT id_ordem, tx_peca, id_peca, nu_meta_turno_atual
+        SELECT id_ordem, tx_peca, id_peca, nu_meta_turno_atual, nu_quantidade
         FROM dbo.tb_ordem_producao
         WHERE id_linha_producao = :lid AND tx_status = 'em_producao'
     """, {"lid": linha_id})
 
     if df_ops.empty:
-        _set_meta_linha(linha_id, 0)
+        # Sem OPs ativas: zera meta de todas as máquinas da linha
+        df_curr_empty = run_query("""
+            SELECT id_ihm FROM dbo.tb_ihm WHERE id_linha_producao = :lid
+        """, {"lid": linha_id})
+        for _, row in df_curr_empty.iterrows():
+            iid = int(row["id_ihm"])
+            try:
+                run_query_update("""
+                    UPDATE dbo.tb_ihm SET nu_meta_turno = 0, nu_meta_ativo = 0 WHERE id_ihm = :id
+                """, {"id": iid})
+                update_machine_config(iid, 0, get_selected_piece(iid))
+            except Exception:
+                pass
         return
 
     # Carrega todas as máquinas da linha com producao_teorica, agrupadas por tipo
@@ -1740,10 +1767,13 @@ def _recalcular_metas_linha(linha_id: int) -> None:
     pecas_nome: dict = {}  # id_ihm -> último nome de peça
 
     for _, op in df_ops.iterrows():
-        peca_id = int(op["id_peca"]) if op["id_peca"] is not None and not pd.isna(op["id_peca"]) else None
-        pn      = op["tx_peca"]
-        meta_op = int(op["nu_meta_turno_atual"])
-        op_id   = int(op["id_ordem"])
+        peca_id    = int(op["id_peca"]) if op["id_peca"] is not None and not pd.isna(op["id_peca"]) else None
+        pn         = op["tx_peca"]
+        meta_turno = int(op["nu_meta_turno_atual"])
+        quantidade = int(op["nu_quantidade"])
+        # Sem turno ativo, meta_turno é 0 → usa a quantidade total da OP como meta
+        meta_op    = meta_turno if meta_turno > 0 else quantidade
+        op_id      = int(op["id_ordem"])
 
         if peca_id:
             rota = get_rota_peca(peca_id)
@@ -1831,17 +1861,28 @@ def _recalcular_metas_linha(linha_id: int) -> None:
         if iid in caps:
             metas[iid] = min(metas[iid], caps[iid])
 
-    for iid, meta_total in metas.items():
-        # Persiste diretamente em tb_ihm — funciona mesmo sem registradores configurados
+    all_iids = {int(m["id_ihm"]) for _, m in df_linha.iterrows()}
+
+    # Aplica metas diretamente — sem fórmula delta para evitar duplicações
+    for iid, new_meta in metas.items():
         try:
             run_query_update("""
-                UPDATE dbo.tb_ihm SET nu_meta_turno = :meta WHERE id_ihm = :id
-            """, {"meta": meta_total, "id": iid})
+                UPDATE dbo.tb_ihm SET nu_meta_turno = :meta, nu_meta_ativo = :meta WHERE id_ihm = :id
+            """, {"meta": new_meta, "id": iid})
         except Exception:
             pass
-        # Tenta também via registrador (mantém compatibilidade com IHMs reais)
         try:
-            update_machine_config(iid, meta_total, pecas_nome.get(iid, ""))
+            update_machine_config(iid, new_meta, pecas_nome.get(iid, ""))
+        except Exception:
+            pass
+
+    # Máquinas sem contribuição ativa: zera meta
+    for iid in all_iids - set(metas.keys()):
+        try:
+            run_query_update("""
+                UPDATE dbo.tb_ihm SET nu_meta_turno = 0, nu_meta_ativo = 0 WHERE id_ihm = :id
+            """, {"id": iid})
+            update_machine_config(iid, 0, pecas_nome.get(iid, ""))
         except Exception:
             pass
 
@@ -2033,7 +2074,6 @@ def update_ordem_status(ordem_id: int, new_status: str) -> dict:
             if status_ant == "em_producao":
                 _recalcular_metas_linha(linha_id)
                 _ativar_proxima_op(linha_id)
-            _criar_complemento_se_necessario(ordem_id, producao["produzido"])
         except Exception:
             pass
 
@@ -2090,11 +2130,11 @@ def delete_ordem(ordem_id: int) -> dict:
         status   = df.iloc[0]["tx_status"]
         linha_id = int(df.iloc[0]["id_linha_producao"])
         if status == "em_producao":
-            _set_meta_linha(linha_id, 0)
             run_query_update(
                 "DELETE FROM dbo.tb_ordem_producao WHERE id_ordem = :id",
                 {"id": ordem_id},
             )
+            _recalcular_metas_linha(linha_id)
             _ativar_proxima_op(linha_id)
             return {"ok": True}
 
@@ -2373,7 +2413,7 @@ def _criar_complemento_se_necessario(ordem_id: int, nu_produzido: int) -> None:
 
 def _finalizar_op_automatico(ordem_id: int, nu_produzido: int, nu_refugo: int) -> None:
     """Finaliza automaticamente uma OP registrando conformes e refugos produzidos."""
-    run_query_update("""
+    rows = run_query_update("""
         UPDATE dbo.tb_ordem_producao
         SET tx_status                = 'finalizado',
             dt_fim                   = GETDATE(),
@@ -2383,6 +2423,11 @@ def _finalizar_op_automatico(ordem_id: int, nu_produzido: int, nu_refugo: int) -
             nu_pecas_proximos_turnos = 0
         WHERE id_ordem = :id AND tx_status = 'em_producao'
     """, {"prod": nu_produzido, "refugo": nu_refugo, "id": ordem_id})
+
+    # rowcount == 0 → OP já foi finalizada por outra chamada concorrente (2b e 2c
+    # podem disparar para a mesma OP no mesmo tick). Não faz nada.
+    if not rows:
+        return
 
     df = run_query(
         "SELECT id_linha_producao FROM dbo.tb_ordem_producao WHERE id_ordem = :id",
@@ -2394,7 +2439,6 @@ def _finalizar_op_automatico(ordem_id: int, nu_produzido: int, nu_refugo: int) -
     try:
         _recalcular_metas_linha(linha_id)
         _ativar_proxima_op(linha_id)
-        _criar_complemento_se_necessario(ordem_id, nu_produzido)
     except Exception:
         pass
 
@@ -2666,6 +2710,38 @@ def recalcular_turno_ordens_ativas() -> None:
     except Exception:
         pass
 
+    # 2c: Roteiro completo — todas as peças rastreadas concluíram ou falharam → finaliza
+    try:
+        df_rastreadas = run_query("""
+            SELECT DISTINCT o.id_ordem, o.id_linha_producao, o.dt_inicio, o.id_peca
+            FROM dbo.tb_ordem_producao o
+            WHERE o.tx_status = 'em_producao'
+              AND o.dt_inicio IS NOT NULL
+              AND EXISTS (
+                  SELECT 1 FROM dbo.tb_op_peca_producao p WHERE p.id_ordem = o.id_ordem
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM dbo.tb_op_peca_producao p
+                  WHERE p.id_ordem = o.id_ordem
+                    AND p.nu_etapa_atual <= p.nu_etapas_total
+                    AND p.nu_etapa_erro IS NULL
+              )
+        """, {})
+        for _, op in df_rastreadas.iterrows():
+            try:
+                dt_ini    = op["dt_inicio"]
+                dt_ini_py = pd.Timestamp(dt_ini).to_pydatetime() if not isinstance(dt_ini, datetime) else dt_ini
+                age_s = (datetime.now() - dt_ini_py.replace(tzinfo=None)).total_seconds()
+                if age_s < 120:
+                    continue
+                peca_id = int(op["id_peca"]) if op.get("id_peca") is not None and not pd.isna(op["id_peca"]) else None
+                producao = _get_producao_refugo_op(int(op["id_linha_producao"]), dt_ini, peca_id)
+                _finalizar_op_automatico(int(op["id_ordem"]), producao["produzido"], producao["refugo"])
+            except Exception:
+                pass
+    except Exception:
+        pass
+
 
 # ─── Distribuição e Fluxo de Produção ────────────────────────────────────────
 
@@ -2908,3 +2984,109 @@ def get_op_fluxo(op_id: int) -> dict:
         "steps":  steps,
         "pieces": pieces,
     }
+
+
+# ─── Setup de dados fantasma ──────────────────────────────────────────────────
+
+def setup_ghost_data() -> None:
+    """
+    Executa na inicialização do servidor (toda vez que o container sobe):
+    - Configura tx_tipo_maquina das IHMs da Linha Pintura (A, B, C, C, D)
+    - Cria/atualiza a peça fantasma com o roteiro completo
+    - Configura producao_teorica das IHMs da Linha Pintura
+    - Cria o turno fantasma do dia atual (19h–22h) se ainda não existir
+    """
+    _ensure_schema()
+    try:
+        df_linha = run_query("""
+            SELECT id_linha_producao FROM dbo.tb_linha_producao
+            WHERE tx_name = N'LINHA PINTURA'
+        """)
+        if df_linha.empty:
+            return
+        linha_id = int(df_linha.iloc[0]["id_linha_producao"])
+
+        # Mapas: id_ihm → tipo e producao_teorica
+        tipos      = {3: "A", 4: "B", 5: "C", 6: "C", 7: "D"}
+        producoes  = {3: 80,  4: 40,  5: 300, 6: 300, 7: 80}
+
+        for id_ihm, tipo in tipos.items():
+            run_query_update(
+                "UPDATE dbo.tb_ihm SET tx_tipo_maquina = :t WHERE id_ihm = :id",
+                {"t": tipo, "id": id_ihm},
+            )
+
+        for id_ihm, prod in producoes.items():
+            run_query_update("""
+                MERGE dbo.tb_config_producao_teorica AS tgt
+                USING (SELECT :id AS id_ihm, :prod AS nu_producao_teorica) AS src
+                    ON tgt.id_ihm = src.id_ihm
+                WHEN MATCHED THEN
+                    UPDATE SET nu_producao_teorica = src.nu_producao_teorica,
+                               dt_updated          = GETDATE()
+                WHEN NOT MATCHED THEN
+                    INSERT (id_ihm, nu_producao_teorica)
+                    VALUES (src.id_ihm, src.nu_producao_teorica);
+            """, {"id": id_ihm, "prod": prod})
+
+        # Garante a peça fantasma
+        df_peca = run_query(
+            "SELECT id_peca FROM dbo.tb_peca WHERE tx_name = N'PEÇA FANTASMA'"
+        )
+        if df_peca.empty:
+            peca_id = run_query_insert("""
+                INSERT INTO dbo.tb_peca (tx_name, tempo_producao, id_linha_producao)
+                OUTPUT INSERTED.id_peca
+                VALUES (N'PEÇA FANTASMA', 0, :lid)
+            """, {"lid": linha_id})
+        else:
+            peca_id = int(df_peca.iloc[0]["id_peca"])
+            run_query_update(
+                "UPDATE dbo.tb_peca SET id_linha_producao = :lid WHERE id_peca = :id",
+                {"lid": linha_id, "id": peca_id},
+            )
+
+        # Recria roteiro: A(3,ord=1) → B(4,ord=2) → C(5+6,ord=3) → D(7,ord=4)
+        run_query_update("DELETE FROM dbo.tb_peca_rota WHERE id_peca = :id", {"id": peca_id})
+        for id_ihm, ordem in [(3, 1), (4, 2), (5, 3), (6, 3), (7, 4)]:
+            run_query_update("""
+                INSERT INTO dbo.tb_peca_rota (id_peca, id_ihm, nu_ordem, nu_producao_teorica)
+                VALUES (:peca, :ihm, :ordem, :prod)
+            """, {"peca": peca_id, "ihm": id_ihm, "ordem": ordem, "prod": producoes[id_ihm]})
+
+        # Seed operadores fixos dos simuladores (um por máquina)
+        operadores_ghost = {
+            3: (1, "Carlos Silva"),
+            4: (2, "Ana Souza"),
+            5: (3, "João Pereira"),
+            6: (4, "Marcos Oliveira"),
+            7: (5, "Fernanda Costa"),
+        }
+        for id_ihm, (cod, nome) in operadores_ghost.items():
+            run_query_update("""
+                MERGE dbo.tb_depara_operador AS tgt
+                USING (SELECT :id AS id_ihm, :cod AS nu_cod_operador) AS src
+                    ON tgt.id_ihm = src.id_ihm AND tgt.nu_cod_operador = src.nu_cod_operador
+                WHEN MATCHED THEN
+                    UPDATE SET tx_operador = :nome
+                WHEN NOT MATCHED THEN
+                    INSERT (id_ihm, nu_cod_operador, tx_operador)
+                    VALUES (:id, :cod, :nome);
+            """, {"id": id_ihm, "cod": cod, "nome": nome})
+
+        # Cria turno fantasma de hoje (19h–22h) se ainda não existir
+        hoje   = datetime.now().date()
+        dt_ini = datetime.combine(hoje, time(19, 0, 0))
+        dt_fim = datetime.combine(hoje, time(22, 0, 0))
+        df_t = run_query("""
+            SELECT 1 FROM dbo.tb_turnos
+            WHERE id_linha_producao = :lid AND dt_inicio = :ini AND dt_fim = :fim
+        """, {"lid": linha_id, "ini": dt_ini, "fim": dt_fim})
+        if df_t.empty:
+            run_query_update("""
+                INSERT INTO dbo.tb_turnos (tx_name, dt_inicio, dt_fim, id_linha_producao, bl_ativo)
+                VALUES (N'T_FANTASMA', :ini, :fim, :lid, 1)
+            """, {"ini": dt_ini, "fim": dt_fim, "lid": linha_id})
+
+    except Exception:
+        pass
