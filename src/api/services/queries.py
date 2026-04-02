@@ -1462,6 +1462,308 @@ def get_historico_data(data_inicio: datetime, data_fim: datetime) -> dict:
 
 
 # =========================
+# HISTÓRICO — DETALHADO
+# =========================
+
+def get_producao_hora_maquina(maquina_id: int, dt_inicio: datetime, dt_fim: datetime) -> list:
+    """Produção hora a hora de uma máquina (delta de total_produzido). Retorna [{hora, produzido}]."""
+    df = run_query("""
+        SELECT
+            DATEADD(HOUR, DATEDIFF(HOUR, 0, lr.dt_created_at), 0) AS hora,
+            MAX(lr.nu_valor_bruto) - MIN(lr.nu_valor_bruto) AS producao
+        FROM dbo.tb_log_registrador lr
+        JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
+        WHERE lr.id_ihm = :id
+          AND r.tx_descricao  = 'total_produzido'
+          AND lr.dt_created_at >= :inicio
+          AND lr.dt_created_at <= :fim
+        GROUP BY DATEADD(HOUR, DATEDIFF(HOUR, 0, lr.dt_created_at), 0)
+        ORDER BY hora
+    """, {"id": maquina_id, "inicio": dt_inicio, "fim": dt_fim})
+    return [
+        {
+            "hora": row["hora"].strftime("%H:%M") if hasattr(row["hora"], "strftime") else str(row["hora"]),
+            "produzido": max(0, int(row["producao"])) if row["producao"] is not None else 0,
+        }
+        for _, row in df.iterrows()
+    ]
+
+
+def get_pareto_paradas(maquina_id: int, dt_inicio: datetime, dt_fim: datetime) -> list:
+    """Pareto de motivos de parada. Retorna [{motivo, minutos, percentual, acumulado}] ordenado."""
+    df = run_query("""
+        SELECT
+            lr1.dt_created_at,
+            lr1.nu_valor_bruto                   AS nu_status,
+            ISNULL(lr2.nu_valor_bruto, 0)        AS nu_motivo
+        FROM dbo.tb_log_registrador lr1
+        JOIN dbo.tb_registrador r1
+            ON r1.id_registrador = lr1.id_registrador AND r1.tx_descricao = 'status'
+        LEFT JOIN dbo.tb_registrador r2
+            ON r2.id_ihm = :id AND r2.tx_descricao = 'motivo_parada'
+        LEFT JOIN dbo.tb_log_registrador lr2
+            ON lr2.id_ihm = :id
+           AND lr2.dt_created_at  = lr1.dt_created_at
+           AND lr2.id_registrador = r2.id_registrador
+        WHERE lr1.id_ihm         = :id
+          AND lr1.dt_created_at >= :inicio
+          AND lr1.dt_created_at <= :fim
+        ORDER BY lr1.dt_created_at
+    """, {"id": maquina_id, "inicio": dt_inicio, "fim": dt_fim})
+
+    if df.empty:
+        return []
+
+    durations: dict = {}
+    rows = df.to_dict("records")
+    for i in range(len(rows) - 1):
+        curr = rows[i]
+        nxt  = rows[i + 1]
+        try:
+            if int(curr["nu_status"]) == 49:
+                continue
+        except (TypeError, ValueError):
+            continue
+        secs = (pd.Timestamp(nxt["dt_created_at"]) - pd.Timestamp(curr["dt_created_at"])).total_seconds()
+        if secs <= 0:
+            continue
+        try:
+            motivo = int(curr["nu_motivo"])
+        except (TypeError, ValueError):
+            motivo = 0
+        durations[motivo] = durations.get(motivo, 0) + secs
+
+    if not durations:
+        return []
+
+    df_nomes = run_query("""
+        SELECT nu_cod_motivo_parada, tx_motivo_parada
+        FROM dbo.tb_depara_motivo_parada WHERE id_ihm = :id
+    """, {"id": maquina_id})
+    nomes = {int(r["nu_cod_motivo_parada"]): r["tx_motivo_parada"] for _, r in df_nomes.iterrows()}
+
+    total_s   = sum(durations.values())
+    sorted_d  = sorted(durations.items(), key=lambda x: x[1], reverse=True)
+    result    = []
+    acum      = 0.0
+    for cod, secs in sorted_d:
+        nome = nomes.get(cod, f"Motivo {cod}" if cod != 0 else "Sem motivo")
+        pct  = round(100 * secs / total_s, 1) if total_s > 0 else 0
+        acum += pct
+        result.append({
+            "motivo":     nome,
+            "minutos":    round(secs / 60, 1),
+            "percentual": pct,
+            "acumulado":  round(min(acum, 100.0), 1),
+        })
+    return result
+
+
+def get_ordens_funil(dt_inicio: datetime, dt_fim: datetime) -> dict:
+    """Contagem de ordens por status para o funil. Retorna {fila, em_producao, finalizado, cancelado}."""
+    df = run_query("""
+        SELECT tx_status,
+               COUNT(*)                                             AS qty,
+               COALESCE(SUM(nu_quantidade), 0)                      AS pecas,
+               COALESCE(SUM(nu_produzido),  0)                      AS produzido
+        FROM dbo.tb_ordem_producao
+        WHERE dt_criacao  BETWEEN :inicio AND :fim
+           OR dt_inicio   BETWEEN :inicio AND :fim
+           OR dt_fim      BETWEEN :inicio AND :fim
+           OR tx_status IN ('em_producao', 'fila')
+        GROUP BY tx_status
+    """, {"inicio": dt_inicio, "fim": dt_fim})
+    counts: dict = {}
+    for _, r in df.iterrows():
+        counts[r["tx_status"]] = {
+            "qty":       int(r["qty"]),
+            "pecas":     int(r["pecas"])    if r["pecas"]    is not None else 0,
+            "produzido": int(r["produzido"]) if r["produzido"] is not None else 0,
+        }
+    return {s: counts.get(s, {"qty": 0, "pecas": 0, "produzido": 0})
+            for s in ("fila", "em_producao", "finalizado", "cancelado")}
+
+
+def get_historico_linha_detalhe(linha_id: int, dt_inicio: datetime, dt_fim: datetime) -> dict:
+    """Payload detalhado de uma linha de produção para o período."""
+    df_l = run_query("""
+        SELECT tx_name FROM dbo.tb_linha_producao WHERE id_linha_producao = :id
+    """, {"id": linha_id})
+    if df_l.empty:
+        return {}
+
+    nome        = df_l.iloc[0]["tx_name"]
+    df_machines = get_machines_by_line_df(linha_id)
+
+    maquinas        = []
+    total_produzido = 0
+    total_reprovado = 0
+    all_oees: list  = []
+
+    for _, machine in df_machines.iterrows():
+        mid     = int(machine["id_ihm"])
+        metrics = get_metrics_machine(mid, data_inicio=dt_inicio, data_fim=dt_fim)
+        prod    = metrics["produzido"] if isinstance(metrics["produzido"], (int, float)) else 0
+        repr_   = metrics["reprovado"] if isinstance(metrics["reprovado"], (int, float)) else 0
+        oee     = metrics["oee"]       if isinstance(metrics["oee"],       (int, float)) else None
+        total_produzido += prod
+        total_reprovado += repr_
+        if oee is not None:
+            all_oees.append(oee)
+        maquinas.append({
+            "id":              mid,
+            "nome":            machine["tx_name"],
+            "oee":             oee,
+            "disponibilidade": metrics["disponibilidade"],
+            "qualidade":       metrics["qualidade"],
+            "performance":     metrics["performance"],
+            "produzido":       prod,
+            "reprovado":       repr_,
+            "meta":            metrics["meta"],
+            "status":          metrics["status_maquina"],
+        })
+
+    # Produção hora a hora — máquinas terminais da rota
+    df_term = run_query("""
+        SELECT DISTINCT r.id_ihm
+        FROM dbo.tb_peca_rota r
+        JOIN dbo.tb_peca p ON p.id_peca = r.id_peca
+        WHERE p.id_linha_producao = :lid
+          AND r.nu_ordem = (
+              SELECT MAX(r2.nu_ordem) FROM dbo.tb_peca_rota r2 WHERE r2.id_peca = r.id_peca
+          )
+    """, {"lid": linha_id})
+    term_ids = [int(r["id_ihm"]) for _, r in df_term.iterrows()]
+    if not term_ids:
+        term_ids = [int(r["id_ihm"]) for _, r in df_machines.iterrows()]
+
+    hourly_agg: dict = {}
+    for tid in term_ids:
+        for entry in get_producao_hora_maquina(tid, dt_inicio, dt_fim):
+            h = entry["hora"]
+            hourly_agg[h] = hourly_agg.get(h, 0) + entry["produzido"]
+
+    df_meta_hora = run_query(f"""
+        SELECT COALESCE(SUM(c.nu_producao_teorica), 0) AS meta_hora
+        FROM dbo.tb_config_producao_teorica c
+        WHERE c.id_ihm IN ({','.join(str(i) for i in term_ids)})
+    """, {}) if term_ids else None
+    meta_hora = int(df_meta_hora.iloc[0]["meta_hora"]) if df_meta_hora is not None and not df_meta_hora.empty else 0
+
+    hourly = sorted(
+        [{"hora": h, "produzido": v, "meta": meta_hora} for h, v in hourly_agg.items()],
+        key=lambda x: x["hora"],
+    )
+
+    # Turnos do período
+    df_turnos = run_query("""
+        SELECT tx_nome, dt_inicio, dt_fim, tx_status, nu_meta, nu_produzido
+        FROM dbo.tb_turno_ocorrencia
+        WHERE id_linha_producao = :lid
+          AND dt_inicio >= :inicio AND dt_fim <= :fim
+        ORDER BY dt_inicio
+    """, {"lid": linha_id, "inicio": dt_inicio, "fim": dt_fim})
+
+    def _fmt(d):
+        return d.strftime("%d/%m %H:%M") if hasattr(d, "strftime") else str(d)
+
+    turnos = []
+    for _, t in df_turnos.iterrows():
+        nu_m = int(t["nu_meta"]) if t["nu_meta"] is not None else 0
+        nu_p = int(t["nu_produzido"]) if t["nu_produzido"] is not None and not pd.isna(t["nu_produzido"]) else 0
+        turnos.append({
+            "nome":      t["tx_nome"],
+            "inicio":    _fmt(t["dt_inicio"]),
+            "fim":       _fmt(t["dt_fim"]),
+            "status":    t["tx_status"],
+            "meta":      nu_m,
+            "produzido": nu_p,
+            "aderencia": round(100 * nu_p / nu_m, 1) if nu_m > 0 else None,
+        })
+
+    # Ordens do período
+    df_ordens = run_query("""
+        SELECT nu_numero_op, tx_peca, nu_quantidade, tx_status,
+               COALESCE(nu_produzido, 0) AS nu_produzido,
+               COALESCE(nu_refugo,    0) AS nu_refugo
+        FROM dbo.tb_ordem_producao
+        WHERE id_linha_producao = :lid
+          AND (dt_criacao BETWEEN :inicio AND :fim
+               OR  dt_inicio BETWEEN :inicio AND :fim
+               OR  tx_status = 'em_producao')
+        ORDER BY dt_criacao DESC
+    """, {"lid": linha_id, "inicio": dt_inicio, "fim": dt_fim})
+
+    ordens = []
+    for _, o in df_ordens.iterrows():
+        qtd  = int(o["nu_quantidade"])
+        prod = int(o["nu_produzido"])
+        ordens.append({
+            "numero":     o["nu_numero_op"],
+            "peca":       o["tx_peca"],
+            "quantidade": qtd,
+            "produzido":  prod,
+            "refugo":     int(o["nu_refugo"]),
+            "status":     o["tx_status"],
+            "conclusao":  round(100 * prod / qtd) if qtd > 0 else 0,
+        })
+
+    taxa_rej  = round(100 * total_reprovado / (total_produzido + total_reprovado), 1) \
+                if (total_produzido + total_reprovado) > 0 else 0.0
+    oee_linha = round(sum(all_oees) / len(all_oees), 1) if all_oees else None
+
+    return {
+        "id":                   linha_id,
+        "nome":                 nome,
+        "oee":                  oee_linha,
+        "maquinas":             maquinas,
+        "producao_hora_a_hora": hourly,
+        "turnos":               turnos,
+        "ordens":               ordens,
+        "taxa_rejeicao":        taxa_rej,
+        "total_produzido":      total_produzido,
+        "total_reprovado":      total_reprovado,
+    }
+
+
+def get_historico_maquina_detalhe(maquina_id: int, dt_inicio: datetime, dt_fim: datetime) -> dict:
+    """Payload detalhado de uma máquina para o período."""
+    df_m = run_query("""
+        SELECT tx_name, id_linha_producao FROM dbo.tb_ihm WHERE id_ihm = :id
+    """, {"id": maquina_id})
+    if df_m.empty:
+        return {}
+
+    nome    = df_m.iloc[0]["tx_name"]
+    linha_id = int(df_m.iloc[0]["id_linha_producao"])
+
+    # Nome da linha
+    df_ln = run_query("SELECT tx_name FROM dbo.tb_linha_producao WHERE id_linha_producao = :id", {"id": linha_id})
+    nome_linha = df_ln.iloc[0]["tx_name"] if not df_ln.empty else ""
+
+    metrics = get_metrics_machine(maquina_id, data_inicio=dt_inicio, data_fim=dt_fim)
+    hourly  = get_producao_hora_maquina(maquina_id, dt_inicio, dt_fim)
+    pareto  = get_pareto_paradas(maquina_id, dt_inicio, dt_fim)
+
+    return {
+        "id":                   maquina_id,
+        "nome":                 nome,
+        "linha":                nome_linha,
+        "oee":                  metrics["oee"],
+        "disponibilidade":      metrics["disponibilidade"],
+        "qualidade":            metrics["qualidade"],
+        "performance":          metrics["performance"],
+        "produzido":            metrics["produzido"],
+        "reprovado":            metrics["reprovado"],
+        "meta":                 metrics["meta"],
+        "status":               metrics["status_maquina"],
+        "operador":             metrics.get("operador", "-"),
+        "producao_hora_a_hora": hourly,
+        "pareto_paradas":       pareto,
+    }
+
+
+# =========================
 # DETALHE DE LINHA
 # =========================
 

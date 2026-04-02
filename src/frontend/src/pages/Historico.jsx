@@ -1,34 +1,86 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import * as XLSX from "xlsx";
+import {
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
+  CartesianGrid, ComposedChart, Line, ReferenceLine, Cell,
+} from "recharts";
 import "./historico.css";
 
 const DEFAULT_API = `http://${window.location.hostname}:8000`;
 const API_BASE = import.meta.env.VITE_API_BASE || DEFAULT_API;
 
-const STATUS_CONFIG = {
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function oeeColor(val) {
+  const n = Number(val);
+  if (isNaN(n) || val === "-") return "#6b7280";
+  if (n >= 75) return "#16a34a";
+  if (n >= 50) return "#d97706";
+  return "#dc2626";
+}
+
+function oeeLabel(val) {
+  const n = Number(val);
+  if (isNaN(n)) return "—";
+  if (n >= 75) return "Ótimo";
+  if (n >= 50) return "Regular";
+  return "Crítico";
+}
+
+const STATUS_MAP = {
   produzindo:               { color: "#16a34a", bg: "#dcfce7", label: "Produzindo" },
   parada:                   { color: "#dc2626", bg: "#fee2e2", label: "Parada" },
   "aguardando manutentor":  { color: "#d97706", bg: "#fef3c7", label: "Ag. Manutentor" },
   "máquina em manutenção":  { color: "#7c3aed", bg: "#ede9fe", label: "Em Manutenção" },
   limpeza:                  { color: "#2563eb", bg: "#dbeafe", label: "Limpeza" },
-  "passar padrão":          { color: "#0891b2", bg: "#cffafe", label: "Passar Padrão" },
-  "alteração de parâmetros":{ color: "#9333ea", bg: "#f3e8ff", label: "Alt. Parâmetros" },
 };
-
 function getStatus(raw) {
-  if (!raw) return { color: "#9ca3af", bg: "#f3f4f6", label: "-" };
+  if (!raw) return { color: "#9ca3af", bg: "#f3f4f6", label: "—" };
   const key = String(raw).toLowerCase();
-  for (const [k, v] of Object.entries(STATUS_CONFIG)) {
+  for (const [k, v] of Object.entries(STATUS_MAP)) {
     if (key.includes(k)) return v;
   }
   return { color: "#9ca3af", bg: "#f3f4f6", label: raw };
 }
 
-function oeeColor(val) {
-  const n = Number(val);
-  if (isNaN(n)) return "#6b7280";
-  if (n >= 75) return "#16a34a";
-  if (n >= 50) return "#d97706";
-  return "#dc2626";
+function toLocalDT(date) {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${p(date.getMonth()+1)}-${p(date.getDate())}T${p(date.getHours())}:${p(date.getMinutes())}`;
+}
+
+function fmtPct(v) {
+  const n = Number(v);
+  return isNaN(n) || v === "-" ? "—" : `${n}%`;
+}
+
+function encode(s) { return encodeURIComponent(s); }
+
+// ─── Shared UI ────────────────────────────────────────────────────────────────
+
+function Spinner({ size = 18 }) {
+  return <div className="hi-spinner" style={{ width: size, height: size }} />;
+}
+
+function EmptyState({ icon = "📊", text }) {
+  return (
+    <div className="hi-empty">
+      <div className="hi-empty-icon">{icon}</div>
+      <div className="hi-empty-text">{text}</div>
+    </div>
+  );
+}
+
+function KPICard({ label, value, unit = "", sub, color, icon }) {
+  return (
+    <div className="hi-kpi-card">
+      {icon && <div className="hi-kpi-icon">{icon}</div>}
+      <div className="hi-kpi-label">{label}</div>
+      <div className="hi-kpi-value" style={{ color: color || "var(--text)" }}>
+        {value}{unit && <span className="hi-kpi-unit"> {unit}</span>}
+      </div>
+      {sub && <div className="hi-kpi-sub">{sub}</div>}
+    </div>
+  );
 }
 
 function ProgressBar({ value, color }) {
@@ -40,338 +92,841 @@ function ProgressBar({ value, color }) {
   );
 }
 
-function MachineCard({ machine }) {
-  const st = getStatus(machine.status);
-  const oc = oeeColor(machine.oee);
+function StatusDot({ status }) {
+  const s = getStatus(status);
   return (
-    <div className="hi-machine-card">
-      <div className="hi-machine-status-bar" style={{ background: st.color }} />
-      <div className="hi-machine-body">
-        <div className="hi-machine-header">
-          <span className="hi-machine-name">{machine.nome}</span>
-          <span className="hi-machine-badge" style={{ color: st.color, background: st.bg }}>
-            {st.label}
-          </span>
-        </div>
-
-        <div className="hi-oee-block">
-          <span className="hi-oee-label">OEE DO PERÍODO</span>
-          <span className="hi-oee-value" style={{ color: oc }}>
-            {machine.oee !== "-" && machine.oee !== null ? `${machine.oee}%` : "—"}
-          </span>
-        </div>
-
-        <div className="hi-metrics">
-          <div className="hi-metric-row">
-            <span className="hi-metric-label">Disp.</span>
-            <ProgressBar value={machine.disponibilidade} color={oeeColor(machine.disponibilidade)} />
-            <span className="hi-metric-value" style={{ color: oeeColor(machine.disponibilidade) }}>
-              {machine.disponibilidade}%
-            </span>
-          </div>
-          <div className="hi-metric-row">
-            <span className="hi-metric-label">Qual.</span>
-            <ProgressBar value={machine.qualidade} color={oeeColor(machine.qualidade)} />
-            <span className="hi-metric-value" style={{ color: oeeColor(machine.qualidade) }}>
-              {machine.qualidade}%
-            </span>
-          </div>
-          <div className="hi-metric-row">
-            <span className="hi-metric-label">Perf.</span>
-            <ProgressBar value={machine.performance} color={oeeColor(machine.performance)} />
-            <span className="hi-metric-value" style={{ color: oeeColor(machine.performance) }}>
-              {machine.performance}%
-            </span>
-          </div>
-        </div>
-
-        <div className="hi-prod-row">
-          <span className="hi-prod-label">Prod.</span>
-          <span className="hi-prod-value">
-            <strong>{machine.produzido}</strong>
-            <span className="hi-prod-meta"> / {machine.meta}</span>
-          </span>
-        </div>
-      </div>
-    </div>
+    <span className="hi-status-dot" style={{ color: s.color, background: s.bg }}>{s.label}</span>
   );
 }
 
-/* ── Gauge velocímetro ───────────────────────────────────── */
-function GaugeChart({ produzido, meta, size = 170 }) {
-  const raw  = meta > 0 ? (produzido / meta) * 100 : 0;
-  const pct  = Math.min(raw, 100);                 // arco visual (máx 100%)
-  const disp = Math.round(raw);                    // texto pode passar de 100%
+// ─── Gauge SVG ────────────────────────────────────────────────────────────────
 
-  const cx = 100, cy = 90, r = 73, sw = 11;
+function GaugeArc({ value, label, size = 140 }) {
+  const raw  = Number(value) || 0;
+  const pct  = Math.min(raw, 100);
+  const cx = 100, cy = 90, r = 70, sw = 12;
   const toRad = (d) => (d * Math.PI) / 180;
-  const px    = (d) => cx + r * Math.cos(toRad(d));
-  const py    = (d) => cy - r * Math.sin(toRad(d));
-
-  // Arco de fundo: 180° → 0° passando pelo topo (sweep=0 = anti-horário = para cima)
-  const trackD = `M ${px(180)} ${py(180)} A ${r} ${r} 0 0 0 ${px(0)} ${py(0)}`;
-
-  // Arco de preenchimento
+  const px = (d) => cx + r * Math.cos(toRad(d));
+  const py = (d) => cy - r * Math.sin(toRad(d));
+  const trackD = `M ${px(180)} ${py(180)} A ${r} ${r} 0 0 1 ${px(0)} ${py(0)}`;
   const fillAngle = 180 - Math.min(pct, 99.99) / 100 * 180;
-  const fillD = pct > 0.01
-    ? `M ${px(180)} ${py(180)} A ${r} ${r} 0 0 0 ${px(fillAngle)} ${py(fillAngle)}`
+  const fillD = pct > 0.1
+    ? `M ${px(180)} ${py(180)} A ${r} ${r} 0 0 1 ${px(fillAngle)} ${py(fillAngle)}`
     : null;
-
-  // Ponteiro
-  const needleLen = r - sw - 5;
+  const needleLen = r - sw - 4;
   const needleAng = 180 - pct / 100 * 180;
   const ntx = cx + needleLen * Math.cos(toRad(needleAng));
   const nty = cy - needleLen * Math.sin(toRad(needleAng));
-
-  const color = disp >= 75 ? "#16a34a" : disp >= 50 ? "#d97706" : "#dc2626";
+  const color = oeeColor(raw);
 
   return (
-    <div className="hi-gauge">
-      <svg viewBox="0 0 200 110" width={size} style={{ display: "block" }}>
-        {/* Ticks decorativos */}
+    <div className="hi-gauge-wrap">
+      <svg viewBox="0 0 200 106" width={size} style={{ display: "block" }}>
         {[0, 25, 50, 75, 100].map((t) => {
           const a = 180 - t / 100 * 180;
-          const r1 = r + sw / 2 + 3, r2 = r + sw / 2 + 9;
+          const r1 = r + sw / 2 + 2, r2 = r + sw / 2 + 8;
           return (
             <line key={t}
               x1={cx + r1 * Math.cos(toRad(a))} y1={cy - r1 * Math.sin(toRad(a))}
               x2={cx + r2 * Math.cos(toRad(a))} y2={cy - r2 * Math.sin(toRad(a))}
-              stroke="#d1d5db" strokeWidth={t === 0 || t === 100 ? 2 : 1.5}
+              stroke="#d1d5db" strokeWidth={1.5}
             />
           );
         })}
-        {/* Trilho */}
         <path d={trackD} fill="none" stroke="#e5e7eb" strokeWidth={sw} strokeLinecap="round" />
-        {/* Preenchimento */}
-        {fillD && (
-          <path d={fillD} fill="none" stroke={color} strokeWidth={sw} strokeLinecap="round" />
-        )}
-        {/* Ponteiro */}
-        <line x1={cx} y1={cy} x2={ntx} y2={nty}
-              stroke={color} strokeWidth={2.5} strokeLinecap="round" />
+        {fillD && <path d={fillD} fill="none" stroke={color} strokeWidth={sw} strokeLinecap="round" />}
+        <line x1={cx} y1={cy} x2={ntx} y2={nty} stroke={color} strokeWidth={2.5} strokeLinecap="round" />
         <circle cx={cx} cy={cy} r={5} fill={color} />
-        <circle cx={cx} cy={cy} r={2.5} fill="#fff" />
-        {/* Rótulos min/max */}
-        <text x="18" y={cy + 18} fontSize="9" fill="#9ca3af"
-              fontFamily="system-ui" textAnchor="middle">0</text>
-        <text x="182" y={cy + 18} fontSize="9" fill="#9ca3af"
-              fontFamily="system-ui" textAnchor="middle">{meta}</text>
+        <circle cx={cx} cy={cy} r={2} fill="#fff" />
+        <text x={cx} y={cy + 18} textAnchor="middle" fontSize="18" fontWeight="800"
+              fill={color} fontFamily="system-ui" letterSpacing="-0.5">
+          {raw !== null && !isNaN(raw) ? `${raw}%` : "—"}
+        </text>
+        <text x={cx} y={cy + 30} textAnchor="middle" fontSize="8.5" fill="#9ca3af" fontFamily="system-ui">
+          {label}
+        </text>
       </svg>
-      <div className="hi-gauge-pct" style={{ color }}>{disp}%</div>
-      <div className="hi-gauge-sub">
-        <span style={{ fontWeight: 700, color }}>{produzido}</span>
-        {" / "}{meta}
-        <span className="hi-gauge-unit"> un</span>
+    </div>
+  );
+}
+
+// ─── Recharts Tooltips ────────────────────────────────────────────────────────
+
+function HourlyTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="hi-tooltip">
+      <div className="hi-tooltip-label">{label}</div>
+      {payload.map((p) => (
+        <div key={p.dataKey} className="hi-tooltip-row">
+          <span style={{ color: p.color }}>●</span>
+          <span>{p.name}: <strong>{p.value}</strong> un</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ParetoTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="hi-tooltip">
+      <div className="hi-tooltip-label">{label}</div>
+      {payload.map((p) => (
+        <div key={p.dataKey} className="hi-tooltip-row">
+          <span style={{ color: p.color }}>●</span>
+          <span>{p.name}: <strong>{p.value}{p.dataKey === "acumulado" ? "%" : " min"}</strong></span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Charts ───────────────────────────────────────────────────────────────────
+
+function HourlyChart({ data, height = 240 }) {
+  if (!data || data.length === 0) return <EmptyState icon="📈" text="Sem dados de produção no período" />;
+  const maxMeta = Math.max(...data.map((d) => d.meta || 0), 1);
+  return (
+    <div style={{ width: "100%", height }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <ComposedChart data={data} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+          <XAxis dataKey="hora" tick={{ fontSize: 11, fill: "#9ca3af" }} />
+          <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} width={36} />
+          <Tooltip content={<HourlyTooltip />} />
+          {data[0]?.meta > 0 && (
+            <ReferenceLine y={data[0].meta} stroke="#d97706" strokeDasharray="4 3"
+              label={{ value: `Meta: ${data[0].meta}`, position: "insideTopRight", fontSize: 10, fill: "#d97706" }} />
+          )}
+          <Bar dataKey="produzido" name="Produzido" fill="#3b82f6" radius={[3, 3, 0, 0]} maxBarSize={40}>
+            {data.map((entry, i) => (
+              <Cell key={i} fill={entry.meta > 0 && entry.produzido >= entry.meta ? "#16a34a" : "#3b82f6"} />
+            ))}
+          </Bar>
+        </ComposedChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function ParetoChart({ data, height = 240 }) {
+  if (!data || data.length === 0) return <EmptyState icon="✅" text="Sem paradas registradas no período" />;
+  const sliced = data.slice(0, 8);
+  return (
+    <div style={{ width: "100%", height }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <ComposedChart data={sliced} layout="vertical" margin={{ top: 4, right: 50, left: 4, bottom: 4 }}>
+          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f3f4f6" />
+          <XAxis type="number" tick={{ fontSize: 10, fill: "#9ca3af" }} />
+          <YAxis type="category" dataKey="motivo" tick={{ fontSize: 10, fill: "#374151" }}
+                 width={100} />
+          <Tooltip content={<ParetoTooltip />} />
+          <Bar dataKey="minutos" name="Minutos" fill="#f97316" radius={[0, 3, 3, 0]} maxBarSize={22}>
+            {sliced.map((_, i) => (
+              <Cell key={i} fill={i === 0 ? "#dc2626" : i < 3 ? "#f97316" : "#fbbf24"} />
+            ))}
+          </Bar>
+        </ComposedChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ─── MachineCard ──────────────────────────────────────────────────────────────
+
+function MachineCard({ m, onClick }) {
+  const st = getStatus(m.status);
+  const oc = oeeColor(m.oee);
+  return (
+    <div className="hi-machine-card" onClick={onClick} style={onClick ? { cursor: "pointer" } : {}}>
+      <div className="hi-machine-status-bar" style={{ background: st.color }} />
+      <div className="hi-machine-body">
+        <div className="hi-machine-header">
+          <span className="hi-machine-name">{m.nome}</span>
+          <span className="hi-machine-badge" style={{ color: st.color, background: st.bg }}>{st.label}</span>
+        </div>
+        <div className="hi-oee-block">
+          <span className="hi-oee-label">OEE DO PERÍODO</span>
+          <span className="hi-oee-value" style={{ color: oc }}>{fmtPct(m.oee)}</span>
+        </div>
+        <div className="hi-metrics">
+          {[["Disp.", m.disponibilidade], ["Qual.", m.qualidade], ["Perf.", m.performance]].map(([lbl, val]) => (
+            <div key={lbl} className="hi-metric-row">
+              <span className="hi-metric-label">{lbl}</span>
+              <ProgressBar value={val} color={oeeColor(val)} />
+              <span className="hi-metric-value" style={{ color: oeeColor(val) }}>{fmtPct(val)}</span>
+            </div>
+          ))}
+        </div>
+        <div className="hi-prod-row">
+          <span className="hi-prod-label">Prod.</span>
+          <span className="hi-prod-value">
+            <strong>{m.produzido}</strong>
+            <span className="hi-prod-meta"> / {m.meta}</span>
+          </span>
+          {m.reprovado > 0 && (
+            <span className="hi-reprovado">↓{m.reprovado} rej.</span>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-function LineSection({ linha }) {
+// ─── Tab 1: Fábrica ───────────────────────────────────────────────────────────
+
+function OrderFunnel({ funil }) {
+  if (!funil) return null;
+  const steps = [
+    { key: "fila",        label: "Na Fila",     color: "#6b7280", icon: "📋" },
+    { key: "em_producao", label: "Em Produção", color: "#3b82f6", icon: "⚙️" },
+    { key: "finalizado",  label: "Finalizados", color: "#16a34a", icon: "✅" },
+    { key: "cancelado",   label: "Cancelados",  color: "#dc2626", icon: "✗" },
+  ];
+  const maxQty = Math.max(...steps.map((s) => funil[s.key]?.qty || 0), 1);
   return (
-    <div className="hi-line-section">
-      <div className="hi-line-header">
-        <div className="hi-line-header-left">
-          <span className="hi-line-badge">{linha.nome}</span>
-          <span className="hi-line-meta">
-            Produzido: <strong>{linha.realizado} un ({linha.realizado_pct}%)</strong>
-            {" • "}
-            Meta: <strong>{linha.meta_total} un</strong>
-          </span>
-        </div>
-        <GaugeChart produzido={linha.realizado} meta={linha.meta_total} />
+    <div className="hi-funnel">
+      {steps.map((s, i) => {
+        const d = funil[s.key] || {};
+        const pct = Math.round(100 * (d.qty || 0) / maxQty);
+        return (
+          <div key={s.key} className="hi-funnel-step">
+            <div className="hi-funnel-bar-wrap">
+              <div className="hi-funnel-bar" style={{
+                width: `${Math.max(pct, 8)}%`,
+                background: s.color,
+                opacity: i === 3 ? 0.6 : 1,
+              }} />
+            </div>
+            <div className="hi-funnel-info">
+              <span className="hi-funnel-icon">{s.icon}</span>
+              <span className="hi-funnel-label">{s.label}</span>
+              <span className="hi-funnel-qty" style={{ color: s.color }}>
+                <strong>{d.qty || 0}</strong> OPs
+              </span>
+              {d.pecas > 0 && (
+                <span className="hi-funnel-pecas">{d.pecas} peças</span>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function LineHeatCard({ linha }) {
+  const oc = oeeColor(linha.oee || 0);
+  const pct = linha.realizado_pct || 0;
+  return (
+    <div className="hi-heat-card" style={{ borderTopColor: oc }}>
+      <div className="hi-heat-name">{linha.nome}</div>
+      <div className="hi-heat-oee" style={{ color: oc }}>
+        {linha.oee !== null && linha.oee !== undefined ? `${linha.oee}%` : "—"}
+        <span className="hi-heat-oee-label"> OEE</span>
       </div>
-      <div className="hi-machine-grid">
-        {linha.maquinas.map((m) => (
-          <MachineCard key={m.id} machine={m} />
+      <div className="hi-heat-progress">
+        <div className="hi-heat-progress-fill" style={{ width: `${Math.min(pct, 100)}%`, background: oc }} />
+      </div>
+      <div className="hi-heat-sub">
+        <span>{linha.realizado} / {linha.meta_total} un</span>
+        <span style={{ color: oc, fontWeight: 700 }}>{pct}%</span>
+      </div>
+      <div className="hi-heat-machines">
+        {linha.maquinas?.map((m) => (
+          <div key={m.id} className="hi-heat-dot" style={{ background: oeeColor(m.oee) }}
+               title={`${m.nome}: OEE ${fmtPct(m.oee)}`} />
         ))}
       </div>
     </div>
   );
 }
 
-// Gera datetime-local string no fuso local
-function toLocalDT(date) {
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+function FabricaTab({ data, funil }) {
+  if (!data) return <EmptyState icon="🏭" text="Selecione um período e clique em Buscar" />;
+
+  const totalProd = data.linhas.reduce((s, l) => s + (l.realizado || 0), 0);
+  const totalMeta = data.linhas.reduce((s, l) => s + (l.meta_total || 0), 0);
+  const allOEEs   = data.linhas.flatMap((l) => l.maquinas.map((m) => m.oee)).filter((v) => typeof v === "number");
+  const taxaRej   = data.linhas.flatMap((l) => l.maquinas).reduce((a, m) => {
+    const p = typeof m.produzido === "number" ? m.produzido : 0;
+    const r = typeof m.reprovado === "number" ? m.reprovado : 0;
+    return { p: a.p + p, r: a.r + r };
+  }, { p: 0, r: 0 });
+
+  return (
+    <div className="hi-tab-content">
+      {/* KPIs globais */}
+      <div className="hi-kpi-row">
+        <KPICard
+          icon="⚡"
+          label="OEE Global"
+          value={data.oee_global !== null ? `${data.oee_global}` : "—"}
+          unit={data.oee_global !== null ? "%" : ""}
+          color={oeeColor(data.oee_global)}
+          sub={oeeLabel(data.oee_global)}
+        />
+        <KPICard
+          icon="📦"
+          label="Produção Total"
+          value={totalProd.toLocaleString("pt-BR")}
+          unit="un"
+          color="#3b82f6"
+          sub={`Meta: ${totalMeta.toLocaleString("pt-BR")} un · ${totalMeta > 0 ? Math.round(100 * totalProd / totalMeta) : 0}% atingido`}
+        />
+        <KPICard
+          icon="🔍"
+          label="Taxa de Rejeição"
+          value={taxaRej.p + taxaRej.r > 0 ? `${((taxaRej.r / (taxaRej.p + taxaRej.r)) * 100).toFixed(1)}` : "0"}
+          unit="%"
+          color={taxaRej.r / Math.max(taxaRej.p + taxaRej.r, 1) > 0.1 ? "#dc2626" : "#16a34a"}
+          sub={`${taxaRej.r} peças rejeitadas de ${taxaRej.p + taxaRej.r}`}
+        />
+        <KPICard
+          icon="🏭"
+          label="Linhas Monitoradas"
+          value={data.linhas.length}
+          sub={`${data.linhas.reduce((s, l) => s + (l.maquinas?.length || 0), 0)} máquinas no total`}
+        />
+      </div>
+
+      {/* Mapa de calor das linhas */}
+      <div className="hi-section">
+        <div className="hi-section-header">
+          <span className="hi-section-title">Mapa de Linhas</span>
+          <span className="hi-section-sub">Performance por linha no período</span>
+        </div>
+        <div className="hi-heat-grid">
+          {data.linhas.map((l) => <LineHeatCard key={l.id} linha={l} />)}
+        </div>
+      </div>
+
+      {/* Funil de Ordens */}
+      {funil && (
+        <div className="hi-section">
+          <div className="hi-section-header">
+            <span className="hi-section-title">Funil de Ordens</span>
+            <span className="hi-section-sub">Distribuição das OPs no período</span>
+          </div>
+          <OrderFunnel funil={funil} />
+        </div>
+      )}
+
+      {/* Detalhe por linha */}
+      <div className="hi-section">
+        <div className="hi-section-header">
+          <span className="hi-section-title">Detalhe por Linha</span>
+        </div>
+        {data.linhas.map((linha) => (
+          <div key={linha.id} className="hi-line-section">
+            <div className="hi-line-header">
+              <div className="hi-line-header-left">
+                <span className="hi-line-badge">{linha.nome}</span>
+                <span className="hi-line-meta">
+                  Produzido: <strong>{linha.realizado} un ({linha.realizado_pct}%)</strong>
+                  {" · "}Meta: <strong>{linha.meta_total} un</strong>
+                </span>
+              </div>
+              {linha.oee !== undefined && (
+                <div className="hi-line-oee-badge" style={{ color: oeeColor(linha.oee), borderColor: oeeColor(linha.oee) }}>
+                  OEE {fmtPct(linha.oee)}
+                </div>
+              )}
+            </div>
+            <div className="hi-machine-grid">
+              {linha.maquinas.map((m) => <MachineCard key={m.id} m={m} />)}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
-const SHORTCUTS = [
-  {
-    label: "Hoje",
-    range: () => {
-      const s = new Date(); s.setHours(0,0,0,0);
-      return [toLocalDT(s), toLocalDT(new Date())];
-    },
-  },
-  {
-    label: "Ontem",
-    range: () => {
-      const s = new Date(); s.setDate(s.getDate()-1); s.setHours(0,0,0,0);
-      const e = new Date(); e.setDate(e.getDate()-1); e.setHours(23,59,0,0);
-      return [toLocalDT(s), toLocalDT(e)];
-    },
-  },
-  {
-    label: "Últimas 8h",
-    range: () => {
-      const e = new Date();
-      const s = new Date(e - 8*3600*1000);
-      return [toLocalDT(s), toLocalDT(e)];
-    },
-  },
-  {
-    label: "Últimas 24h",
-    range: () => {
-      const e = new Date();
-      const s = new Date(e - 24*3600*1000);
-      return [toLocalDT(s), toLocalDT(e)];
-    },
-  },
-  {
-    label: "7 dias",
-    range: () => {
-      const e = new Date();
-      const s = new Date(e - 7*24*3600*1000); s.setHours(0,0,0,0);
-      return [toLocalDT(s), toLocalDT(e)];
-    },
-  },
-];
+// ─── Tab 2: Linha ─────────────────────────────────────────────────────────────
 
-export default function Historico() {
-  const now = new Date();
-  const startOfDay = new Date(now); startOfDay.setHours(0,0,0,0);
+function TurnosTable({ turnos }) {
+  if (!turnos || turnos.length === 0) return <p className="hi-table-empty">Nenhum turno no período</p>;
+  const statusStyle = { em_andamento: "#16a34a", finalizado: "#6b7280", agendado: "#3b82f6" };
+  return (
+    <div className="hi-table-wrap">
+      <table className="hi-table">
+        <thead>
+          <tr>
+            <th>Turno</th><th>Início</th><th>Fim</th><th>Status</th>
+            <th>Meta</th><th>Produzido</th><th>Aderência</th>
+          </tr>
+        </thead>
+        <tbody>
+          {turnos.map((t, i) => (
+            <tr key={i}>
+              <td className="hi-td-name">{t.nome}</td>
+              <td>{t.inicio}</td><td>{t.fim}</td>
+              <td>
+                <span className="hi-td-status" style={{ color: statusStyle[t.status] || "#6b7280" }}>
+                  {t.status}
+                </span>
+              </td>
+              <td>{t.meta}</td><td>{t.produzido}</td>
+              <td>
+                {t.aderencia !== null
+                  ? <span style={{ color: oeeColor(t.aderencia), fontWeight: 700 }}>{t.aderencia}%</span>
+                  : "—"
+                }
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
-  const [inicio,    setInicio]    = useState(toLocalDT(startOfDay));
-  const [fim,       setFim]       = useState(toLocalDT(now));
-  const [data,      setData]      = useState(null);
-  const [loading,   setLoading]   = useState(false);
-  const [error,     setError]     = useState(null);
-  const [activeShortcut, setActiveShortcut] = useState("Hoje");
+function OrdensTable({ ordens }) {
+  if (!ordens || ordens.length === 0) return <p className="hi-table-empty">Nenhuma ordem no período</p>;
+  const stColor = { fila: "#6b7280", em_producao: "#3b82f6", finalizado: "#16a34a", cancelado: "#dc2626" };
+  return (
+    <div className="hi-table-wrap">
+      <table className="hi-table">
+        <thead>
+          <tr>
+            <th>OP</th><th>Peça</th><th>Qtd</th><th>Produzido</th>
+            <th>Refugo</th><th>Conclusão</th><th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {ordens.map((o, i) => (
+            <tr key={i}>
+              <td className="hi-td-name">{o.numero}</td>
+              <td>{o.peca}</td><td>{o.quantidade}</td><td>{o.produzido}</td>
+              <td style={{ color: o.refugo > 0 ? "#dc2626" : "inherit" }}>{o.refugo}</td>
+              <td>
+                <div className="hi-td-progress">
+                  <div className="hi-td-bar" style={{ width: `${o.conclusao}%`, background: oeeColor(o.conclusao) }} />
+                  <span style={{ color: oeeColor(o.conclusao) }}>{o.conclusao}%</span>
+                </div>
+              </td>
+              <td>
+                <span className="hi-td-status" style={{ color: stColor[o.status] || "#6b7280" }}>
+                  {o.status}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
-  function applyShortcut(s) {
-    const [i, f] = s.range();
-    setInicio(i);
-    setFim(f);
-    setActiveShortcut(s.label);
-  }
+function LinhaTab({ linhas, inicio, fim }) {
+  const [selectedId, setSelectedId] = useState("");
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  function buscar(customInicio, customFim) {
-    const i = customInicio ?? inicio;
-    const f = customFim    ?? fim;
-    setLoading(true);
-    setError(null);
-    setData(null);
-    fetch(`${API_BASE}/api/historico?data_inicio=${encodeURIComponent(i)}&data_fim=${encodeURIComponent(f)}`)
+  function analisar() {
+    if (!selectedId) return;
+    setLoading(true); setError(null); setData(null);
+    fetch(`${API_BASE}/api/historico/linha/${selectedId}?data_inicio=${encode(inicio)}&data_fim=${encode(fim)}`)
       .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
       .then((d) => { setData(d); setLoading(false); })
       .catch((e) => { setError(String(e)); setLoading(false); });
   }
 
   return (
+    <div className="hi-tab-content">
+      <div className="hi-selector-bar">
+        <select className="hi-select" value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>
+          <option value="">— Selecione uma linha —</option>
+          {(linhas || []).map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
+        </select>
+        <button className="hi-buscar-btn" onClick={analisar} disabled={!selectedId || loading}>
+          {loading ? <><Spinner size={14} /> Analisando...</> : "Analisar"}
+        </button>
+      </div>
+
+      {error && <div className="hi-error">Erro: {error}</div>}
+      {loading && <div className="hi-loading"><Spinner /> Carregando dados da linha...</div>}
+
+      {data && !loading && (
+        <>
+          {/* KPIs */}
+          <div className="hi-kpi-row">
+            <KPICard icon="⚡" label="OEE da Linha" value={data.oee ?? "—"}
+              unit={data.oee !== null ? "%" : ""} color={oeeColor(data.oee)}
+              sub={oeeLabel(data.oee)} />
+            <KPICard icon="📦" label="Produção Total" value={data.total_produzido?.toLocaleString("pt-BR")}
+              unit="un" color="#3b82f6" sub={`${data.maquinas?.length || 0} máquinas na linha`} />
+            <KPICard icon="🔍" label="Taxa de Rejeição" value={data.taxa_rejeicao}
+              unit="%" color={data.taxa_rejeicao > 10 ? "#dc2626" : "#16a34a"}
+              sub={`${data.total_reprovado} peças rejeitadas`} />
+          </div>
+
+          {/* Máquinas */}
+          <div className="hi-section">
+            <div className="hi-section-header">
+              <span className="hi-section-title">OEE por Máquina</span>
+            </div>
+            <div className="hi-machine-grid">
+              {data.maquinas?.map((m) => <MachineCard key={m.id} m={m} />)}
+            </div>
+          </div>
+
+          {/* Produção hora a hora */}
+          <div className="hi-section">
+            <div className="hi-section-header">
+              <span className="hi-section-title">Produção Hora a Hora</span>
+              <span className="hi-section-sub">Peças produzidas vs meta horária</span>
+            </div>
+            <HourlyChart data={data.producao_hora_a_hora} />
+          </div>
+
+          {/* Turnos + Ordens side by side */}
+          <div className="hi-two-col">
+            <div className="hi-section">
+              <div className="hi-section-header">
+                <span className="hi-section-title">Turnos do Período</span>
+              </div>
+              <TurnosTable turnos={data.turnos} />
+            </div>
+            <div className="hi-section">
+              <div className="hi-section-header">
+                <span className="hi-section-title">Ordens de Produção</span>
+              </div>
+              <OrdensTable ordens={data.ordens} />
+            </div>
+          </div>
+        </>
+      )}
+
+      {!data && !loading && !error && (
+        <EmptyState icon="🏭" text="Selecione uma linha e clique em Analisar" />
+      )}
+    </div>
+  );
+}
+
+// ─── Tab 3: Máquina ───────────────────────────────────────────────────────────
+
+function MaquinaTab({ linhas, inicio, fim }) {
+  const [selectedLinhaId, setSelectedLinhaId] = useState("");
+  const [selectedMaqId,   setSelectedMaqId]   = useState("");
+  const [data,     setData]     = useState(null);
+  const [loading,  setLoading]  = useState(false);
+  const [error,    setError]    = useState(null);
+
+  const selectedLinha = (linhas || []).find((l) => String(l.id) === String(selectedLinhaId));
+  const maquinasOpts  = selectedLinha?.maquinas || [];
+
+  useEffect(() => { setSelectedMaqId(""); setData(null); }, [selectedLinhaId]);
+
+  function analisar() {
+    if (!selectedMaqId) return;
+    setLoading(true); setError(null); setData(null);
+    fetch(`${API_BASE}/api/historico/maquina/${selectedMaqId}?data_inicio=${encode(inicio)}&data_fim=${encode(fim)}`)
+      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then((d) => { setData(d); setLoading(false); })
+      .catch((e) => { setError(String(e)); setLoading(false); });
+  }
+
+  return (
+    <div className="hi-tab-content">
+      <div className="hi-selector-bar">
+        <select className="hi-select" value={selectedLinhaId} onChange={(e) => setSelectedLinhaId(e.target.value)}>
+          <option value="">— Selecione uma linha —</option>
+          {(linhas || []).map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
+        </select>
+        <select className="hi-select" value={selectedMaqId}
+                onChange={(e) => setSelectedMaqId(e.target.value)} disabled={!selectedLinhaId}>
+          <option value="">— Selecione uma máquina —</option>
+          {maquinasOpts.map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
+        </select>
+        <button className="hi-buscar-btn" onClick={analisar} disabled={!selectedMaqId || loading}>
+          {loading ? <><Spinner size={14} /> Analisando...</> : "Analisar"}
+        </button>
+      </div>
+
+      {error && <div className="hi-error">Erro: {error}</div>}
+      {loading && <div className="hi-loading"><Spinner /> Carregando dados da máquina...</div>}
+
+      {data && !loading && (
+        <>
+          {/* Header da máquina */}
+          <div className="hi-maq-header">
+            <div>
+              <div className="hi-maq-title">{data.nome}</div>
+              <div className="hi-maq-sub">{data.linha} · <StatusDot status={data.status} /></div>
+            </div>
+            {data.operador && data.operador !== "-" && (
+              <div className="hi-maq-operador">
+                <span className="hi-maq-op-icon">👷</span>
+                <span>{data.operador}</span>
+              </div>
+            )}
+          </div>
+
+          {/* OEE triple gauge */}
+          <div className="hi-section">
+            <div className="hi-section-header">
+              <span className="hi-section-title">OEE — Breakdown</span>
+              <span className="hi-section-sub">Disponibilidade × Performance × Qualidade</span>
+            </div>
+            <div className="hi-oee-gauges">
+              <div className="hi-oee-gauge-wrap">
+                <GaugeArc value={data.oee} label="OEE GLOBAL" size={160} />
+              </div>
+              <div className="hi-oee-gauge-divider" />
+              <div className="hi-oee-gauge-trio">
+                <GaugeArc value={data.disponibilidade} label="DISPONIBILIDADE" size={120} />
+                <GaugeArc value={data.performance}     label="PERFORMANCE"     size={120} />
+                <GaugeArc value={data.qualidade}        label="QUALIDADE"       size={120} />
+              </div>
+            </div>
+          </div>
+
+          {/* Produção stats */}
+          <div className="hi-kpi-row">
+            <KPICard icon="✅" label="Produzido" value={data.produzido} unit="un"
+              color="#16a34a" sub={`Meta: ${data.meta} un`} />
+            <KPICard icon="❌" label="Rejeitado" value={data.reprovado} unit="un"
+              color={data.reprovado > 0 ? "#dc2626" : "#16a34a"}
+              sub={`FPY: ${data.produzido + data.reprovado > 0
+                ? ((data.produzido / (data.produzido + data.reprovado)) * 100).toFixed(1)
+                : "100"}%`} />
+            <KPICard icon="📊" label="Total Processado"
+              value={typeof data.produzido === "number" && typeof data.reprovado === "number"
+                ? data.produzido + data.reprovado : "—"}
+              unit="un" sub="Aprovadas + rejeitadas" />
+          </div>
+
+          {/* Gráficos */}
+          <div className="hi-two-col">
+            <div className="hi-section">
+              <div className="hi-section-header">
+                <span className="hi-section-title">Produção Hora a Hora</span>
+              </div>
+              <HourlyChart data={data.producao_hora_a_hora} />
+            </div>
+            <div className="hi-section">
+              <div className="hi-section-header">
+                <span className="hi-section-title">Pareto de Paradas</span>
+                <span className="hi-section-sub">Top causas de inatividade</span>
+              </div>
+              <ParetoChart data={data.pareto_paradas} />
+            </div>
+          </div>
+        </>
+      )}
+
+      {!data && !loading && !error && (
+        <EmptyState icon="⚙️" text="Selecione uma linha, uma máquina e clique em Analisar" />
+      )}
+    </div>
+  );
+}
+
+// ─── Export Excel ────────────────────────────────────────────────────────────
+
+function exportarExcel(fabricaData, funil, inicio, fim) {
+  if (!fabricaData) return;
+
+  const wb = XLSX.utils.book_new();
+  const fmtDt = (s) => s ? s.replace("T", " ") : "";
+
+  // ── Aba 1: Resumo ─────────────────────────────────────────────────────────
+  const totalProd  = fabricaData.linhas.reduce((s, l) => s + (l.realizado || 0), 0);
+  const totalMeta  = fabricaData.linhas.reduce((s, l) => s + (l.meta_total || 0), 0);
+  const allMaquinas = fabricaData.linhas.flatMap((l) => l.maquinas || []);
+  const totalRej   = allMaquinas.reduce((s, m) => s + (m.reprovado || 0), 0);
+
+  const resumoRows = [
+    ["Relatório de Produção"],
+    ["Período", `${fmtDt(inicio)} → ${fmtDt(fim)}`],
+    [],
+    ["Indicador", "Valor"],
+    ["OEE Global (%)", fabricaData.oee_global ?? "—"],
+    ["Produção Total (un)", totalProd],
+    ["Meta Total (un)", totalMeta],
+    ["Aderência à Meta (%)", totalMeta > 0 ? +((totalProd / totalMeta) * 100).toFixed(1) : "—"],
+    ["Total Rejeitado (un)", totalRej],
+    ["Taxa de Rejeição (%)", (totalProd + totalRej) > 0
+      ? +((totalRej / (totalProd + totalRej)) * 100).toFixed(2) : 0],
+    ["Linhas Monitoradas", fabricaData.linhas.length],
+    ["Máquinas Monitoradas", allMaquinas.length],
+  ];
+
+  if (funil) {
+    resumoRows.push([]);
+    resumoRows.push(["Funil de Ordens", ""]);
+    resumoRows.push(["Status", "Qtd OPs", "Peças"]);
+    for (const [key, label] of [["fila","Na Fila"],["em_producao","Em Produção"],["finalizado","Finalizados"],["cancelado","Cancelados"]]) {
+      const d = funil[key] || {};
+      resumoRows.push([label, d.qty || 0, d.pecas || 0]);
+    }
+  }
+
+  const wsResumo = XLSX.utils.aoa_to_sheet(resumoRows);
+  wsResumo["!cols"] = [{ wch: 28 }, { wch: 22 }, { wch: 14 }];
+  XLSX.utils.book_append_sheet(wb, wsResumo, "Resumo");
+
+  // ── Aba 2: Linhas ─────────────────────────────────────────────────────────
+  const linhasRows = [
+    ["Linha", "OEE (%)", "Produzido (un)", "Meta (un)", "Aderência (%)", "Qtd Máquinas"],
+  ];
+  for (const l of fabricaData.linhas) {
+    linhasRows.push([
+      l.nome,
+      l.oee ?? "—",
+      l.realizado,
+      l.meta_total,
+      l.realizado_pct ?? "—",
+      l.maquinas?.length || 0,
+    ]);
+  }
+  const wsLinhas = XLSX.utils.aoa_to_sheet(linhasRows);
+  wsLinhas["!cols"] = [{ wch: 20 }, { wch: 10 }, { wch: 16 }, { wch: 12 }, { wch: 14 }, { wch: 14 }];
+  XLSX.utils.book_append_sheet(wb, wsLinhas, "Linhas");
+
+  // ── Aba 3: Máquinas ───────────────────────────────────────────────────────
+  const maqRows = [
+    ["Linha", "Máquina", "OEE (%)", "Disponibilidade (%)", "Performance (%)", "Qualidade (%)",
+     "Produzido (un)", "Meta (un)", "Rejeitado (un)", "Status"],
+  ];
+  for (const l of fabricaData.linhas) {
+    for (const m of (l.maquinas || [])) {
+      maqRows.push([
+        l.nome, m.nome,
+        m.oee ?? "—", m.disponibilidade ?? "—", m.performance ?? "—", m.qualidade ?? "—",
+        m.produzido, m.meta, m.reprovado, m.status || "—",
+      ]);
+    }
+  }
+  const wsMaq = XLSX.utils.aoa_to_sheet(maqRows);
+  wsMaq["!cols"] = [{ wch: 18 }, { wch: 20 }, { wch: 10 }, { wch: 20 }, { wch: 16 }, { wch: 14 },
+                   { wch: 16 }, { wch: 12 }, { wch: 16 }, { wch: 22 }];
+  XLSX.utils.book_append_sheet(wb, wsMaq, "Máquinas");
+
+  // ── Gerar arquivo ─────────────────────────────────────────────────────────
+  const ts = new Date().toISOString().slice(0, 16).replace("T", "_").replace(":", "h");
+  XLSX.writeFile(wb, `relatorio_producao_${ts}.xlsx`);
+}
+
+// ─── Atalhos de período ───────────────────────────────────────────────────────
+
+const SHORTCUTS = [
+  { label: "Hoje", range: () => { const s = new Date(); s.setHours(0,0,0,0); return [toLocalDT(s), toLocalDT(new Date())]; } },
+  { label: "Ontem", range: () => { const s = new Date(); s.setDate(s.getDate()-1); s.setHours(0,0,0,0); const e = new Date(); e.setDate(e.getDate()-1); e.setHours(23,59,0,0); return [toLocalDT(s), toLocalDT(e)]; } },
+  { label: "Últ. 8h", range: () => { const e = new Date(); return [toLocalDT(new Date(e - 8*3600e3)), toLocalDT(e)]; } },
+  { label: "Últ. 24h", range: () => { const e = new Date(); return [toLocalDT(new Date(e - 24*3600e3)), toLocalDT(e)]; } },
+  { label: "7 dias", range: () => { const e = new Date(); const s = new Date(e - 7*24*3600e3); s.setHours(0,0,0,0); return [toLocalDT(s), toLocalDT(e)]; } },
+];
+
+const TABS = [
+  { key: "fabrica", label: "🏭 Visão Geral",    sub: "Fábrica" },
+  { key: "linha",   label: "🔧 Por Linha",       sub: "Análise" },
+  { key: "maquina", label: "⚙️ Por Máquina",    sub: "Drill-down" },
+];
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
+export default function Historico() {
+  const now        = new Date();
+  const startOfDay = new Date(now); startOfDay.setHours(0,0,0,0);
+
+  const [inicio,        setInicio]        = useState(toLocalDT(startOfDay));
+  const [fim,           setFim]           = useState(toLocalDT(now));
+  const [activeShortcut, setActiveShortcut] = useState("Hoje");
+  const [activeTab,     setActiveTab]     = useState("fabrica");
+
+  const [fabricaData, setFabricaData] = useState(null);
+  const [funil,       setFunil]       = useState(null);
+  const [loading,     setLoading]     = useState(false);
+  const [error,       setError]       = useState(null);
+
+  function applyShortcut(s) {
+    const [i, f] = s.range();
+    setInicio(i); setFim(f); setActiveShortcut(s.label);
+  }
+
+  function buscar() {
+    setLoading(true); setError(null); setFabricaData(null); setFunil(null);
+    Promise.all([
+      fetch(`${API_BASE}/api/historico?data_inicio=${encode(inicio)}&data_fim=${encode(fim)}`).then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
+      fetch(`${API_BASE}/api/historico/ordens?data_inicio=${encode(inicio)}&data_fim=${encode(fim)}`).then((r) => r.ok ? r.json() : null),
+    ])
+      .then(([fab, fun]) => { setFabricaData(fab); setFunil(fun); setLoading(false); })
+      .catch((e) => { setError(String(e)); setLoading(false); });
+  }
+
+  return (
     <div className="hi-root">
 
-      {/* ── Filtros ─────────────────────────────────────────── */}
+      {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="hi-filter-card">
         <div className="hi-filter-top">
           <div className="hi-filter-title-block">
-            <h1 className="hi-page-title">Histórico de Produção</h1>
-            <p className="hi-page-sub">Consulte métricas de qualquer período</p>
+            <h1 className="hi-page-title">Analytics de Produção</h1>
+            <p className="hi-page-sub">Indicadores de desempenho por período, linha e máquina</p>
           </div>
           <div className="hi-filter-shortcuts">
             {SHORTCUTS.map((s) => (
-              <button
-                key={s.label}
+              <button key={s.label}
                 className={`hi-shortcut${activeShortcut === s.label ? " hi-shortcut--active" : ""}`}
                 onClick={() => applyShortcut(s)}
-              >
-                {s.label}
-              </button>
+              >{s.label}</button>
             ))}
           </div>
         </div>
-
         <div className="hi-filter-row">
           <div className="hi-filter-field">
             <label className="hi-filter-label">Início</label>
-            <input
-              type="datetime-local"
-              className="hi-filter-input"
-              value={inicio}
-              onChange={(e) => { setInicio(e.target.value); setActiveShortcut(null); }}
-            />
+            <input type="datetime-local" className="hi-filter-input" value={inicio}
+              onChange={(e) => { setInicio(e.target.value); setActiveShortcut(null); }} />
           </div>
           <div className="hi-filter-sep">→</div>
           <div className="hi-filter-field">
             <label className="hi-filter-label">Fim</label>
-            <input
-              type="datetime-local"
-              className="hi-filter-input"
-              value={fim}
-              onChange={(e) => { setFim(e.target.value); setActiveShortcut(null); }}
-            />
+            <input type="datetime-local" className="hi-filter-input" value={fim}
+              onChange={(e) => { setFim(e.target.value); setActiveShortcut(null); }} />
           </div>
-          <button
-            className="hi-buscar-btn"
-            onClick={() => buscar()}
-            disabled={loading}
-          >
-            {loading ? "Buscando..." : "Buscar"}
+          <button className="hi-buscar-btn" onClick={buscar} disabled={loading}>
+            {loading ? <><Spinner size={14} /> Buscando...</> : "Buscar Dados"}
           </button>
+          {fabricaData && (
+            <button className="hi-buscar-btn hi-export-btn"
+              onClick={() => exportarExcel(fabricaData, funil, inicio, fim)}>
+              ⬇ Exportar Excel
+            </button>
+          )}
         </div>
       </div>
 
-      {/* ── Estado ──────────────────────────────────────────── */}
-      {error && <div className="hi-error">Erro: {error}</div>}
+      {error && <div className="hi-error">⚠ {error}</div>}
 
-      {loading && (
-        <div className="hi-loading">
-          <div className="hi-spinner" />
-          Buscando dados do período...
-        </div>
-      )}
+      {/* ── Tabs ─────────────────────────────────────────────────────────── */}
+      <div className="hi-tabs">
+        {TABS.map((t) => (
+          <button key={t.key}
+            className={`hi-tab${activeTab === t.key ? " hi-tab--active" : ""}`}
+            onClick={() => setActiveTab(t.key)}
+          >
+            <span className="hi-tab-label">{t.label}</span>
+            <span className="hi-tab-sub">{t.sub}</span>
+          </button>
+        ))}
+      </div>
 
-      {/* ── Resultados ──────────────────────────────────────── */}
-      {data && !loading && (() => {
-        const totalProd = data.linhas.reduce((s, l) => s + (l.realizado ?? 0), 0);
-        const totalMeta = data.linhas.reduce((s, l) => s + (l.meta_total ?? 0), 0);
-        return (
-          <>
-            {/* Banner do período */}
-            <div className="hi-periodo-banner">
-              <div className="hi-periodo-info">
-                <span className="hi-periodo-label">Período consultado</span>
-                <span className="hi-periodo-range">{data.periodo.inicio} → {data.periodo.fim}</span>
-              </div>
-              <div className="hi-periodo-gauge">
-                <span className="hi-periodo-gauge-label">Produção Total</span>
-                <GaugeChart produzido={totalProd} meta={totalMeta} size={200} />
-              </div>
-              <div className="hi-periodo-oee">
-                <span className="hi-periodo-oee-label">OEE Global do Período</span>
-                <span
-                  className="hi-periodo-oee-val"
-                  style={{ color: oeeColor(data.oee_global) }}
-                >
-                  {data.oee_global !== null ? `${data.oee_global}%` : "—"}
-                </span>
-              </div>
-            </div>
-
-            {/* Linhas */}
-            <div className="hi-lines">
-              {data.linhas.map((l) => <LineSection key={l.id} linha={l} />)}
-            </div>
-          </>
-        );
-      })()}
-
-      {/* ── Empty state ─────────────────────────────────────── */}
-      {!data && !loading && !error && (
-        <div className="hi-empty">
-          <div className="hi-empty-icon">📅</div>
-          <div className="hi-empty-text">Selecione um período e clique em <strong>Buscar</strong></div>
-        </div>
+      {/* ── Tab Content ──────────────────────────────────────────────────── */}
+      {loading && activeTab === "fabrica" ? (
+        <div className="hi-loading"><Spinner /> Carregando dados da fábrica...</div>
+      ) : (
+        <>
+          {activeTab === "fabrica" && <FabricaTab data={fabricaData} funil={funil} />}
+          {activeTab === "linha"   && <LinhaTab   linhas={fabricaData?.linhas} inicio={inicio} fim={fim} />}
+          {activeTab === "maquina" && <MaquinaTab linhas={fabricaData?.linhas} inicio={inicio} fim={fim} />}
+        </>
       )}
 
     </div>

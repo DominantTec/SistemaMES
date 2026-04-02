@@ -112,6 +112,9 @@
 }
 
 .hi-buscar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 9px 24px;
   background: var(--brand);
   color: #fff;
@@ -122,12 +125,26 @@
   font-weight: 700;
   cursor: pointer;
   white-space: nowrap;
-  transition: opacity 0.15s;
+  transition: opacity 0.15s, transform 0.1s;
+}
+
+.hi-buscar-btn:hover:not(:disabled) {
+  opacity: 0.9;
+  transform: translateY(-1px);
 }
 
 .hi-buscar-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.hi-export-btn {
+  background: #16a34a;
+}
+
+.hi-export-btn:hover:not(:disabled) {
+  background: #15803d;
+  opacity: 1;
 }
 
 /* ── Estado ──────────────────────────────────────────────── */
@@ -225,6 +242,413 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* ── Gauge (SVG wrapper) ─────────────────────────────────── */
+.hi-gauge-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.hi-gauge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.hi-gauge-pct {
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.hi-gauge-sub {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.hi-gauge-unit {
+  color: #9ca3af;
+}
+
+/* ── OEE triple-gauge layout ─────────────────────────────── */
+.hi-oee-gauges {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0;
+  flex-wrap: wrap;
+  padding: 8px 0;
+}
+
+.hi-oee-gauge-trio {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0;
+  flex-wrap: wrap;
+}
+
+.hi-oee-gauge-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 20px;
+  flex: 1;
+  min-width: 140px;
+}
+
+.hi-oee-gauge-divider {
+  width: 1px;
+  background: var(--line);
+  align-self: stretch;
+  margin: 12px 0;
+  flex-shrink: 0;
+}
+
+/* ── Período banner — gauge central ─────────────────────── */
+.hi-periodo-gauge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.hi-periodo-gauge-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+/* ── Tabs ────────────────────────────────────────────────── */
+.hi-tabs {
+  display: flex;
+  gap: 4px;
+  background: rgba(255,255,255,0.7);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 6px;
+}
+
+.hi-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  transition: all 0.18s;
+  color: var(--muted);
+}
+
+.hi-tab:hover {
+  background: #f3f4f6;
+  color: var(--text);
+}
+
+.hi-tab--active {
+  background: var(--brand);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+}
+
+.hi-tab--active:hover {
+  background: var(--brand);
+  color: #fff;
+}
+
+.hi-tab-label {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.hi-tab-sub {
+  font-size: 10px;
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
+/* ── Tab content ─────────────────────────────────────────── */
+.hi-tab-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ── KPI Row ─────────────────────────────────────────────── */
+.hi-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.hi-kpi-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+  transition: box-shadow 0.15s, transform 0.1s;
+}
+
+.hi-kpi-card:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  transform: translateY(-1px);
+}
+
+.hi-kpi-icon {
+  font-size: 20px;
+  margin-bottom: 2px;
+}
+
+.hi-kpi-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.hi-kpi-value {
+  font-size: 28px;
+  font-weight: 900;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.hi-kpi-unit {
+  font-size: 14px;
+  font-weight: 600;
+  opacity: 0.7;
+}
+
+.hi-kpi-sub {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* ── Section ─────────────────────────────────────────────── */
+.hi-section {
+  background: rgba(255,255,255,0.8);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.hi-section-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.hi-section-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.hi-section-sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ── Selector bar ────────────────────────────────────────── */
+.hi-selector-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.hi-select {
+  flex: 1;
+  min-width: 200px;
+  max-width: 340px;
+  padding: 9px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  appearance: auto;
+}
+
+.hi-select:focus {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+/* ── Line heatmap ────────────────────────────────────────── */
+.hi-heat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.hi-heat-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-top: 4px solid #9ca3af;
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: box-shadow 0.15s, transform 0.1s;
+}
+
+.hi-heat-card:hover {
+  box-shadow: 0 4px 14px rgba(0,0,0,0.09);
+  transform: translateY(-2px);
+}
+
+.hi-heat-name {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.hi-heat-oee {
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.hi-heat-oee-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.hi-heat-progress {
+  height: 6px;
+  background: #f3f4f6;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.hi-heat-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+.hi-heat-sub {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.hi-heat-machines {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.hi-heat-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  cursor: default;
+}
+
+/* ── Order funnel ────────────────────────────────────────── */
+.hi-funnel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hi-funnel-step {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.hi-funnel-bar-wrap {
+  height: 28px;
+  background: #f3f4f6;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.hi-funnel-bar {
+  height: 100%;
+  border-radius: 6px;
+  transition: width 0.4s ease;
+  min-width: 4px;
+}
+
+.hi-funnel-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.hi-funnel-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.hi-funnel-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  min-width: 100px;
+}
+
+.hi-funnel-qty {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.hi-funnel-pecas {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Two column layout ───────────────────────────────────── */
+.hi-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 900px) {
+  .hi-two-col {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ── Lines ───────────────────────────────────────────────── */
 .hi-lines {
   display: flex;
@@ -261,6 +685,7 @@
 }
 
 .hi-line-badge {
+  display: inline-block;
   background: var(--brand);
   color: #fff;
   font-weight: 700;
@@ -276,6 +701,17 @@
 }
 
 .hi-line-meta strong { color: var(--text); font-weight: 700; }
+
+.hi-line-oee-badge {
+  font-size: 13px;
+  font-weight: 800;
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1.5px solid currentColor;
+  background: rgba(255,255,255,0.8);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 
 /* ── Machine Grid ────────────────────────────────────────── */
 .hi-machine-grid {
@@ -295,6 +731,15 @@
   display: flex;
   flex-direction: column;
   min-height: 220px;
+  transition: box-shadow 0.15s, transform 0.1s;
+}
+
+.hi-machine-card:hover {
+  box-shadow: 0 4px 14px rgba(0,0,0,0.09);
+}
+
+.hi-machine-card[style*="cursor: pointer"]:hover {
+  transform: translateY(-2px);
 }
 
 .hi-machine-status-bar {
@@ -315,6 +760,37 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 6px;
+}
+
+.hi-maq-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hi-maq-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: -0.02em;
+}
+
+.hi-maq-sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.hi-maq-operador {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.hi-maq-op-icon {
+  font-size: 14px;
 }
 
 .hi-machine-name {
@@ -391,6 +867,7 @@
 .hi-bar-fill {
   height: 100%;
   border-radius: 999px;
+  transition: width 0.3s ease;
 }
 
 .hi-metric-value {
@@ -409,6 +886,7 @@
   padding-top: 4px;
   border-top: 1px solid var(--line);
   margin-top: 2px;
+  flex-wrap: wrap;
 }
 
 .hi-prod-label {
@@ -436,44 +914,133 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Gauge ───────────────────────────────────────────────── */
-.hi-gauge {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-}
-
-.hi-gauge-pct {
-  font-size: 22px;
-  font-weight: 900;
-  letter-spacing: -0.02em;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-}
-
-.hi-gauge-sub {
-  font-size: 12px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.hi-gauge-unit {
-  color: #9ca3af;
-}
-
-/* ── Período banner — gauge central ─────────────────────── */
-.hi-periodo-gauge {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-
-.hi-periodo-gauge-label {
+.hi-reprovado {
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  color: #dc2626;
+  background: #fee2e2;
+  padding: 1px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+/* ── Status dot ──────────────────────────────────────────── */
+.hi-status-dot {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+/* ── Tables ──────────────────────────────────────────────── */
+.hi-table-wrap {
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+}
+
+.hi-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.hi-table thead {
+  background: #f9fafb;
+}
+
+.hi-table th {
+  text-align: left;
+  padding: 9px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   color: var(--muted);
   text-transform: uppercase;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.hi-table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid #f3f4f6;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  vertical-align: middle;
+}
+
+.hi-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.hi-table tbody tr:hover td {
+  background: #fafafa;
+}
+
+.hi-table-empty {
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+  padding: 20px;
+  margin: 0;
+}
+
+.hi-td-name {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.hi-td-status {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.hi-td-progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hi-td-bar {
+  height: 6px;
+  border-radius: 999px;
+  min-width: 2px;
+  max-width: 60px;
+  flex-shrink: 0;
+}
+
+/* ── Recharts custom tooltip ─────────────────────────────── */
+.hi-tooltip {
+  background: #1f2937;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 14px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+  min-width: 140px;
+}
+
+.hi-tooltip-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #9ca3af;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.hi-tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #f9fafb;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 0;
+}
+
+.hi-tooltip-row strong {
+  font-weight: 700;
 }
