@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
   CartesianGrid, ComposedChart, Line, ReferenceLine, Cell,
@@ -121,7 +121,7 @@ function GaugeArc({ value, label, size = 140 }) {
 
   return (
     <div className="hi-gauge-wrap">
-      <svg viewBox="0 0 200 106" width={size} style={{ display: "block" }}>
+      <svg viewBox="0 0 200 124" width={size} style={{ display: "block" }}>
         {[0, 25, 50, 75, 100].map((t) => {
           const a = 180 - t / 100 * 180;
           const r1 = r + sw / 2 + 2, r2 = r + sw / 2 + 8;
@@ -228,6 +228,107 @@ function ParetoChart({ data, height = 240 }) {
             ))}
           </Bar>
         </ComposedChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ─── OEE por Linha ───────────────────────────────────────────────────────────
+
+function LinhasOEEChart({ linhas, height = 220 }) {
+  if (!linhas || linhas.length === 0) return null;
+  const data = linhas.map((l) => ({
+    nome: l.nome,
+    oee: typeof l.oee === "number" ? l.oee : 0,
+  }));
+  return (
+    <div style={{ width: "100%", height }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+          <XAxis dataKey="nome" tick={{ fontSize: 11, fill: "#6b7280" }} />
+          <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: "#9ca3af" }} width={36}
+                 tickFormatter={(v) => `${v}%`} />
+          <Tooltip
+            formatter={(v) => [`${v}%`, "OEE"]}
+            contentStyle={{ background: "#1f2937", border: "none", borderRadius: 8, fontSize: 12, color: "#f9fafb" }}
+            itemStyle={{ color: "#f9fafb" }} labelStyle={{ color: "#9ca3af", fontWeight: 700 }}
+          />
+          <ReferenceLine y={75} stroke="#16a34a" strokeDasharray="5 3"
+            label={{ value: "75% — Ótimo", position: "insideTopRight", fontSize: 10, fill: "#16a34a" }} />
+          <ReferenceLine y={50} stroke="#d97706" strokeDasharray="5 3"
+            label={{ value: "50% — Regular", position: "insideTopRight", fontSize: 10, fill: "#d97706" }} />
+          <Bar dataKey="oee" name="OEE" radius={[4, 4, 0, 0]} maxBarSize={60}>
+            {data.map((d, i) => <Cell key={i} fill={oeeColor(d.oee)} />)}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ─── Produção vs Meta por Linha ───────────────────────────────────────────────
+
+function ProdMetaChart({ linhas, height = 220 }) {
+  if (!linhas || linhas.length === 0) return null;
+  const data = linhas.map((l) => ({
+    nome: l.nome,
+    meta: l.meta_total || 0,
+    produzido: l.realizado || 0,
+  }));
+  return (
+    <div style={{ width: "100%", height }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+          <XAxis dataKey="nome" tick={{ fontSize: 11, fill: "#6b7280" }} />
+          <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} width={42} />
+          <Tooltip
+            contentStyle={{ background: "#1f2937", border: "none", borderRadius: 8, fontSize: 12, color: "#f9fafb" }}
+            itemStyle={{ color: "#f9fafb" }} labelStyle={{ color: "#9ca3af", fontWeight: 700 }}
+          />
+          <Bar dataKey="meta" name="Meta" fill="#e5e7eb" radius={[4, 4, 0, 0]} maxBarSize={28} />
+          <Bar dataKey="produzido" name="Produzido" radius={[4, 4, 0, 0]} maxBarSize={28}>
+            {data.map((d, i) => (
+              <Cell key={i} fill={oeeColor(d.meta > 0 ? Math.round(d.produzido / d.meta * 100) : 0)} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ─── OEE Breakdown por Máquina ────────────────────────────────────────────────
+
+function MaquinasOEEChart({ maquinas, height = 240 }) {
+  if (!maquinas || maquinas.length === 0) return null;
+  const data = maquinas.map((m) => ({
+    nome: m.nome,
+    OEE:            typeof m.oee            === "number" ? m.oee            : 0,
+    Disponibilidade: typeof m.disponibilidade === "number" ? m.disponibilidade : 0,
+    Performance:    typeof m.performance    === "number" ? m.performance    : 0,
+    Qualidade:      typeof m.qualidade      === "number" ? m.qualidade      : 0,
+  }));
+  const COLORS = { OEE: "#3b82f6", Disponibilidade: "#8b5cf6", Performance: "#f59e0b", Qualidade: "#10b981" };
+  return (
+    <div style={{ width: "100%", height }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+          <XAxis dataKey="nome" tick={{ fontSize: 10, fill: "#6b7280" }} />
+          <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: "#9ca3af" }} width={36}
+                 tickFormatter={(v) => `${v}%`} />
+          <Tooltip
+            formatter={(v, name) => [`${v}%`, name]}
+            contentStyle={{ background: "#1f2937", border: "none", borderRadius: 8, fontSize: 12, color: "#f9fafb" }}
+            itemStyle={{ color: "#f9fafb" }} labelStyle={{ color: "#9ca3af", fontWeight: 700 }}
+          />
+          <ReferenceLine y={75} stroke="#16a34a" strokeDasharray="4 3" />
+          {Object.entries(COLORS).map(([key, color]) => (
+            <Bar key={key} dataKey={key} fill={color} radius={[3, 3, 0, 0]} maxBarSize={18} />
+          ))}
+        </BarChart>
       </ResponsiveContainer>
     </div>
   );
@@ -399,6 +500,24 @@ function FabricaTab({ data, funil }) {
         </div>
         <div className="hi-heat-grid">
           {data.linhas.map((l) => <LineHeatCard key={l.id} linha={l} />)}
+        </div>
+      </div>
+
+      {/* OEE e Produção por Linha */}
+      <div className="hi-two-col">
+        <div className="hi-section">
+          <div className="hi-section-header">
+            <span className="hi-section-title">OEE por Linha</span>
+            <span className="hi-section-sub">Comparativo do período</span>
+          </div>
+          <LinhasOEEChart linhas={data.linhas} />
+        </div>
+        <div className="hi-section">
+          <div className="hi-section-header">
+            <span className="hi-section-title">Produção vs Meta</span>
+            <span className="hi-section-sub">Realizado × planejado por linha</span>
+          </div>
+          <ProdMetaChart linhas={data.linhas} />
         </div>
       </div>
 
@@ -574,6 +693,17 @@ function LinhaTab({ linhas, inicio, fim }) {
             </div>
           </div>
 
+          {/* OEE breakdown por máquina */}
+          {data.maquinas?.length > 1 && (
+            <div className="hi-section">
+              <div className="hi-section-header">
+                <span className="hi-section-title">OEE Breakdown por Máquina</span>
+                <span className="hi-section-sub">OEE · Disponibilidade · Performance · Qualidade</span>
+              </div>
+              <MaquinasOEEChart maquinas={data.maquinas} />
+            </div>
+          )}
+
           {/* Produção hora a hora */}
           <div className="hi-section">
             <div className="hi-section-header">
@@ -727,90 +857,222 @@ function MaquinaTab({ linhas, inicio, fim }) {
   );
 }
 
-// ─── Export Excel ────────────────────────────────────────────────────────────
+// ─── Export Excel (exceljs) ───────────────────────────────────────────────────
 
-function exportarExcel(fabricaData, funil, inicio, fim) {
+async function exportarExcel(fabricaData, funil, inicio, fim) {
   if (!fabricaData) return;
 
-  const wb = XLSX.utils.book_new();
-  const fmtDt = (s) => s ? s.replace("T", " ") : "";
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "PCP Analytics";
+  wb.created = new Date();
+
+  const fmtDt = (s) => (s ? s.replace("T", " ") : "");
+
+  // ── Estilos comuns ────────────────────────────────────────────────────────
+  const BRAND  = "FF1D4ED8"; // azul
+  const GREEN  = "FF16A34A";
+  const ORANGE = "FFD97706";
+  const RED    = "FFDC2626";
+  const GRAY   = "FF6B7280";
+
+  function oeeArgb(v) {
+    const n = Number(v);
+    if (isNaN(n)) return GRAY;
+    if (n >= 75) return GREEN;
+    if (n >= 50) return ORANGE;
+    return RED;
+  }
+
+  function headerStyle(ws, row, cols, bgArgb = BRAND) {
+    for (let c = 1; c <= cols; c++) {
+      const cell = row.getCell(c);
+      cell.font   = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
+      cell.fill   = { type: "pattern", pattern: "solid", fgColor: { argb: bgArgb } };
+      cell.border = {
+        top: { style: "thin" }, bottom: { style: "thin" },
+        left: { style: "thin" }, right: { style: "thin" },
+      };
+      cell.alignment = { vertical: "middle", horizontal: "center" };
+    }
+  }
+
+  function dataStyle(row, cols, altRow = false) {
+    for (let c = 1; c <= cols; c++) {
+      const cell = row.getCell(c);
+      if (altRow) cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAFC" } };
+      cell.border = {
+        top: { style: "hair" }, bottom: { style: "hair" },
+        left: { style: "hair" }, right: { style: "hair" },
+      };
+      cell.alignment = { vertical: "middle" };
+    }
+  }
+
+  function coloredCell(cell, argb) {
+    cell.font = { bold: true, color: { argb } };
+  }
+
+  const totalProd   = fabricaData.linhas.reduce((s, l) => s + (l.realizado || 0), 0);
+  const totalMeta   = fabricaData.linhas.reduce((s, l) => s + (l.meta_total || 0), 0);
+  const allMaquinas = fabricaData.linhas.flatMap((l) => l.maquinas || []);
+  const totalRej    = allMaquinas.reduce((s, m) => s + (m.reprovado || 0), 0);
+  const taxaRej     = (totalProd + totalRej) > 0
+    ? +((totalRej / (totalProd + totalRej)) * 100).toFixed(2) : 0;
 
   // ── Aba 1: Resumo ─────────────────────────────────────────────────────────
-  const totalProd  = fabricaData.linhas.reduce((s, l) => s + (l.realizado || 0), 0);
-  const totalMeta  = fabricaData.linhas.reduce((s, l) => s + (l.meta_total || 0), 0);
-  const allMaquinas = fabricaData.linhas.flatMap((l) => l.maquinas || []);
-  const totalRej   = allMaquinas.reduce((s, m) => s + (m.reprovado || 0), 0);
+  {
+    const ws = wb.addWorksheet("Resumo");
+    ws.columns = [
+      { key: "a", width: 30 },
+      { key: "b", width: 24 },
+    ];
 
-  const resumoRows = [
-    ["Relatório de Produção"],
-    ["Período", `${fmtDt(inicio)} → ${fmtDt(fim)}`],
-    [],
-    ["Indicador", "Valor"],
-    ["OEE Global (%)", fabricaData.oee_global ?? "—"],
-    ["Produção Total (un)", totalProd],
-    ["Meta Total (un)", totalMeta],
-    ["Aderência à Meta (%)", totalMeta > 0 ? +((totalProd / totalMeta) * 100).toFixed(1) : "—"],
-    ["Total Rejeitado (un)", totalRej],
-    ["Taxa de Rejeição (%)", (totalProd + totalRej) > 0
-      ? +((totalRej / (totalProd + totalRej)) * 100).toFixed(2) : 0],
-    ["Linhas Monitoradas", fabricaData.linhas.length],
-    ["Máquinas Monitoradas", allMaquinas.length],
-  ];
+    const titleRow = ws.addRow(["Relatório de Produção"]);
+    ws.mergeCells(`A${titleRow.number}:B${titleRow.number}`);
+    titleRow.getCell(1).font  = { bold: true, size: 16, color: { argb: BRAND } };
+    titleRow.getCell(1).alignment = { horizontal: "center" };
+    titleRow.height = 28;
 
-  if (funil) {
-    resumoRows.push([]);
-    resumoRows.push(["Funil de Ordens", ""]);
-    resumoRows.push(["Status", "Qtd OPs", "Peças"]);
-    for (const [key, label] of [["fila","Na Fila"],["em_producao","Em Produção"],["finalizado","Finalizados"],["cancelado","Cancelados"]]) {
-      const d = funil[key] || {};
-      resumoRows.push([label, d.qty || 0, d.pecas || 0]);
+    const subRow = ws.addRow([`Período: ${fmtDt(inicio)} → ${fmtDt(fim)}`]);
+    ws.mergeCells(`A${subRow.number}:B${subRow.number}`);
+    subRow.getCell(1).font = { italic: true, color: { argb: GRAY }, size: 10 };
+    subRow.getCell(1).alignment = { horizontal: "center" };
+
+    ws.addRow([]);
+
+    const hdr = ws.addRow(["Indicador", "Valor"]);
+    headerStyle(ws, hdr, 2);
+    hdr.height = 20;
+
+    const kpis = [
+      ["OEE Global (%)",       fabricaData.oee_global ?? "—", oeeArgb(fabricaData.oee_global)],
+      ["Produção Total (un)",  totalProd,  BRAND],
+      ["Meta Total (un)",      totalMeta,  GRAY],
+      ["Aderência à Meta (%)", totalMeta > 0 ? +((totalProd / totalMeta) * 100).toFixed(1) : "—",
+                               oeeArgb(totalMeta > 0 ? (totalProd / totalMeta) * 100 : 0)],
+      ["Total Rejeitado (un)", totalRej,   taxaRej > 10 ? RED : GREEN],
+      ["Taxa de Rejeição (%)", taxaRej,    taxaRej > 10 ? RED : GREEN],
+      ["Linhas Monitoradas",   fabricaData.linhas.length, BRAND],
+      ["Máquinas Monitoradas", allMaquinas.length,         BRAND],
+    ];
+
+    kpis.forEach(([label, val, argb], i) => {
+      const r = ws.addRow([label, val]);
+      dataStyle(r, 2, i % 2 === 0);
+      r.getCell(1).font = { bold: true, size: 10 };
+      coloredCell(r.getCell(2), argb);
+      r.getCell(2).alignment = { horizontal: "center" };
+    });
+
+    if (funil) {
+      ws.addRow([]);
+      const fhdr = ws.addRow(["Status das Ordens", "Qtd OPs", "Peças"]);
+      ws.columns[2] = { key: "c", width: 16 };
+      headerStyle(ws, fhdr, 3, "FF374151");
+      fhdr.height = 18;
+      const funilRows = [
+        ["Na Fila",       funil.fila?.qty        || 0, funil.fila?.pecas        || 0],
+        ["Em Produção",   funil.em_producao?.qty  || 0, funil.em_producao?.pecas  || 0],
+        ["Finalizados",   funil.finalizado?.qty   || 0, funil.finalizado?.pecas   || 0],
+        ["Cancelados",    funil.cancelado?.qty    || 0, funil.cancelado?.pecas    || 0],
+      ];
+      funilRows.forEach(([label, qty, pecas], i) => {
+        const r = ws.addRow([label, qty, pecas]);
+        dataStyle(r, 3, i % 2 === 0);
+        r.getCell(1).font = { bold: true, size: 10 };
+      });
     }
   }
-
-  const wsResumo = XLSX.utils.aoa_to_sheet(resumoRows);
-  wsResumo["!cols"] = [{ wch: 28 }, { wch: 22 }, { wch: 14 }];
-  XLSX.utils.book_append_sheet(wb, wsResumo, "Resumo");
 
   // ── Aba 2: Linhas ─────────────────────────────────────────────────────────
-  const linhasRows = [
-    ["Linha", "OEE (%)", "Produzido (un)", "Meta (un)", "Aderência (%)", "Qtd Máquinas"],
-  ];
-  for (const l of fabricaData.linhas) {
-    linhasRows.push([
-      l.nome,
-      l.oee ?? "—",
-      l.realizado,
-      l.meta_total,
-      l.realizado_pct ?? "—",
-      l.maquinas?.length || 0,
-    ]);
+  {
+    const ws = wb.addWorksheet("Linhas");
+    ws.columns = [
+      { header: "Linha",          key: "nome",        width: 22 },
+      { header: "OEE (%)",        key: "oee",         width: 12 },
+      { header: "Produzido (un)", key: "realizado",   width: 16 },
+      { header: "Meta (un)",      key: "meta",        width: 14 },
+      { header: "Aderência (%)",  key: "aderencia",   width: 14 },
+      { header: "Máquinas",       key: "maquinas",    width: 12 },
+    ];
+
+    const hdr = ws.getRow(1);
+    headerStyle(ws, hdr, 6);
+    hdr.height = 20;
+
+    fabricaData.linhas.forEach((l, i) => {
+      const ader = l.meta_total > 0 ? +((l.realizado / l.meta_total) * 100).toFixed(1) : 0;
+      const r = ws.addRow({
+        nome: l.nome,
+        oee: l.oee ?? "—",
+        realizado: l.realizado || 0,
+        meta: l.meta_total || 0,
+        aderencia: ader,
+        maquinas: l.maquinas?.length || 0,
+      });
+      dataStyle(r, 6, i % 2 === 0);
+      coloredCell(r.getCell(2), oeeArgb(l.oee));
+      r.getCell(2).alignment = { horizontal: "center" };
+      coloredCell(r.getCell(5), oeeArgb(ader));
+      r.getCell(5).alignment = { horizontal: "center" };
+    });
   }
-  const wsLinhas = XLSX.utils.aoa_to_sheet(linhasRows);
-  wsLinhas["!cols"] = [{ wch: 20 }, { wch: 10 }, { wch: 16 }, { wch: 12 }, { wch: 14 }, { wch: 14 }];
-  XLSX.utils.book_append_sheet(wb, wsLinhas, "Linhas");
 
   // ── Aba 3: Máquinas ───────────────────────────────────────────────────────
-  const maqRows = [
-    ["Linha", "Máquina", "OEE (%)", "Disponibilidade (%)", "Performance (%)", "Qualidade (%)",
-     "Produzido (un)", "Meta (un)", "Rejeitado (un)", "Status"],
-  ];
-  for (const l of fabricaData.linhas) {
-    for (const m of (l.maquinas || [])) {
-      maqRows.push([
-        l.nome, m.nome,
-        m.oee ?? "—", m.disponibilidade ?? "—", m.performance ?? "—", m.qualidade ?? "—",
-        m.produzido, m.meta, m.reprovado, m.status || "—",
-      ]);
+  {
+    const ws = wb.addWorksheet("Máquinas");
+    ws.columns = [
+      { header: "Linha",                key: "linha",   width: 20 },
+      { header: "Máquina",              key: "nome",    width: 22 },
+      { header: "OEE (%)",              key: "oee",     width: 10 },
+      { header: "Disponibilidade (%)",  key: "disp",    width: 20 },
+      { header: "Performance (%)",      key: "perf",    width: 16 },
+      { header: "Qualidade (%)",        key: "qual",    width: 14 },
+      { header: "Produzido (un)",       key: "prod",    width: 16 },
+      { header: "Meta (un)",            key: "meta",    width: 12 },
+      { header: "Rejeitado (un)",       key: "rej",     width: 14 },
+      { header: "Status",              key: "status",  width: 24 },
+    ];
+
+    const hdr = ws.getRow(1);
+    headerStyle(ws, hdr, 10);
+    hdr.height = 20;
+
+    let rowIdx = 0;
+    for (const l of fabricaData.linhas) {
+      for (const m of (l.maquinas || [])) {
+        const r = ws.addRow({
+          linha: l.nome, nome: m.nome,
+          oee:  m.oee   ?? "—", disp: m.disponibilidade ?? "—",
+          perf: m.performance ?? "—", qual: m.qualidade ?? "—",
+          prod: m.produzido || 0, meta: m.meta || 0,
+          rej:  m.reprovado || 0, status: m.status || "—",
+        });
+        dataStyle(r, 10, rowIdx % 2 === 0);
+        coloredCell(r.getCell(3), oeeArgb(m.oee));
+        r.getCell(3).alignment = { horizontal: "center" };
+        coloredCell(r.getCell(4), oeeArgb(m.disponibilidade));
+        r.getCell(4).alignment = { horizontal: "center" };
+        coloredCell(r.getCell(5), oeeArgb(m.performance));
+        r.getCell(5).alignment = { horizontal: "center" };
+        coloredCell(r.getCell(6), oeeArgb(m.qualidade));
+        r.getCell(6).alignment = { horizontal: "center" };
+        if ((m.reprovado || 0) > 0) coloredCell(r.getCell(9), RED);
+        rowIdx++;
+      }
     }
   }
-  const wsMaq = XLSX.utils.aoa_to_sheet(maqRows);
-  wsMaq["!cols"] = [{ wch: 18 }, { wch: 20 }, { wch: 10 }, { wch: 20 }, { wch: 16 }, { wch: 14 },
-                   { wch: 16 }, { wch: 12 }, { wch: 16 }, { wch: 22 }];
-  XLSX.utils.book_append_sheet(wb, wsMaq, "Máquinas");
 
-  // ── Gerar arquivo ─────────────────────────────────────────────────────────
-  const ts = new Date().toISOString().slice(0, 16).replace("T", "_").replace(":", "h");
-  XLSX.writeFile(wb, `relatorio_producao_${ts}.xlsx`);
+  // ── Gerar download ────────────────────────────────────────────────────────
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  const ts   = new Date().toISOString().slice(0, 16).replace("T", "_").replace(":", "h");
+  a.href     = url;
+  a.download = `relatorio_producao_${ts}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ─── Atalhos de período ───────────────────────────────────────────────────────
@@ -896,7 +1158,7 @@ export default function Historico() {
           </button>
           {fabricaData && (
             <button className="hi-buscar-btn hi-export-btn"
-              onClick={() => exportarExcel(fabricaData, funil, inicio, fim)}>
+              onClick={() => exportarExcel(fabricaData, funil, inicio, fim).catch(console.error)}>
               ⬇ Exportar Excel
             </button>
           )}
