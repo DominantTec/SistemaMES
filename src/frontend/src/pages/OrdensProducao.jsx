@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, memo, useCallback } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -35,7 +35,7 @@ function badgePrioridade(p) {
 }
 
 // ---- Card (draggable) ----
-function OPCard({ op, onDelete, isOverlay = false }) {
+const OPCard = memo(function OPCard({ op, onDelete, isOverlay = false }) {
   const { attributes, listeners, setNodeRef, isDragging } =
     useDraggable({ id: op.id });
 
@@ -149,10 +149,17 @@ function OPCard({ op, onDelete, isOverlay = false }) {
       </div>
     </div>
   );
-}
+}, (prev, next) =>
+  prev.op.status === next.op.status &&
+  prev.op.prioridade === next.op.prioridade &&
+  prev.op.produzido === next.op.produzido &&
+  prev.op.refugo === next.op.refugo &&
+  prev.isOverlay === next.isOverlay &&
+  prev.onDelete === next.onDelete
+);
 
 // ---- Coluna (droppable) ----
-function Coluna({ coluna, ordens, onDelete }) {
+const Coluna = memo(function Coluna({ coluna, ordens, onDelete }) {
   const { setNodeRef, isOver } = useDroppable({ id: coluna.id });
 
   return (
@@ -172,7 +179,7 @@ function Coluna({ coluna, ordens, onDelete }) {
       </div>
     </div>
   );
-}
+});
 
 // ---- Modal Nova OP ----
 function NovaOPModal({ linhas, onClose, onSave }) {
@@ -886,11 +893,11 @@ export default function OrdensProducao() {
     setShowModal(false);
   }
 
-  function handleDelete(id) {
+  const handleDelete = useCallback(function handleDelete(id) {
     if (!window.confirm("Excluir esta ordem de produção?")) return;
     setOrdens((prev) => prev.filter((o) => o.id !== id));
     fetch(`${API_BASE}/api/ordens/${id}`, { method: "DELETE" }).catch(() => {});
-  }
+  }, []);
 
   // Filtragem
   const ordensFiltradas = ordens.filter((op) => {

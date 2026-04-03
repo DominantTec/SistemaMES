@@ -1,6 +1,7 @@
 from datetime import datetime, date, time, timedelta
 from typing import List, Dict, Any, Optional
 import math
+import time as _time
 import pandas as pd
 
 from api.services.db import run_query, run_query_update, run_query_insert
@@ -11,13 +12,39 @@ from api.services.db import run_query, run_query_update, run_query_insert
 # (NÃO COLOCAR ROTAS AQUI)
 # =========================
 
+# ─── Cache de linhas ────────────────────────────────────────────────────────
+_LINES_TTL = 30.0          # segundos
+_lines_cache: dict = {"df": None, "ts": 0.0}
+
 def get_lines_df():
+    now = _time.monotonic()
+    if _lines_cache["df"] is not None and (now - _lines_cache["ts"]) < _LINES_TTL:
+        return _lines_cache["df"]
     df = run_query("""
         SELECT id_linha_producao, tx_name
         FROM dbo.tb_linha_producao
         ORDER BY id_linha_producao
     """)
+    _lines_cache["df"] = df
+    _lines_cache["ts"] = now
     return df
+
+
+# ─── Cache / dirty-flag do recalcular_turno_ordens_ativas ──────────────────
+# _meta_dirty: ativado quando uma OP muda de status → força recalc imediato
+# _last_meta_recalc_ts: timestamp do último recalc de metas (Part 3)
+# _ocorrencias_ts: por linha — quando foi a última verificação de ocorrências
+_META_RECALC_INTERVAL   = 10.0    # segundos entre recalcs periódicos de meta
+_OCORRENCIAS_INTERVAL   = 300.0   # 5 min entre ensure_ocorrencias por linha
+_meta_dirty:           bool  = False
+_last_meta_recalc_ts:  float = 0.0
+_ocorrencias_ts:       dict  = {}  # {lid: monotonic_ts}
+
+
+def _mark_meta_dirty() -> None:
+    """Sinaliza que as metas precisam ser recalculadas na próxima chamada."""
+    global _meta_dirty
+    _meta_dirty = True
 
 
 # ─── Schema auto-migration ──────────────────────────────────────────────────
@@ -2306,6 +2333,7 @@ def _ativar_proxima_op(linha_id: int) -> None:
 def update_ordem_status(ordem_id: int, new_status: str) -> dict:
     """
     Atualiza o status de uma OP tratando todos os cenários:
+    Marca _meta_dirty para forçar recalc imediato no próximo tick do background.
 
     fila        → em_producao : recalcula metas; bloqueia se já há outra ativa na linha;
                                  seta meta das máquinas
@@ -2445,6 +2473,7 @@ def update_ordem_status(ordem_id: int, new_status: str) -> dict:
             "id":       ordem_id,
         })
 
+    _mark_meta_dirty()
     return {"ok": True}
 
 
@@ -2667,6 +2696,9 @@ def _get_producao_refugo_op(linha_id: int, dt_inicio: datetime, peca_id: int = N
     passa por múltiplas máquinas, então somar todas as etapas multiplicaria a contagem.
     Quando peca_id não é fornecido (sem roteiro configurado), usa todas as máquinas
     da linha como fallback.
+
+    Usa uma única query com GROUP BY para cobrir todas as IHMs e ambas as descrições,
+    eliminando o loop N+1 anterior (2 × N_máquinas queries → 1 query).
     """
     terminal_ihms: list = []
     if peca_id:
@@ -2682,33 +2714,41 @@ def _get_producao_refugo_op(linha_id: int, dt_inicio: datetime, peca_id: int = N
             return {"produzido": 0, "refugo": 0}
         terminal_ihms = [int(r["id_ihm"]) for _, r in df_maquinas.iterrows()]
 
+    # Uma única query para todos os IHMs e ambas as descrições
+    ids_placeholder = ",".join(str(i) for i in terminal_ihms)
+    df = run_query(f"""
+        SELECT
+            lr.id_ihm,
+            r.tx_descricao,
+            MAX(CASE WHEN lr.dt_created_at <  :dt THEN lr.nu_valor_bruto ELSE NULL END) AS v_base,
+            MAX(CASE WHEN lr.dt_created_at >= :dt THEN lr.nu_valor_bruto ELSE NULL END) AS v_curr,
+            MIN(CASE WHEN lr.dt_created_at >= :dt THEN lr.nu_valor_bruto ELSE NULL END) AS v_first
+        FROM dbo.tb_log_registrador lr
+        JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
+        WHERE lr.id_ihm IN ({ids_placeholder})
+          AND r.tx_descricao IN ('produzido', 'reprovado')
+        GROUP BY lr.id_ihm, r.tx_descricao
+    """, {"dt": dt_inicio})
+
     conformes = 0
     refugo    = 0
-    for iid in terminal_ihms:
-        for desc in ("produzido", "reprovado"):
-            df = run_query("""
-                SELECT
-                    MAX(CASE WHEN lr.dt_created_at <  :dt THEN lr.nu_valor_bruto ELSE NULL END) AS v_base,
-                    MAX(CASE WHEN lr.dt_created_at >= :dt THEN lr.nu_valor_bruto ELSE NULL END) AS v_curr,
-                    MIN(CASE WHEN lr.dt_created_at >= :dt THEN lr.nu_valor_bruto ELSE NULL END) AS v_first
-                FROM dbo.tb_log_registrador lr
-                JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
-                WHERE lr.id_ihm      = :id
-                  AND r.tx_descricao = :desc
-            """, {"id": iid, "desc": desc, "dt": dt_inicio})
-            if not df.empty and df.iloc[0]["v_curr"] is not None:
-                row = df.iloc[0]
-                v_curr  = float(row["v_curr"])
-                v_base  = float(row["v_base"])  if row["v_base"]  is not None else None
-                v_first = float(row["v_first"]) if row["v_first"] is not None else None
-                baseline = v_base if v_base is not None else v_first
-                if baseline is not None:
-                    delta = v_curr - baseline
-                    if delta > 0:
-                        if desc == "produzido":
-                            conformes += int(delta)
-                        else:
-                            refugo += int(delta)
+    for _, row in df.iterrows():
+        if row["v_curr"] is None:
+            continue
+        v_curr   = float(row["v_curr"])
+        v_base   = float(row["v_base"])  if row["v_base"]  is not None else None
+        v_first  = float(row["v_first"]) if row["v_first"] is not None else None
+        baseline = v_base if v_base is not None else v_first
+        if baseline is None:
+            continue
+        delta = v_curr - baseline
+        if delta <= 0:
+            continue
+        if row["tx_descricao"] == "produzido":
+            conformes += int(delta)
+        else:
+            refugo += int(delta)
+
     return {"produzido": conformes, "refugo": refugo}
 
 
@@ -2932,18 +2972,30 @@ def recalcular_turno_ordens_ativas() -> None:
     Verifica OPs em produção cujo turno calculado já expirou e redistribui
     as peças restantes para o turno seguinte (rollover automático).
     Chamado a cada broadcast do WebSocket de ordens.
+
+    Otimizações de performance:
+    - `_ensure_ocorrencias_futuras` por linha: no máximo 1x a cada 5 min
+    - Part 3 (recalc de metas): a cada 10s OU imediatamente após mudança de OP
+    - `get_lines_df()`: cacheado por 30s
     """
+    global _meta_dirty, _last_meta_recalc_ts, _ocorrencias_ts
+
     _ensure_schema()
-    agora = datetime.now()
+    agora    = datetime.now()
+    agora_mt = _time.monotonic()
 
     # === Parte 1: Gerencia ocorrências de turno ===
 
     # Garante ocorrências futuras para todas as linhas
+    # (no máximo 1x a cada _OCORRENCIAS_INTERVAL por linha)
     try:
         df_linhas = get_lines_df()
         for _, linha in df_linhas.iterrows():
             lid = int(linha["id_linha_producao"])
-            _ensure_ocorrencias_futuras(lid)
+            last = _ocorrencias_ts.get(lid, 0.0)
+            if agora_mt - last >= _OCORRENCIAS_INTERVAL:
+                _ensure_ocorrencias_futuras(lid)
+                _ocorrencias_ts[lid] = agora_mt
     except Exception:
         pass
 
@@ -3076,20 +3128,27 @@ def recalcular_turno_ordens_ativas() -> None:
         pass
 
     # === Parte 3: Recalcula metas para linhas com OPs ativas ===
+    # Executa imediatamente se _meta_dirty (mudança recente de OP) OU
+    # se já passaram _META_RECALC_INTERVAL segundos desde o último recalc.
+    deve_recalc = _meta_dirty or (agora_mt - _last_meta_recalc_ts >= _META_RECALC_INTERVAL)
+    if deve_recalc:
+        _meta_dirty = False
+        _last_meta_recalc_ts = agora_mt
     # Aplica redução de meta por rejeições upstream em tempo real.
-    try:
-        df_linhas_ativas = run_query("""
-            SELECT DISTINCT id_linha_producao
-            FROM dbo.tb_ordem_producao
-            WHERE tx_status = 'em_producao'
-        """, {})
-        for _, row in df_linhas_ativas.iterrows():
-            try:
-                _recalcular_metas_linha(int(row["id_linha_producao"]))
-            except Exception:
-                pass
-    except Exception:
-        pass
+    if deve_recalc:
+        try:
+            df_linhas_ativas = run_query("""
+                SELECT DISTINCT id_linha_producao
+                FROM dbo.tb_ordem_producao
+                WHERE tx_status = 'em_producao'
+            """, {})
+            for _, row in df_linhas_ativas.iterrows():
+                try:
+                    _recalcular_metas_linha(int(row["id_linha_producao"]))
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
 
 # ─── Distribuição e Fluxo de Produção ────────────────────────────────────────

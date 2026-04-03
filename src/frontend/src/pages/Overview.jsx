@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, memo } from "react";
 import { Link } from "react-router-dom";
 import "./overview.css";
 
@@ -33,16 +33,16 @@ function oeeColor(val) {
   return "#dc2626";
 }
 
-function ProgressBar({ value, color }) {
+const ProgressBar = memo(function ProgressBar({ value, color }) {
   const pct = Math.min(Math.max(Number(value) || 0, 0), 100);
   return (
     <div className="ov-bar-track">
       <div className="ov-bar-fill" style={{ width: `${pct}%`, background: color }} />
     </div>
   );
-}
+});
 
-function MetricRow({ label, value, color }) {
+const MetricRow = memo(function MetricRow({ label, value, color }) {
   return (
     <div className="ov-metric-row">
       <span className="ov-metric-label">{label}</span>
@@ -50,9 +50,9 @@ function MetricRow({ label, value, color }) {
       <span className="ov-metric-value" style={{ color }}>{value}%</span>
     </div>
   );
-}
+});
 
-function MachineCard({ machine }) {
+const MachineCard = memo(function MachineCard({ machine }) {
   const st = getStatus(machine.status);
   const oc = oeeColor(machine.oee);
   return (
@@ -86,9 +86,15 @@ function MachineCard({ machine }) {
       </div>
     </div>
   );
-}
+}, (prev, next) => {
+  const m1 = prev.machine, m2 = next.machine;
+  return m1.status === m2.status && m1.oee === m2.oee
+    && m1.disponibilidade === m2.disponibilidade && m1.qualidade === m2.qualidade
+    && m1.produzido === m2.produzido && m1.reprovado === m2.reprovado
+    && m1.meta === m2.meta && m1.op === m2.op;
+});
 
-function LineSection({ linha }) {
+const LineSection = memo(function LineSection({ linha }) {
   return (
     <div className="ov-line-section">
       <div className="ov-line-header">
@@ -108,7 +114,12 @@ function LineSection({ linha }) {
       </div>
     </div>
   );
-}
+}, (prev, next) => {
+  const l1 = prev.linha, l2 = next.linha;
+  return l1.meta_hora === l2.meta_hora && l1.realizado === l2.realizado
+    && l1.realizado_pct === l2.realizado_pct
+    && JSON.stringify(l1.maquinas) === JSON.stringify(l2.maquinas);
+});
 
 function EventTicker({ eventos }) {
   if (!eventos || eventos.length === 0) return null;
