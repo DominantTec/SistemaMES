@@ -2,6 +2,8 @@ from typing import List, Optional
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from fastapi import HTTPException
+
 from api.services.queries import (
     get_all_machines, get_machine_config_data, update_machine_config,
     get_overview_turno, get_line_shifts, update_line_shifts, get_lines_df,
@@ -9,7 +11,8 @@ from api.services.queries import (
     get_pecas_by_linha, create_peca, delete_peca,
     get_rota_peca, update_rota_peca,
     get_machines_by_line_df, update_machine_tipo,
-    get_historico_turnos,
+    get_historico_turnos, get_proximos_turnos,
+    abrir_turno_manual, fechar_turno_manual,
 )
 
 router = APIRouter(prefix="/api/config", tags=["config"])
@@ -85,6 +88,30 @@ def save_line_turnos(line_id: int, body: list[DiaCalendario]):
 def get_turnos_historico(line_id: int, limit: int = 20):
     """Retorna o histórico de ocorrências de turno de uma linha."""
     return get_historico_turnos(line_id, limit)
+
+
+@router.get("/lines/{line_id}/turnos/proximos")
+def get_turnos_proximos(line_id: int):
+    """Retorna os próximos turnos para gestão (em_andamento + agendados + últimos finalizados)."""
+    return get_proximos_turnos(line_id)
+
+
+@router.post("/turnos/{ocorrencia_id}/iniciar")
+def iniciar_turno(ocorrencia_id: int):
+    """Gerente inicia manualmente um turno agendado."""
+    try:
+        return abrir_turno_manual(ocorrencia_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/turnos/{ocorrencia_id}/finalizar")
+def finalizar_turno(ocorrencia_id: int):
+    """Gerente finaliza manualmente um turno em andamento."""
+    try:
+        return fechar_turno_manual(ocorrencia_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 class PecaCreate(BaseModel):

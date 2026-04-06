@@ -640,15 +640,39 @@ function OrdensTable({ ordens }) {
 }
 
 function LinhaTab({ linhas, inicio, fim }) {
-  const [selectedId, setSelectedId] = useState("");
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [selectedId, setSelectedId]     = useState("");
+  const [turnoOpts, setTurnoOpts]       = useState([]);
+  const [selectedTurno, setSelectedTurno] = useState("");
+  const [data, setData]                 = useState(null);
+  const [loading, setLoading]           = useState(false);
+  const [error, setError]               = useState(null);
+
+  // Busca turnos disponíveis ao selecionar a linha
+  useEffect(() => {
+    if (!selectedId) { setTurnoOpts([]); setSelectedTurno(""); return; }
+    fetch(`${API_BASE}/api/config/lines/${selectedId}/turnos/historico?limit=60`)
+      .then((r) => r.json())
+      .then((list) => {
+        // Mostra apenas turnos finalizados ou em_andamento (com dados reais)
+        const opts = list.filter((t) => t.status !== "agendado");
+        setTurnoOpts(opts);
+        setSelectedTurno("");
+      })
+      .catch(() => { setTurnoOpts([]); setSelectedTurno(""); });
+  }, [selectedId]);
+
+  function fmtTurnoLabel(t) {
+    const dt = t.dt_real_inicio || t.dt_inicio;
+    if (!dt) return t.nome;
+    const d = new Date(dt);
+    return `${t.nome} — ${d.toLocaleDateString("pt-BR")} ${d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+  }
 
   function analisar() {
     if (!selectedId) return;
     setLoading(true); setError(null); setData(null);
-    fetch(`${API_BASE}/api/historico/linha/${selectedId}?data_inicio=${encode(inicio)}&data_fim=${encode(fim)}`)
+    const turnoParam = selectedTurno ? `&turno_id=${selectedTurno}` : "";
+    fetch(`${API_BASE}/api/historico/linha/${selectedId}?data_inicio=${encode(inicio)}&data_fim=${encode(fim)}${turnoParam}`)
       .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
       .then((d) => { setData(d); setLoading(false); })
       .catch((e) => { setError(String(e)); setLoading(false); });
@@ -660,6 +684,18 @@ function LinhaTab({ linhas, inicio, fim }) {
         <select className="hi-select" value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>
           <option value="">— Selecione uma linha —</option>
           {(linhas || []).map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
+        </select>
+        <select
+          className="hi-select"
+          value={selectedTurno}
+          onChange={(e) => setSelectedTurno(e.target.value)}
+          disabled={!selectedId || turnoOpts.length === 0}
+          title="Filtrar por turno específico (opcional)"
+        >
+          <option value="">Todos os turnos do período</option>
+          {turnoOpts.map((t) => (
+            <option key={t.id_ocorrencia} value={t.id_ocorrencia}>{fmtTurnoLabel(t)}</option>
+          ))}
         </select>
         <button className="hi-buscar-btn" onClick={analisar} disabled={!selectedId || loading}>
           {loading ? <><Spinner size={14} /> Analisando...</> : "Analisar"}

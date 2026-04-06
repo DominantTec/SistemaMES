@@ -1221,6 +1221,86 @@ def _fechar_turno(id_ocorrencia: int, linha_id: int) -> None:
     """, {"agora": agora, "prod": nu_produzido, "id": id_ocorrencia})
 
 
+def get_proximos_turnos(linha_id: int) -> list:
+    """Retorna os turnos pendentes de ação do gerente: em_andamento + agendados futuros/presentes.
+    Inclui também os últimos 2 turnos finalizados para contexto.
+    """
+    _ensure_schema()
+    agora = datetime.now()
+
+    df = run_query("""
+        SELECT id_ocorrencia, tx_nome, dt_inicio, dt_fim,
+               dt_real_inicio, dt_real_fim, tx_status, nu_meta, nu_produzido
+        FROM dbo.tb_turno_ocorrencia
+        WHERE id_linha_producao = :lid
+          AND (
+            tx_status IN ('em_andamento', 'agendado')
+            OR (tx_status = 'finalizado' AND dt_inicio >= DATEADD(HOUR, -48, :agora))
+          )
+        ORDER BY
+          CASE WHEN tx_status = 'em_andamento' THEN 0
+               WHEN tx_status = 'agendado'     THEN 1
+               ELSE 2
+          END,
+          dt_inicio
+    """, {"lid": linha_id, "agora": agora})
+
+    if df.empty:
+        return []
+
+    result = []
+    for _, r in df.iterrows():
+        result.append({
+            "id_ocorrencia": int(r["id_ocorrencia"]),
+            "nome":          r["tx_nome"],
+            "dt_inicio":     r["dt_inicio"].isoformat() if r["dt_inicio"] is not None else None,
+            "dt_fim":        r["dt_fim"].isoformat()    if r["dt_fim"]    is not None else None,
+            "dt_real_inicio": r["dt_real_inicio"].isoformat() if r["dt_real_inicio"] is not None else None,
+            "dt_real_fim":    r["dt_real_fim"].isoformat()    if r["dt_real_fim"]    is not None else None,
+            "status":        r["tx_status"],
+            "meta":          int(r["nu_meta"]),
+            "produzido":     int(r["nu_produzido"]),
+        })
+    return result
+
+
+def abrir_turno_manual(id_ocorrencia: int) -> dict:
+    """Abre um turno manualmente pelo gerente."""
+    _ensure_schema()
+    df = run_query("""
+        SELECT id_linha_producao, tx_status
+        FROM dbo.tb_turno_ocorrencia
+        WHERE id_ocorrencia = :id
+    """, {"id": id_ocorrencia})
+    if df.empty:
+        raise ValueError(f"Ocorrência {id_ocorrencia} não encontrada.")
+    row = df.iloc[0]
+    if row["tx_status"] != "agendado":
+        raise ValueError(f"Turno está com status '{row['tx_status']}', não pode ser iniciado.")
+    linha_id = int(row["id_linha_producao"])
+    _abrir_turno(id_ocorrencia, linha_id)
+    _recalcular_metas_linha(linha_id)
+    return {"ok": True}
+
+
+def fechar_turno_manual(id_ocorrencia: int) -> dict:
+    """Fecha um turno manualmente pelo gerente."""
+    _ensure_schema()
+    df = run_query("""
+        SELECT id_linha_producao, tx_status
+        FROM dbo.tb_turno_ocorrencia
+        WHERE id_ocorrencia = :id
+    """, {"id": id_ocorrencia})
+    if df.empty:
+        raise ValueError(f"Ocorrência {id_ocorrencia} não encontrada.")
+    row = df.iloc[0]
+    if row["tx_status"] != "em_andamento":
+        raise ValueError(f"Turno está com status '{row['tx_status']}', não está em andamento.")
+    linha_id = int(row["id_linha_producao"])
+    _fechar_turno(id_ocorrencia, linha_id)
+    return {"ok": True}
+
+
 def get_historico_turnos(linha_id: int, limit: int = 20) -> list:
     """Retorna o histórico de ocorrências de turno de uma linha."""
     _ensure_schema()
@@ -1331,38 +1411,59 @@ def update_machine_config(machine_id: int, meta: int, peca_nome: str) -> dict:
 
 
 def get_overview_turno() -> dict:
-    """Informações do turno atual (lê de tb_turno_ocorrencia)."""
+    """Informações do turno atual (lê de tb_turno_ocorrencia).
+
+    Retorna:
+        nome, encerra_em, progresso_pct, nu_meta, status
+        status: 'em_andamento' | 'aguardando_inicio' | '-'
+    Para turnos em_andamento, usa dt_real_inicio + duração teórica para calcular
+    progresso e tempo restante com base no tempo real.
+    """
     _ensure_schema()
-    agora_ov = datetime.now()
+    agora = datetime.now()
+    # Prioriza turno em_andamento; se não houver, mostra o próximo agendado
     df = run_query("""
-        SELECT TOP 1 id_ocorrencia, tx_nome, dt_inicio, dt_fim, nu_meta
+        SELECT TOP 1 id_ocorrencia, tx_nome, dt_inicio, dt_fim,
+                     dt_real_inicio, tx_status, nu_meta
         FROM dbo.tb_turno_ocorrencia
-        WHERE dt_inicio <= :agora AND dt_fim >= :agora
-          AND tx_status IN ('em_andamento', 'agendado')
-        ORDER BY dt_inicio
-    """, {"agora": agora_ov})
+        WHERE tx_status IN ('em_andamento', 'agendado')
+          AND (tx_status = 'em_andamento' OR (dt_inicio <= :agora AND dt_fim >= :agora))
+        ORDER BY
+          CASE WHEN tx_status = 'em_andamento' THEN 0 ELSE 1 END,
+          dt_inicio
+    """, {"agora": agora})
 
     if df.empty:
-        return {"nome": "-", "encerra_em": "-", "progresso_pct": 0, "nu_meta": 0}
+        return {"nome": "-", "encerra_em": "-", "progresso_pct": 0, "nu_meta": 0, "status": "-"}
 
-    row = df.iloc[0]
-    agora     = datetime.now()
+    row       = df.iloc[0]
     dt_inicio = row["dt_inicio"]
     dt_fim    = row["dt_fim"]
+    duracao_s = (dt_fim - dt_inicio).total_seconds()
+    status    = row["tx_status"]
 
-    duracao   = (dt_fim - dt_inicio).total_seconds()
-    decorrido = (agora - dt_inicio).total_seconds()
-    progresso = int(100 * decorrido / duracao) if duracao else 0
+    if status == "em_andamento" and row["dt_real_inicio"] is not None:
+        # Usa tempo real: início real + duração teórica = fim esperado
+        dt_real_ini  = row["dt_real_inicio"]
+        expected_end = dt_real_ini + (dt_fim - dt_inicio)
+        decorrido_s  = (agora - dt_real_ini).total_seconds()
+        progresso    = int(100 * decorrido_s / duracao_s) if duracao_s else 0
+        restante_s   = max(0, (expected_end - agora).total_seconds())
+    else:
+        # Turno agendado aguardando início — mostra tempo até início teórico
+        decorrido_s = 0
+        progresso   = 0
+        restante_s  = max(0, (dt_fim - agora).total_seconds())
 
-    restante_s    = max(0, (dt_fim - agora).total_seconds())
-    horas, resto  = divmod(int(restante_s), 3600)
-    encerra_em    = f"{horas:02d}:{resto // 60:02d}h"
+    horas, resto = divmod(int(restante_s), 3600)
+    encerra_em   = f"{horas:02d}:{resto // 60:02d}h"
 
     return {
         "nome":          row["tx_nome"],
         "encerra_em":    encerra_em,
         "progresso_pct": min(100, max(0, progresso)),
         "nu_meta":       int(row["nu_meta"]),
+        "status":        "aguardando_inicio" if status == "agendado" else "em_andamento",
     }
 
 
@@ -1611,8 +1712,21 @@ def get_ordens_funil(dt_inicio: datetime, dt_fim: datetime) -> dict:
             for s in ("fila", "em_producao", "finalizado", "cancelado")}
 
 
-def get_historico_linha_detalhe(linha_id: int, dt_inicio: datetime, dt_fim: datetime) -> dict:
-    """Payload detalhado de uma linha de produção para o período."""
+def get_historico_linha_detalhe(linha_id: int, dt_inicio: datetime, dt_fim: datetime,
+                                turno_id: int = None) -> dict:
+    """Payload detalhado de uma linha de produção para o período.
+    Se turno_id fornecido, restringe o intervalo ao tempo real do turno.
+    """
+    if turno_id is not None:
+        df_oc = run_query("""
+            SELECT dt_real_inicio, dt_real_fim, dt_inicio, dt_fim
+            FROM dbo.tb_turno_ocorrencia
+            WHERE id_ocorrencia = :id
+        """, {"id": turno_id})
+        if not df_oc.empty:
+            r = df_oc.iloc[0]
+            dt_inicio = r["dt_real_inicio"] if r["dt_real_inicio"] is not None else r["dt_inicio"]
+            dt_fim    = r["dt_real_fim"]    if r["dt_real_fim"]    is not None else (r["dt_fim"] if r["dt_fim"] is not None else dt_fim)
     df_l = run_query("""
         SELECT tx_name FROM dbo.tb_linha_producao WHERE id_linha_producao = :id
     """, {"id": linha_id})
@@ -2561,14 +2675,16 @@ def calcular_metas_op(linha_id: int, quantidade: int, peca_id: int = None) -> di
     agora = datetime.now()
 
     # Busca turno ativo em tb_turno_ocorrencia
-    # Considera 'em_andamento' e 'agendado' dentro da janela (evita race condition do tick)
+    # Prioriza em_andamento; aceita agendado dentro da janela como fallback
     df_turno = run_query("""
-        SELECT TOP 1 dt_inicio, dt_fim
+        SELECT TOP 1 dt_inicio, dt_fim, dt_real_inicio, tx_status
         FROM dbo.tb_turno_ocorrencia
         WHERE id_linha_producao = :lid
-          AND dt_inicio <= :agora AND dt_fim >= :agora
           AND tx_status IN ('em_andamento', 'agendado')
-        ORDER BY dt_inicio
+          AND (tx_status = 'em_andamento' OR (dt_inicio <= :agora AND dt_fim >= :agora))
+        ORDER BY
+          CASE WHEN tx_status = 'em_andamento' THEN 0 ELSE 1 END,
+          dt_inicio
     """, {"lid": linha_id, "agora": agora})
 
     # Fallback legacy: tb_turnos
@@ -2585,7 +2701,16 @@ def calcular_metas_op(linha_id: int, quantidade: int, peca_id: int = None) -> di
     if df_turno.empty:
         return {"meta_turno_atual": 0, "pecas_proximos_turnos": quantidade, "dt_fim_turno": None}
 
-    dt_fim_turno    = df_turno.iloc[0]["dt_fim"]
+    row      = df_turno.iloc[0]
+    dt_inicio_t = row["dt_inicio"]
+    dt_fim_t    = row["dt_fim"]
+    duracao     = dt_fim_t - dt_inicio_t
+    # Usa tempo real se turno já foi iniciado pelo gerente
+    real_inicio = row.get("dt_real_inicio") if "dt_real_inicio" in row.index else None
+    if real_inicio is not None and row.get("tx_status") == "em_andamento":
+        dt_fim_turno = real_inicio + duracao
+    else:
+        dt_fim_turno = dt_fim_t
     horas_restantes = max(0.0, (dt_fim_turno - agora).total_seconds() / 3600)
 
     if peca_id:
@@ -2934,17 +3059,32 @@ def update_rota_peca(peca_id: int, steps: list) -> None:
 
 
 def _get_horas_restantes_turno(linha_id: int) -> float:
+    """Retorna horas restantes no turno ativo.
+    Para turnos em_andamento usa dt_real_inicio + duração teórica como referência de fim.
+    Para turnos agendados ainda não iniciados usa dt_fim diretamente.
+    """
     agora = datetime.now()
     df = run_query("""
-        SELECT TOP 1 dt_fim FROM dbo.tb_turno_ocorrencia
+        SELECT TOP 1 dt_inicio, dt_fim, dt_real_inicio, tx_status
+        FROM dbo.tb_turno_ocorrencia
         WHERE id_linha_producao = :lid
-          AND dt_inicio <= :agora AND dt_fim >= :agora
           AND tx_status IN ('em_andamento', 'agendado')
-        ORDER BY dt_inicio
+          AND (tx_status = 'em_andamento' OR (dt_inicio <= :agora AND dt_fim >= :agora))
+        ORDER BY
+          CASE WHEN tx_status = 'em_andamento' THEN 0 ELSE 1 END,
+          dt_inicio
     """, {"lid": linha_id, "agora": agora})
     if df.empty:
         return 0.0
-    return max(0.0, (df.iloc[0]["dt_fim"] - agora).total_seconds() / 3600)
+    row = df.iloc[0]
+    dt_inicio = row["dt_inicio"]
+    dt_fim    = row["dt_fim"]
+    duracao   = dt_fim - dt_inicio
+    if row["tx_status"] == "em_andamento" and row["dt_real_inicio"] is not None:
+        expected_end = row["dt_real_inicio"] + duracao
+    else:
+        expected_end = dt_fim
+    return max(0.0, (expected_end - agora).total_seconds() / 3600)
 
 
 def _set_meta_rota(peca_id: int, linha_id: int, peca_nome: str) -> None:
@@ -2999,45 +3139,16 @@ def recalcular_turno_ordens_ativas() -> None:
     except Exception:
         pass
 
-    # Fecha turnos em_andamento cujo dt_fim já passou
-    try:
-        df_closing = run_query("""
-            SELECT id_ocorrencia, id_linha_producao
-            FROM dbo.tb_turno_ocorrencia
-            WHERE tx_status = 'em_andamento' AND dt_fim < :agora
-        """, {"agora": agora})
-        for _, oc in df_closing.iterrows():
-            try:
-                _fechar_turno(int(oc["id_ocorrencia"]), int(oc["id_linha_producao"]))
-            except Exception:
-                pass
-    except Exception:
-        pass
-
-    # Marca turnos agendados que já expiraram (sem nunca terem aberto) como finalizado
+    # Turnos NÃO são abertos nem fechados automaticamente.
+    # O gerente controla manualmente via POST /api/config/turnos/{id}/iniciar e /finalizar.
+    # Apenas turnos agendados que já expiraram sem nunca terem sido iniciados
+    # são marcados como "finalizado" (turno perdido).
     try:
         run_query_update("""
             UPDATE dbo.tb_turno_ocorrencia
             SET tx_status = 'finalizado', nu_produzido = 0
             WHERE tx_status = 'agendado' AND dt_fim < :agora
         """, {"agora": agora})
-    except Exception:
-        pass
-
-    # Abre turnos agendados cujo intervalo inclui agora
-    try:
-        df_opening = run_query("""
-            SELECT id_ocorrencia, id_linha_producao
-            FROM dbo.tb_turno_ocorrencia
-            WHERE tx_status = 'agendado'
-              AND dt_inicio <= :agora AND dt_fim >= :agora
-        """, {"agora": agora})
-        for _, oc in df_opening.iterrows():
-            try:
-                _abrir_turno(int(oc["id_ocorrencia"]), int(oc["id_linha_producao"]))
-                _recalcular_metas_linha(int(oc["id_linha_producao"]))
-            except Exception:
-                pass
     except Exception:
         pass
 

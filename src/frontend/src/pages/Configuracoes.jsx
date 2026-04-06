@@ -13,6 +13,132 @@ function novoTurno() {
   return { dia: TODAY_NAME, nome: "", inicio: "07:00", fim: "15:00", ativo: true };
 }
 
+/* ── Seção: Controle de Turno (Gerente) ─────────────────── */
+function ControleTurno() {
+  const [linhas, setLinhas]       = useState([]);
+  const [selectedId, setSelectedId] = useState(null);
+  const [turnos, setTurnos]       = useState([]);
+  const [loading, setLoading]     = useState(false);
+  const [actionMsg, setActionMsg] = useState("");
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/config/lines`)
+      .then((r) => r.json())
+      .then((data) => { setLinhas(data); if (data.length > 0) setSelectedId(data[0].id); })
+      .catch(() => {});
+  }, []);
+
+  function fetchTurnos(lineId) {
+    if (!lineId) return;
+    setLoading(true);
+    fetch(`${API_BASE}/api/config/lines/${lineId}/turnos/proximos`)
+      .then((r) => r.json())
+      .then((data) => { setTurnos(data); setLoading(false); })
+      .catch(() => setLoading(false));
+  }
+
+  useEffect(() => { fetchTurnos(selectedId); }, [selectedId]);
+
+  async function handleAction(id, acao) {
+    setActionMsg("");
+    const res = await fetch(`${API_BASE}/api/config/turnos/${id}/${acao}`, { method: "POST" });
+    const body = await res.json().catch(() => ({}));
+    if (res.ok) {
+      setActionMsg(acao === "iniciar" ? "Turno iniciado!" : "Turno finalizado!");
+      fetchTurnos(selectedId);
+    } else {
+      setActionMsg(body.detail || "Erro ao executar ação.");
+    }
+    setTimeout(() => setActionMsg(""), 4000);
+  }
+
+  function fmtDT(iso) {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  }
+
+  const STATUS_LABEL = { em_andamento: "Em andamento", agendado: "Agendado", finalizado: "Finalizado" };
+  const STATUS_COLOR = { em_andamento: "#16a34a", agendado: "#3b82f6", finalizado: "#6b7280" };
+
+  return (
+    <div className="cfg-section">
+      <div className="cfg-row-between cfg-mb16">
+        <div className="cfg-field-group" style={{ flex: 1, maxWidth: 340 }}>
+          <label className="cfg-label">Linha de Produção</label>
+          <select className="cfg-select" value={selectedId ?? ""} onChange={(e) => setSelectedId(Number(e.target.value))}>
+            {linhas.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
+          </select>
+        </div>
+        {actionMsg && (
+          <div style={{ alignSelf: "flex-end", marginBottom: 2 }}>
+            <span className="cfg-saved-msg">{actionMsg}</span>
+          </div>
+        )}
+      </div>
+
+      {loading && <div className="cfg-loading"><div className="cfg-spinner" /> Carregando...</div>}
+
+      {!loading && turnos.length === 0 && (
+        <div className="cfg-shift-empty">Nenhum turno pendente para esta linha.</div>
+      )}
+
+      {!loading && turnos.length > 0 && (
+        <div className="cfg-ctrl-list">
+          {turnos.map((t) => {
+            const cor = STATUS_COLOR[t.status] || "#6b7280";
+            const isActive = t.status === "em_andamento";
+            const isAgendado = t.status === "agendado";
+            const dtRealInicio = t.dt_real_inicio ? fmtDT(t.dt_real_inicio) : null;
+            const dtRealFim    = t.dt_real_fim    ? fmtDT(t.dt_real_fim)    : null;
+            return (
+              <div key={t.id_ocorrencia} className={`cfg-ctrl-row${isActive ? " cfg-ctrl-row--ativo" : ""}`}>
+                <div className="cfg-ctrl-info">
+                  <span className="cfg-ctrl-nome">{t.nome}</span>
+                  <span className="cfg-ctrl-status" style={{ color: cor }}>
+                    {STATUS_LABEL[t.status] || t.status}
+                  </span>
+                  <span className="cfg-ctrl-horarios">
+                    Previsto: {fmtDT(t.dt_inicio)} – {fmtDT(t.dt_fim)}
+                  </span>
+                  {dtRealInicio && (
+                    <span className="cfg-ctrl-horarios cfg-ctrl-real">
+                      Real: {dtRealInicio}{dtRealFim ? ` – ${dtRealFim}` : " (em curso)"}
+                    </span>
+                  )}
+                  {t.status === "finalizado" && (
+                    <span className="cfg-ctrl-prod">
+                      Produzido: <strong>{t.produzido}</strong> / Meta: {t.meta}
+                    </span>
+                  )}
+                </div>
+                <div className="cfg-ctrl-actions">
+                  {isAgendado && (
+                    <button
+                      className="cfg-ctrl-btn cfg-ctrl-btn--iniciar"
+                      onClick={() => handleAction(t.id_ocorrencia, "iniciar")}
+                    >
+                      Iniciar Turno
+                    </button>
+                  )}
+                  {isActive && (
+                    <button
+                      className="cfg-ctrl-btn cfg-ctrl-btn--finalizar"
+                      onClick={() => handleAction(t.id_ocorrencia, "finalizar")}
+                    >
+                      Finalizar Turno
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Seção: Gestão de Turnos ─────────────────────────────── */
 function GestaoTurnos() {
   const [linhas, setLinhas]         = useState([]);
@@ -472,7 +598,7 @@ function GestaoPecas() {
 
 /* ── Página principal ────────────────────────────────────── */
 export default function Configuracoes() {
-  const [tab, setTab] = useState("turnos");
+  const [tab, setTab] = useState("controle");
 
   return (
     <div className="cfg-root">
@@ -485,10 +611,16 @@ export default function Configuracoes() {
 
       <div className="cfg-tabs">
         <button
+          className={`cfg-tab${tab === "controle" ? " cfg-tab--active" : ""}`}
+          onClick={() => setTab("controle")}
+        >
+          Controle de Turno
+        </button>
+        <button
           className={`cfg-tab${tab === "turnos" ? " cfg-tab--active" : ""}`}
           onClick={() => setTab("turnos")}
         >
-          Turnos de Trabalho
+          Configurar Turnos
         </button>
         <button
           className={`cfg-tab${tab === "pecas" ? " cfg-tab--active" : ""}`}
@@ -499,8 +631,9 @@ export default function Configuracoes() {
       </div>
 
       <div className="cfg-card">
-        {tab === "turnos" && <GestaoTurnos />}
-        {tab === "pecas"  && <GestaoPecas />}
+        {tab === "controle" && <ControleTurno />}
+        {tab === "turnos"   && <GestaoTurnos />}
+        {tab === "pecas"    && <GestaoPecas />}
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from api.services.queries import (
@@ -47,10 +48,11 @@ def get_linha_detalhe(
     linha_id:    int,
     data_inicio: str = Query(...),
     data_fim:    str = Query(...),
+    turno_id:    Optional[int] = Query(None),
 ):
-    """Detalhe de uma linha de produção no período: OEE por máquina, produção hora a hora, turnos e ordens."""
+    """Detalhe de uma linha no período. Se turno_id fornecido, filtra pelo tempo real do turno."""
     dt_inicio, dt_fim = _parse_dates(data_inicio, data_fim)
-    result = get_historico_linha_detalhe(linha_id, dt_inicio, dt_fim)
+    result = get_historico_linha_detalhe(linha_id, dt_inicio, dt_fim, turno_id=turno_id)
     if not result:
         raise HTTPException(status_code=404, detail=f"Linha {linha_id} não encontrada.")
     return result

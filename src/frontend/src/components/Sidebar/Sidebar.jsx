@@ -28,11 +28,13 @@ export default function Sidebar() {
     return () => clearInterval(id);
   }, []);
 
-  const emTurno   = turno && turno.nome !== "-";
-  const progresso = turno ? turno.progresso_pct : 0;
-  const barColor  = progresso < 40 ? "#22c55e"
-                  : progresso < 75 ? "#f59e0b"
-                  : "#ef4444";
+  const emTurno        = turno && turno.nome !== "-";
+  const aguardandoInicio = turno && turno.status === "aguardando_inicio";
+  const progresso      = turno ? turno.progresso_pct : 0;
+  const barColor       = aguardandoInicio ? "#f59e0b"
+                       : progresso < 40   ? "#22c55e"
+                       : progresso < 75   ? "#f59e0b"
+                       : "#ef4444";
 
   return (
     <aside className="sidebar">
@@ -111,12 +113,19 @@ export default function Sidebar() {
       <div className="sb-spacer" />
 
       <div className="sb-card">
-        {emTurno ? (
+        {emTurno && !aguardandoInicio ? (
           <>
             <div className="sb-card-title">
               Turno Atual: <strong>{turno.nome}</strong>
             </div>
             <div className="sb-card-sub">Encerra em {turno.encerra_em}</div>
+          </>
+        ) : emTurno && aguardandoInicio ? (
+          <>
+            <div className="sb-card-title" style={{ color: "#f59e0b" }}>
+              Aguardando início: <strong>{turno.nome}</strong>
+            </div>
+            <div className="sb-card-sub">Iniciar em Configurações → Turnos</div>
           </>
         ) : (
           <>
