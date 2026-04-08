@@ -1044,3 +1044,116 @@
 .hi-tooltip-row strong {
   font-weight: 700;
 }
+
+/* ── TurnoTab ────────────────────────────────────────────────────────────── */
+
+.hi-turno-filter {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.hi-turno-step {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  min-width: 200px;
+}
+
+.hi-turno-step-lbl {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.hi-select-lg {
+  max-width: 100%;
+  min-width: 220px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  appearance: auto;
+}
+
+.hi-select-lg:focus {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.hi-select-lg:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Turno banner ───────────────────────────────────────────────────────── */
+
+.hi-turno-banner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-left: 4px solid #0284c7;
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin-bottom: 20px;
+}
+
+.hi-turno-banner-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hi-turno-banner-nome {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0c4a6e;
+}
+
+.hi-turno-banner-status {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.hi-turno-banner-status--finalizado {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.hi-turno-banner-status--em_andamento {
+  background: #fef9c3;
+  color: #854d0e;
+}
+
+.hi-turno-banner-times {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: #374151;
+}
+
+.hi-turno-banner-kpis {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: #374151;
+  margin-left: auto;
+}

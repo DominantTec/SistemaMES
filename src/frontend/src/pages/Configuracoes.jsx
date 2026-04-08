@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import "./Configuracoes.css";
 
 const DEFAULT_API = `http://${window.location.hostname}:8000`;
@@ -147,6 +147,8 @@ function GestaoTurnos() {
   const [saving, setSaving]         = useState(false);
   const [savedMsg, setSavedMsg]     = useState("");
   const [loading, setLoading]       = useState(false);
+  const [expandedIdx, setExpandedIdx] = useState(null);
+  const [vinculMsg,   setVinculMsg]   = useState("");
 
   useEffect(() => {
     fetch(`${API_BASE}/api/config/lines`)
@@ -158,6 +160,7 @@ function GestaoTurnos() {
   useEffect(() => {
     if (!selectedId) return;
     setLoading(true);
+    setExpandedIdx(null);
     fetch(`${API_BASE}/api/config/lines/${selectedId}/turnos`)
       .then((r) => r.json())
       .then((data) => setTurnos(data.turnos ?? []))
@@ -169,24 +172,70 @@ function GestaoTurnos() {
     setTurnos((prev) => prev.map((t, i) => (i === index ? { ...t, [field]: value } : t)));
   }
 
+  function toggleLinha(index, linhaId) {
+    setTurnos((prev) => prev.map((t, i) => {
+      if (i !== index) return t;
+      const cur = t.linha_ids || [];
+      const next = cur.includes(linhaId)
+        ? cur.filter((x) => x !== linhaId)
+        : [...cur, linhaId];
+      // garante ao menos a linha atual selecionada
+      return { ...t, linha_ids: next.length === 0 ? [selectedId] : next };
+    }));
+  }
+
+  async function saveVincular(idx, idModelo) {
+    const t = turnos[idx];
+    const ids = (t.linha_ids && t.linha_ids.length > 0) ? t.linha_ids : [selectedId];
+    setVinculMsg("Salvando...");
+    try {
+      const res = await fetch(`${API_BASE}/api/config/turno-modelos/${idModelo}/linhas`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ linha_ids: ids }),
+      });
+      if (res.ok) {
+        setVinculMsg("Vínculos salvos!");
+        const data = await fetch(`${API_BASE}/api/config/lines/${selectedId}/turnos`).then((r) => r.json());
+        setTurnos(data.turnos ?? []);
+        setTimeout(() => { setVinculMsg(""); setExpandedIdx(null); }, 1800);
+      } else {
+        const body = await res.json().catch(() => ({}));
+        setVinculMsg(body.detail || "Erro ao salvar.");
+      }
+    } catch { setVinculMsg("Erro de conexão."); }
+  }
+
   function addTurno() {
-    setTurnos((prev) => [...prev, novoTurno()]);
+    setTurnos((prev) => [...prev, { dia: TODAY_NAME, nome: "", inicio: "07:00", fim: "15:00", ativo: true, linha_ids: [selectedId] }]);
   }
 
   function removeTurno(index) {
     setTurnos((prev) => prev.filter((_, i) => i !== index));
+    if (expandedIdx === index) setExpandedIdx(null);
   }
 
   async function handleSave() {
     if (!selectedId) return;
     setSaving(true); setSavedMsg("");
     try {
+      const payload = turnos.map((t) => ({
+        ...t,
+        linha_ids: (t.linha_ids && t.linha_ids.length > 0) ? t.linha_ids : [selectedId],
+      }));
       const res = await fetch(`${API_BASE}/api/config/lines/${selectedId}/turnos`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(turnos),
+        body: JSON.stringify(payload),
       });
-      setSavedMsg(res.ok ? "Turnos salvos com sucesso!" : "Erro ao salvar.");
+      if (res.ok) {
+        setSavedMsg("Turnos salvos com sucesso!");
+        // Recarrega para obter id_modelos atualizados
+        const data = await fetch(`${API_BASE}/api/config/lines/${selectedId}/turnos`).then((r) => r.json());
+        setTurnos(data.turnos ?? []);
+      } else {
+        setSavedMsg("Erro ao salvar.");
+      }
     } catch { setSavedMsg("Erro de conexão."); }
     finally { setSaving(false); setTimeout(() => setSavedMsg(""), 4000); }
   }
@@ -219,73 +268,124 @@ function GestaoTurnos() {
             <span>Início</span>
             <span>Fim</span>
             <span className="cfg-shift-status-col">Status</span>
+            <span title="Linhas vinculadas">Linhas</span>
             <span />
           </div>
 
-          {turnos.filter(t => DIAS_SEMANA.indexOf(t.dia) >= TODAY_IDX).length === 0 && (
+          {turnos.length === 0 && (
             <div className="cfg-shift-empty">
-              Nenhum turno configurado a partir de hoje. Clique em "Adicionar Turno" para começar.
+              Nenhum turno configurado. Clique em "Adicionar Turno" para começar.
             </div>
           )}
 
           {turnos.map((turno, i) => {
-            if (DIAS_SEMANA.indexOf(turno.dia) < TODAY_IDX) return null;
             const isToday = turno.dia === TODAY_NAME;
+            const linhasVinc = (turno.linha_ids || [selectedId]).filter(Boolean);
+            const isExpanded = expandedIdx === i;
             return (
-              <div
-                key={i}
-                className={["cfg-shift-row", !turno.ativo ? "cfg-shift-row--inactive" : "", isToday ? "cfg-shift-row--today" : ""].join(" ")}
-              >
-                <div className="cfg-shift-dia">
-                  <select
-                    className="cfg-dia-select"
-                    value={turno.dia}
-                    onChange={(e) => setField(i, "dia", e.target.value)}
-                  >
-                    {DIAS_SEMANA.map((d) => (
-                      <option key={d} value={d}>{DIAS_SHORT[d]}</option>
-                    ))}
-                  </select>
-                  {isToday && <span className="cfg-hoje-tag">hoje</span>}
-                </div>
+              <React.Fragment key={i}>
+                <div
+                  className={["cfg-shift-row", !turno.ativo ? "cfg-shift-row--inactive" : "", isToday ? "cfg-shift-row--today" : ""].join(" ")}
+                >
+                  <div className="cfg-shift-dia">
+                    <select
+                      className="cfg-dia-select"
+                      value={turno.dia}
+                      onChange={(e) => setField(i, "dia", e.target.value)}
+                    >
+                      {DIAS_SEMANA.map((d) => (
+                        <option key={d} value={d}>{DIAS_SHORT[d]}</option>
+                      ))}
+                    </select>
+                    {isToday && <span className="cfg-hoje-tag">hoje</span>}
+                  </div>
 
-                <input
-                  className="cfg-shift-name-input"
-                  type="text"
-                  value={turno.nome ?? ""}
-                  placeholder="Ex: Manhã"
-                  onChange={(e) => setField(i, "nome", e.target.value)}
-                />
+                  <input
+                    className="cfg-shift-name-input"
+                    type="text"
+                    value={turno.nome ?? ""}
+                    placeholder="Ex: Manhã"
+                    onChange={(e) => setField(i, "nome", e.target.value)}
+                  />
 
-                <input
-                  className="cfg-time-input"
-                  type="time"
-                  value={turno.inicio}
-                  onChange={(e) => setField(i, "inicio", e.target.value)}
-                />
+                  <input
+                    className="cfg-time-input"
+                    type="time"
+                    value={turno.inicio}
+                    onChange={(e) => setField(i, "inicio", e.target.value)}
+                  />
 
-                <input
-                  className="cfg-time-input"
-                  type="time"
-                  value={turno.fim}
-                  onChange={(e) => setField(i, "fim", e.target.value)}
-                />
+                  <input
+                    className="cfg-time-input"
+                    type="time"
+                    value={turno.fim}
+                    onChange={(e) => setField(i, "fim", e.target.value)}
+                  />
 
-                <div className="cfg-toggle-wrap">
-                  <span className="cfg-toggle-label">{turno.ativo ? "Ativo" : "Inativo"}</span>
+                  <div className="cfg-toggle-wrap">
+                    <span className="cfg-toggle-label">{turno.ativo ? "Ativo" : "Inativo"}</span>
+                    <button
+                      type="button"
+                      className={`cfg-toggle${turno.ativo ? " cfg-toggle--on" : ""}`}
+                      onClick={() => setField(i, "ativo", !turno.ativo)}
+                    >
+                      <span className="cfg-toggle-knob" />
+                    </button>
+                  </div>
+
+                  {/* Botão de linhas vinculadas */}
                   <button
                     type="button"
-                    className={`cfg-toggle${turno.ativo ? " cfg-toggle--on" : ""}`}
-                    onClick={() => setField(i, "ativo", !turno.ativo)}
+                    className={`cfg-linhas-btn${isExpanded ? " cfg-linhas-btn--active" : ""}`}
+                    onClick={() => setExpandedIdx(isExpanded ? null : i)}
+                    title="Vincular a linhas de produção"
                   >
-                    <span className="cfg-toggle-knob" />
+                    {linhasVinc.length} {linhasVinc.length === 1 ? "linha" : "linhas"}
+                  </button>
+
+                  <button type="button" className="cfg-remove-btn" onClick={() => removeTurno(i)} title="Remover turno">
+                    ✕
                   </button>
                 </div>
 
-                <button type="button" className="cfg-remove-btn" onClick={() => removeTurno(i)} title="Remover turno">
-                  ✕
-                </button>
-              </div>
+                {/* Painel inline de seleção de linhas */}
+                {isExpanded && (
+                  <div className="cfg-linhas-panel">
+                    <span className="cfg-linhas-panel-title">Linhas que seguem este turno:</span>
+                    {!turno.id_modelo ? (
+                      <span className="cfg-linhas-hint" style={{ color: "#d97706" }}>
+                        Salve o turno primeiro para poder vincular a outras linhas.
+                      </span>
+                    ) : (
+                      <>
+                        <div className="cfg-linhas-checks">
+                          {linhas.map((l) => (
+                            <label key={l.id} className="cfg-vincular-check">
+                              <input
+                                type="checkbox"
+                                checked={linhasVinc.includes(l.id)}
+                                onChange={() => toggleLinha(i, l.id)}
+                              />
+                              {l.nome}
+                            </label>
+                          ))}
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 4 }}>
+                          <button
+                            type="button"
+                            className="cfg-save-btn"
+                            style={{ padding: "6px 14px", fontSize: 12 }}
+                            onClick={() => saveVincular(i, turno.id_modelo)}
+                          >
+                            Aplicar vínculo
+                          </button>
+                          {vinculMsg && <span className="cfg-saved-msg">{vinculMsg}</span>}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </React.Fragment>
             );
           })}
 

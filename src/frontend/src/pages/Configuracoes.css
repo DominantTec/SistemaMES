@@ -383,7 +383,7 @@
 
 .cfg-shift-header {
   display: grid;
-  grid-template-columns: 110px minmax(0,1fr) 100px 100px 130px 40px;
+  grid-template-columns: 110px minmax(0,1fr) 90px 90px 130px 80px 36px;
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
@@ -403,13 +403,64 @@
 
 .cfg-shift-row {
   display: grid;
-  grid-template-columns: 110px minmax(0,1fr) 100px 100px 130px 40px;
+  grid-template-columns: 110px minmax(0,1fr) 90px 90px 130px 80px 36px;
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
   border-radius: 8px;
   border: 1px solid transparent;
   transition: background 0.15s;
+}
+
+/* Botão de linhas vinculadas */
+.cfg-linhas-btn {
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #e5e7eb);
+  background: var(--bg, #f8fafc);
+  color: #374151;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+.cfg-linhas-btn:hover { background: #e0e7ff; border-color: #6366f1; color: #4338ca; }
+.cfg-linhas-btn--active { background: #e0e7ff; border-color: #6366f1; color: #4338ca; font-weight: 600; }
+
+/* Painel inline de seleção de linhas */
+.cfg-linhas-panel {
+  grid-column: 1 / -1;
+  background: #f0f4ff;
+  border: 1px solid #c7d2fe;
+  border-radius: 8px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 2px 0 4px;
+}
+.cfg-linhas-panel-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #3730a3;
+}
+.cfg-linhas-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 24px;
+}
+.cfg-vincular-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.cfg-vincular-check input { cursor: pointer; }
+.cfg-linhas-hint {
+  font-size: 11px;
+  color: #6366f1;
+  font-style: italic;
 }
 
 .cfg-shift-row:hover {

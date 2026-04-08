@@ -13,6 +13,7 @@ from api.services.queries import (
     get_machines_by_line_df, update_machine_tipo,
     get_historico_turnos, get_proximos_turnos,
     abrir_turno_manual, fechar_turno_manual,
+    link_modelo_to_linhas,
 )
 
 router = APIRouter(prefix="/api/config", tags=["config"])
@@ -31,11 +32,13 @@ def get_config(machine_id: int):
 
 
 class DiaCalendario(BaseModel):
+    id_modelo: Optional[int] = None
     dia: str
     nome: str = ""
     inicio: str
     fim: str
     ativo: bool
+    linha_ids: List[int] = []
 
 
 class MachineConfigUpdate(BaseModel):
@@ -111,6 +114,33 @@ def finalizar_turno(ocorrencia_id: int):
     try:
         return fechar_turno_manual(ocorrencia_id)
     except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── Vínculos N:N turno-modelo ↔ linhas ────────────────────────────────────────
+
+class LinhasVinculadasUpdate(BaseModel):
+    linha_ids: List[int]
+
+
+@router.get("/turno-modelos/{modelo_id}/linhas")
+def get_modelo_linhas(modelo_id: int):
+    """Retorna os IDs das linhas vinculadas a um template de turno."""
+    from api.services.queries._core import run_query as _rq, _ensure_schema as _es
+    _es()
+    df = _rq(
+        "SELECT id_linha_producao FROM dbo.tb_turno_modelo_linha WHERE id_modelo = :mid",
+        {"mid": modelo_id},
+    )
+    return {"linha_ids": [int(r["id_linha_producao"]) for _, r in df.iterrows()]}
+
+
+@router.put("/turno-modelos/{modelo_id}/linhas")
+def update_modelo_linhas(modelo_id: int, body: LinhasVinculadasUpdate):
+    """Vincula um template de turno a múltiplas linhas (N:N)."""
+    try:
+        return link_modelo_to_linhas(modelo_id, body.linha_ids)
+    except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 

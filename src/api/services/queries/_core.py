@@ -210,6 +210,43 @@ def _ensure_schema():
                 CREATE INDEX IX_ocorrencia_inicio
                     ON dbo.tb_turno_ocorrencia(dt_inicio)
         """)
+        # ── Relação N:N entre turno-modelo e linha-de-produção ────────────────
+        # Um turno pode ter várias linhas; uma linha pode ter vários turnos.
+        run_query_update("""
+            IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.tb_turno_modelo_linha') AND type = 'U')
+            BEGIN
+                CREATE TABLE dbo.tb_turno_modelo_linha (
+                    id_vmlink         INT IDENTITY(1,1) PRIMARY KEY,
+                    id_modelo         INT NOT NULL,
+                    id_linha_producao INT NOT NULL,
+                    CONSTRAINT UQ_turno_modelo_linha UNIQUE (id_modelo, id_linha_producao)
+                )
+            END
+        """)
+        run_query_update("""
+            IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.tb_turno_modelo_linha') AND name = 'IX_vmlink_modelo')
+                CREATE INDEX IX_vmlink_modelo ON dbo.tb_turno_modelo_linha(id_modelo)
+        """)
+        # Migra registros existentes → junction table (idempotente)
+        run_query_update("""
+            INSERT INTO dbo.tb_turno_modelo_linha (id_modelo, id_linha_producao)
+            SELECT m.id_modelo, m.id_linha_producao
+            FROM dbo.tb_turno_modelo m
+            WHERE m.id_linha_producao IS NOT NULL
+              AND NOT EXISTS (
+                SELECT 1 FROM dbo.tb_turno_modelo_linha l
+                WHERE l.id_modelo = m.id_modelo AND l.id_linha_producao = m.id_linha_producao
+              )
+        """)
+        # Torna id_linha_producao nullable (campo mantido para compatibilidade, lógica migrada para junction)
+        run_query_update("""
+            IF EXISTS (
+                SELECT 1 FROM sys.columns
+                WHERE object_id = OBJECT_ID('dbo.tb_turno_modelo')
+                  AND name = 'id_linha_producao' AND is_nullable = 0
+            )
+                ALTER TABLE dbo.tb_turno_modelo ALTER COLUMN id_linha_producao INT NULL
+        """)
         # Migra dt_created_at de SYSUTCDATETIME() → GETDATE() para alinhar com
         # datetime.now() (hora local do servidor) e evitar exclusão de dados recentes.
         run_query_update("""
@@ -1023,7 +1060,8 @@ def update_machine_tipo(machine_id: int, tipo: str) -> None:
 
 
 def get_line_shifts(line_id: int) -> dict:
-    """Retorna nome da linha e lista de turnos configurados (lê de tb_turno_modelo)."""
+    """Retorna nome da linha e lista de turnos (via junction N:N).
+    Cada turno inclui id_modelo e lista de linha_ids vinculadas."""
     _ensure_schema()
     df_linha = run_query("""
         SELECT id_linha_producao, tx_name
@@ -1037,74 +1075,153 @@ def get_line_shifts(line_id: int) -> dict:
     nome_linha = df_linha.iloc[0]["tx_name"]
 
     df_modelos = run_query("""
-        SELECT tx_nome, nu_dia_semana, tm_inicio, tm_fim, bl_ativo
-        FROM dbo.tb_turno_modelo
-        WHERE id_linha_producao = :linha
-        ORDER BY nu_dia_semana, tm_inicio
+        SELECT m.id_modelo, m.tx_nome, m.nu_dia_semana, m.tm_inicio, m.tm_fim, m.bl_ativo
+        FROM dbo.tb_turno_modelo m
+        JOIN dbo.tb_turno_modelo_linha ml ON ml.id_modelo = m.id_modelo
+        WHERE ml.id_linha_producao = :linha
+        ORDER BY m.nu_dia_semana, m.tm_inicio
     """, {"linha": line_id})
+
+    def _fmt_time(v):
+        if hasattr(v, "strftime"):
+            return v.strftime("%H:%M")
+        total = int(v.total_seconds())
+        return f"{total // 3600:02d}:{(total % 3600) // 60:02d}"
 
     turnos: list = []
     if not df_modelos.empty:
+        # Busca todos os vínculos de uma vez para evitar N+1 queries
+        all_ids = [int(r["id_modelo"]) for _, r in df_modelos.iterrows()]
+        ids_sql = ",".join(str(x) for x in all_ids)
+        df_links = run_query(
+            f"SELECT id_modelo, id_linha_producao FROM dbo.tb_turno_modelo_linha WHERE id_modelo IN ({ids_sql})"
+        ) if all_ids else None
+
+        links_map: dict = {}
+        if df_links is not None and not df_links.empty:
+            for _, lr in df_links.iterrows():
+                mid = int(lr["id_modelo"])
+                links_map.setdefault(mid, []).append(int(lr["id_linha_producao"]))
+
         for _, t in df_modelos.iterrows():
+            id_modelo = int(t["id_modelo"])
             dow = int(t["nu_dia_semana"])
-            # tm_inicio / tm_fim podem vir como datetime.time ou timedelta (SQL Server)
-            def _fmt_time(v):
-                if hasattr(v, "strftime"):
-                    return v.strftime("%H:%M")
-                # timedelta (pyodbc retorna assim às vezes)
-                total = int(v.total_seconds())
-                return f"{total // 3600:02d}:{(total % 3600) // 60:02d}"
             turnos.append({
-                "dia":    _DIAS_SEMANA[dow] if 0 <= dow <= 6 else str(dow),
-                "nome":   t["tx_nome"],
-                "inicio": _fmt_time(t["tm_inicio"]),
-                "fim":    _fmt_time(t["tm_fim"]),
-                "ativo":  bool(t["bl_ativo"]),
+                "id_modelo": id_modelo,
+                "dia":       _DIAS_SEMANA[dow] if 0 <= dow <= 6 else str(dow),
+                "nome":      t["tx_nome"],
+                "inicio":    _fmt_time(t["tm_inicio"]),
+                "fim":       _fmt_time(t["tm_fim"]),
+                "ativo":     bool(t["bl_ativo"]),
+                "linha_ids": links_map.get(id_modelo, [line_id]),
             })
 
-    # Ordenar por dia-da-semana e depois por horário de início
     dow_order = {d: i for i, d in enumerate(_DIAS_SEMANA)}
     turnos.sort(key=lambda x: (dow_order.get(x["dia"], 99), x["inicio"]))
 
     return {
         "id":     line_id,
         "nome":   nome_linha,
-        "turnos": turnos,   # lista vazia se nenhum turno configurado
+        "turnos": turnos,
     }
 
 
 def update_line_shifts(line_id: int, turnos: list) -> dict:
-    """Salva a lista de turnos de uma linha em tb_turno_modelo e gera ocorrências futuras."""
+    """Salva a lista de turnos de uma linha preservando IDs (evita perder vínculos N:N).
+    - UPDATE in-place para modelos existentes (id_modelo presente na payload)
+    - INSERT para novos turnos (sem id_modelo)
+    - Desvincula/exclui modelos removidos pelo usuário
+    - Sincroniza a junction table com linha_ids de cada turno
+    """
     _ensure_schema()
     dow_map = {d: i for i, d in enumerate(_DIAS_SEMANA)}
 
-    # 1. Substitui modelos da linha
-    run_query_update(
-        "DELETE FROM dbo.tb_turno_modelo WHERE id_linha_producao = :linha",
-        {"linha": line_id},
-    )
+    # IDs recebidos do frontend (turnos que o usuário quer manter)
+    incoming_ids = {int(t["id_modelo"]) for t in turnos if t.get("id_modelo")}
+
+    # IDs atualmente ligados a esta linha via junction
+    df_existing = run_query("""
+        SELECT m.id_modelo FROM dbo.tb_turno_modelo m
+        JOIN dbo.tb_turno_modelo_linha ml ON ml.id_modelo = m.id_modelo
+        WHERE ml.id_linha_producao = :lid
+    """, {"lid": line_id})
+    existing_ids = {int(r["id_modelo"]) for _, r in df_existing.iterrows()}
+
+    # Modelos removidos pelo usuário
+    for mid in existing_ids - incoming_ids:
+        # Remove vínculo desta linha
+        run_query_update(
+            "DELETE FROM dbo.tb_turno_modelo_linha WHERE id_modelo=:mid AND id_linha_producao=:lid",
+            {"mid": mid, "lid": line_id},
+        )
+        # Se ficou órfão (sem outras linhas), remove modelo e ocorrências agendadas
+        df_rest = run_query(
+            "SELECT id_vmlink FROM dbo.tb_turno_modelo_linha WHERE id_modelo=:mid",
+            {"mid": mid},
+        )
+        if df_rest.empty:
+            run_query_update(
+                "DELETE FROM dbo.tb_turno_ocorrencia WHERE id_modelo=:mid AND tx_status='agendado'",
+                {"mid": mid},
+            )
+            run_query_update("DELETE FROM dbo.tb_turno_modelo WHERE id_modelo=:mid", {"mid": mid})
+
+    affected_lines = {line_id}
 
     for entry in turnos:
-        dow_target = dow_map.get(entry["dia"])
+        dow_target = dow_map.get(entry.get("dia"))
         if dow_target is None:
             continue
-        nome_turno = entry.get("nome") or f"TURNO_{entry['dia'][:3].upper()}"
+        nome  = entry.get("nome") or f"TURNO_{entry['dia'][:3].upper()}"
         ativo = 1 if entry.get("ativo", False) else 0
-        run_query_update("""
-            INSERT INTO dbo.tb_turno_modelo
-                (tx_nome, id_linha_producao, nu_dia_semana, tm_inicio, tm_fim, bl_ativo)
-            VALUES (:nome, :linha, :dow, :ini, :fim, :ativo)
-        """, {
-            "nome":  nome_turno,
-            "linha": line_id,
-            "dow":   dow_target,
-            "ini":   entry["inicio"],   # 'HH:MM' — SQL Server aceita como TIME
-            "fim":   entry["fim"],
-            "ativo": ativo,
-        })
+        ini, fim = entry["inicio"], entry["fim"]
+        id_modelo = entry.get("id_modelo")
 
-    # 2. Gera ocorrências baseadas nos novos modelos
-    _ensure_ocorrencias_futuras(line_id)
+        # linha_ids desejadas; garante que a linha atual sempre está incluída
+        linha_ids = list({int(lid) for lid in (entry.get("linha_ids") or [])} | {line_id})
+        affected_lines.update(linha_ids)
+
+        if id_modelo:
+            # Atualiza in-place — preserva id_modelo e, portanto, todos os vínculos existentes
+            run_query_update("""
+                UPDATE dbo.tb_turno_modelo
+                SET tx_nome=:nome, nu_dia_semana=:dow, tm_inicio=:ini, tm_fim=:fim, bl_ativo=:ativo
+                WHERE id_modelo=:mid
+            """, {"nome": nome, "dow": dow_target, "ini": ini, "fim": fim, "ativo": ativo, "mid": id_modelo})
+        else:
+            # Insere novo modelo
+            id_modelo = run_query_insert("""
+                INSERT INTO dbo.tb_turno_modelo
+                    (tx_nome, id_linha_producao, nu_dia_semana, tm_inicio, tm_fim, bl_ativo)
+                OUTPUT INSERTED.id_modelo
+                VALUES (:nome, :lid, :dow, :ini, :fim, :ativo)
+            """, {"nome": nome, "lid": line_id, "dow": dow_target, "ini": ini, "fim": fim, "ativo": ativo})
+
+        if not id_modelo:
+            continue
+
+        # Adiciona vínculos ausentes
+        for lid in linha_ids:
+            run_query_update("""
+                IF NOT EXISTS (SELECT 1 FROM dbo.tb_turno_modelo_linha WHERE id_modelo=:mid AND id_linha_producao=:lid)
+                    INSERT INTO dbo.tb_turno_modelo_linha (id_modelo, id_linha_producao) VALUES (:mid, :lid)
+            """, {"mid": id_modelo, "lid": lid})
+
+        # Remove vínculos que o usuário desmarcou (exceto a linha atual)
+        df_atuais = run_query(
+            "SELECT id_linha_producao FROM dbo.tb_turno_modelo_linha WHERE id_modelo=:mid",
+            {"mid": id_modelo},
+        )
+        atuais = {int(r["id_linha_producao"]) for _, r in df_atuais.iterrows()}
+        for lid in atuais - set(linha_ids):
+            run_query_update(
+                "DELETE FROM dbo.tb_turno_modelo_linha WHERE id_modelo=:mid AND id_linha_producao=:lid",
+                {"mid": id_modelo, "lid": lid},
+            )
+
+    # Regenera ocorrências para todas as linhas afetadas
+    for lid in affected_lines:
+        _ensure_ocorrencias_futuras(lid)
 
     return {"ok": True}
 
@@ -1120,9 +1237,10 @@ def _ensure_ocorrencias_futuras(linha_id: int) -> None:
     w_end   = agora.date() + timedelta(weeks=4)
 
     df_modelos = run_query("""
-        SELECT id_modelo, tx_nome, nu_dia_semana, tm_inicio, tm_fim
-        FROM dbo.tb_turno_modelo
-        WHERE id_linha_producao = :lid AND bl_ativo = 1
+        SELECT m.id_modelo, m.tx_nome, m.nu_dia_semana, m.tm_inicio, m.tm_fim
+        FROM dbo.tb_turno_modelo m
+        JOIN dbo.tb_turno_modelo_linha ml ON ml.id_modelo = m.id_modelo
+        WHERE ml.id_linha_producao = :lid AND m.bl_ativo = 1
     """, {"lid": linha_id})
 
     if df_modelos.empty:
@@ -1331,6 +1449,86 @@ def get_historico_turnos(linha_id: int, limit: int = 20) -> list:
             "pendente_recebido":    int(r["nu_pendente_recebido"]),
         })
     return result
+
+
+def link_modelo_to_linhas(id_modelo: int, linha_ids: list) -> dict:
+    """Vincula/desvincula um template de turno a múltiplas linhas (N:N).
+    Não desfaz a linha primária (id_linha_producao no modelo).
+    Regenera ocorrências para linhas recém-adicionadas.
+    """
+    _ensure_schema()
+    df_old = run_query(
+        "SELECT id_linha_producao FROM dbo.tb_turno_modelo_linha WHERE id_modelo = :mid",
+        {"mid": id_modelo},
+    )
+    old_ids = {int(r["id_linha_producao"]) for _, r in df_old.iterrows()}
+    new_ids = set(int(x) for x in linha_ids)
+
+    for lid in old_ids - new_ids:
+        run_query_update(
+            "DELETE FROM dbo.tb_turno_modelo_linha WHERE id_modelo=:mid AND id_linha_producao=:lid",
+            {"mid": id_modelo, "lid": lid},
+        )
+
+    for lid in new_ids - old_ids:
+        run_query_update("""
+            IF NOT EXISTS (SELECT 1 FROM dbo.tb_turno_modelo_linha WHERE id_modelo=:mid AND id_linha_producao=:lid)
+                INSERT INTO dbo.tb_turno_modelo_linha (id_modelo, id_linha_producao) VALUES (:mid, :lid)
+        """, {"mid": id_modelo, "lid": lid})
+        _ensure_ocorrencias_futuras_from_modelo(id_modelo, lid)
+
+    return {"ok": True, "linhas_vinculadas": list(new_ids)}
+
+
+def _ensure_ocorrencias_futuras_from_modelo(id_modelo: int, linha_id: int) -> None:
+    """Gera ocorrências futuras de um modelo específico para uma linha específica."""
+    _ensure_schema()
+    df = run_query("""
+        SELECT id_modelo, tx_nome, nu_dia_semana, tm_inicio, tm_fim
+        FROM dbo.tb_turno_modelo
+        WHERE id_modelo = :mid AND bl_ativo = 1
+    """, {"mid": id_modelo})
+    if df.empty:
+        return
+
+    agora   = datetime.now()
+    w_start = agora.date() - timedelta(days=1)
+    w_end   = agora.date() + timedelta(weeks=4)
+
+    for _, m in df.iterrows():
+        dow_target = int(m["nu_dia_semana"])
+        nome_turno = m["tx_nome"]
+
+        def _to_hm(v):
+            if hasattr(v, "hour"):
+                return v.hour, v.minute
+            total = int(v.total_seconds())
+            return total // 3600, (total % 3600) // 60
+
+        hi, hm = _to_hm(m["tm_inicio"])
+        fi, fm = _to_hm(m["tm_fim"])
+
+        days_to_first = (dow_target - w_start.weekday()) % 7
+        current_date  = w_start + timedelta(days=days_to_first)
+
+        while current_date <= w_end:
+            dt_inicio   = datetime.combine(current_date, time(hi, hm))
+            dt_fim_base = datetime.combine(current_date, time(fi, fm))
+            dt_fim      = dt_fim_base + timedelta(days=1) if (fi, fm) < (hi, hm) else dt_fim_base
+
+            run_query_update("""
+                IF NOT EXISTS (
+                    SELECT 1 FROM dbo.tb_turno_ocorrencia
+                    WHERE id_modelo = :mid AND id_linha_producao = :lid AND dt_inicio = :di
+                )
+                INSERT INTO dbo.tb_turno_ocorrencia
+                    (id_modelo, id_linha_producao, tx_nome, dt_inicio, dt_fim, tx_status)
+                VALUES (:mid, :lid, :nome, :di, :df, 'agendado')
+            """, {
+                "mid": id_modelo, "lid": linha_id,
+                "nome": nome_turno, "di": dt_inicio, "df": dt_fim,
+            })
+            current_date += timedelta(weeks=1)
 
 
 def get_machine_config_data(machine_id: int) -> dict:
@@ -2204,11 +2402,14 @@ def _recalcular_metas_linha(linha_id: int) -> None:
         WHERE i.id_linha_producao = :lid
     """, {"lid": linha_id})
     maquinas_por_tipo: dict = {}
+    linha_iids_set: set = set()  # IDs de máquinas que pertencem a esta linha
     for _, m in df_linha.iterrows():
+        iid_m = int(m["id_ihm"])
+        linha_iids_set.add(iid_m)
         t = m["tx_tipo_maquina"]
         if t:
             maquinas_por_tipo.setdefault(t, []).append({
-                "id_ihm": int(m["id_ihm"]),
+                "id_ihm": iid_m,
                 "producao_teorica": int(m["nu_producao_teorica"]),
             })
 
@@ -2310,20 +2511,33 @@ def _recalcular_metas_linha(linha_id: int) -> None:
                         metas[iid]      = metas.get(iid, 0) + contribs[iid]
                         pecas_nome[iid] = pn
                 else:
-                    # Máquina sem tipo definido ou sem paralelas — usa direto da rota
-                    iid         = step["id_ihm"]
-                    cap_maquina = int(step.get("producao_teorica", 0) * horas)
-                    caps[iid]   = cap_maquina
-                    contrib     = min(eff_meta, cap_maquina)
-                    metas[iid]      = metas.get(iid, 0) + contrib
-                    pecas_nome[iid] = pn
+                    # Máquina sem tipo definido ou sem paralelas — usa direto da rota,
+                    # mas só atribui se a máquina pertence a esta linha.
+                    iid = step["id_ihm"]
+                    if iid in linha_iids_set:
+                        cap_maquina = int(step.get("producao_teorica", 0) * horas)
+                        caps[iid]   = cap_maquina
+                        contrib     = min(eff_meta, cap_maquina)
+                        metas[iid]      = metas.get(iid, 0) + contrib
+                        pecas_nome[iid] = pn
         else:
             # Sem roteiro configurado: distribui meta_op em todas as máquinas da linha
-            df_m = run_query("SELECT id_ihm FROM dbo.tb_ihm WHERE id_linha_producao = :lid",
-                             {"lid": linha_id})
-            for _, m in df_m.iterrows():
+            for _, m in df_linha.iterrows():
                 iid = int(m["id_ihm"])
                 metas[iid]      = metas.get(iid, 0) + meta_op
+                pecas_nome[iid] = pn
+
+        # Fallback: roteiro configurado mas nenhuma máquina desta linha foi mapeada
+        # (roteiro pertence a outra linha e não há tipo_maquina em comum).
+        # Distribui meta_op proporcionalmente pela producao_teorica de cada máquina.
+        linha_metas_ativas = {iid for iid in metas if iid in linha_iids_set}
+        if peca_id and not linha_metas_ativas:
+            total_pt = sum(int(m["nu_producao_teorica"]) for _, m in df_linha.iterrows())
+            for _, m in df_linha.iterrows():
+                iid = int(m["id_ihm"])
+                pt  = int(m["nu_producao_teorica"])
+                frac = (pt / total_pt) if total_pt > 0 else (1.0 / max(len(df_linha), 1))
+                metas[iid]      = metas.get(iid, 0) + round(meta_op * frac)
                 pecas_nome[iid] = pn
 
     # Garante que a soma de múltiplas OPs não ultrapassa a capacidade da máquina

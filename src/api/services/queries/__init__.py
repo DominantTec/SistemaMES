@@ -28,6 +28,7 @@ from api.services.queries._core import (  # noqa: F401
     get_proximos_turnos,
     abrir_turno_manual,
     fechar_turno_manual,
+    link_modelo_to_linhas,
     # ── Produção Teórica ──────────────────────────────────────────────────
     get_producao_teorica,
     update_producao_teorica,
