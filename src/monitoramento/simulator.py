@@ -167,19 +167,18 @@ def _get_n_etapas_op(conn_db, op_id: int) -> int:
         return N_ETAPAS
 
 
-def _get_active_op(conn_db) -> tuple[int | None, int]:
-    """Retorna (op_id, quantidade) da OP em_producao da linha, ou (None, 0)."""
+def _get_active_ops(conn_db) -> list:
+    """Retorna lista de (op_id, quantidade) de TODAS as OPs em_producao da linha."""
     cursor = conn_db.cursor()
     cursor.execute(f"""
-        SELECT TOP 1 o.id_ordem, o.nu_quantidade
+        SELECT o.id_ordem, o.nu_quantidade
         FROM dbo.tb_ordem_producao o
         JOIN dbo.tb_ihm i ON i.id_linha_producao = o.id_linha_producao
         WHERE i.id_ihm = {GHOST_IHM_IDS[0]}
           AND o.tx_status = 'em_producao'
-        ORDER BY o.dt_inicio DESC
+        ORDER BY o.dt_inicio ASC
     """)
-    row = cursor.fetchone()
-    return (int(row[0]), int(row[1])) if row else (None, 0)
+    return [(int(row[0]), int(row[1])) for row in cursor.fetchall()]
 
 
 # ─── Estado de cada operador/máquina ──────────────────────────────────────────
@@ -273,21 +272,26 @@ class MachineState:
 
     # ── Tick principal ─────────────────────────────────────────────────────────
 
-    def tick(self, conn_db, op_id: int | None, n_etapas: int):
-        """Avança um ciclo de simulação."""
+    def tick(self, conn_db, active_ops: list, n_etapas: int):
+        """Avança um ciclo de simulação.
+        active_ops: lista de (op_id, quantidade) de todas as OPs em_producao, ordenadas por dt_inicio.
+        """
         # Sem OP ativa ou etapa além da rota: fica parada
-        if op_id is None or (n_etapas > 0 and self.stage_num > n_etapas):
+        if not active_ops or (n_etapas > 0 and self.stage_num > n_etapas):
             self._forcar_parada()
             return
 
-        # Nova OP detectada: reinicia acumulador
-        if op_id != self._op_id_atual:
-            logger.info(f"IHM {self.id_ihm}: nova OP {op_id} (etapa {self.stage_num}).")
+        # Usa a OP mais antiga como referência para detectar mudança de ciclo
+        primary_op_id = active_ops[0][0]
+        if primary_op_id != self._op_id_atual:
+            logger.info(f"IHM {self.id_ihm}: OPs ativas atualizadas ({[o[0] for o in active_ops]}), etapa {self.stage_num}.")
             self._acum = 0.0
-            self._op_id_atual = op_id
+            self._op_id_atual = primary_op_id
+
+        op_ids = [op[0] for op in active_ops]
 
         if self.status == STATUS_PRODUZINDO:
-            self._tick_produzindo(conn_db, op_id)
+            self._tick_produzindo(conn_db, op_ids)
         elif self.status == STATUS_PARADA:
             self._tick_parada()
         elif self.status == STATUS_AG_MANUTENCAO:
@@ -297,7 +301,7 @@ class MachineState:
         elif self.status == STATUS_LIMPEZA:
             self._tick_limpeza()
 
-    def _tick_produzindo(self, conn_db, op_id: int):
+    def _tick_produzindo(self, conn_db, op_ids: list):
         r = random.random()
         if r < PROB_IR_PARADA:
             self._transicao_parada()
@@ -306,9 +310,9 @@ class MachineState:
         elif r < PROB_IR_PARADA + PROB_IR_MANUTENCAO + PROB_IR_LIMPEZA:
             self._transicao_limpeza()
         else:
-            self._produzir(conn_db, op_id)
+            self._produzir(conn_db, op_ids)
 
-    def _produzir(self, conn_db, op_id: int):
+    def _produzir(self, conn_db, op_ids: list):
         pct_ciclo = self.pecas_por_hora * CYCLE_SECONDS / 3600.0
         self._acum += pct_ciclo * random.uniform(0.8, 1.2)
         n = int(self._acum)
@@ -316,14 +320,26 @@ class MachineState:
             return
         self._acum -= n
 
-        approved, rejected = _process_pieces(conn_db, op_id, self.stage_num, n)
-        total = approved + rejected
-        if total == 0:
-            return   # nenhuma peça disponível nesta etapa ainda
+        # Distribui capacidade entre todas as OPs ativas (prioridade: mais antiga primeiro)
+        total_approved = 0
+        total_rejected = 0
+        remaining = n
+        for op_id in op_ids:
+            if remaining <= 0:
+                break
+            approved, rejected = _process_pieces(conn_db, op_id, self.stage_num, remaining)
+            processed = approved + rejected
+            if processed > 0:
+                total_approved += approved
+                total_rejected += rejected
+                remaining -= processed
 
-        self.produzido       += approved
-        self.reprovado       += rejected
-        self.total_produzido += total
+        if total_approved + total_rejected == 0:
+            return   # nenhuma peça disponível em nenhuma OP nesta etapa
+
+        self.produzido       += total_approved
+        self.reprovado       += total_rejected
+        self.total_produzido += total_approved + total_rejected
 
     def _tick_parada(self):
         self.parada_duracao += 1
@@ -553,27 +569,30 @@ def main():
             while True:
                 logger.info("=" * 60)
 
-                # Obtém OP ativa e inicializa rastreamento de peças
+                # Obtém TODAS as OPs ativas e inicializa rastreamento de peças
                 try:
-                    op_id, quantidade = _get_active_op(conn_db)
+                    active_ops = _get_active_ops(conn_db)
                 except Exception as e:
-                    logger.warning(f"Erro ao obter OP ativa: {e}")
-                    op_id, quantidade = None, 0
+                    logger.warning(f"Erro ao obter OPs ativas: {e}")
+                    active_ops = []
 
                 n_etapas = N_ETAPAS
-                if op_id:
+                for op_id_i, qtd_i in active_ops:
                     try:
-                        _init_pieces_if_needed(conn_db, op_id, quantidade)
-                        n_etapas = _get_n_etapas_op(conn_db, op_id)
+                        _init_pieces_if_needed(conn_db, op_id_i, qtd_i)
+                        n_etapas = max(n_etapas, _get_n_etapas_op(conn_db, op_id_i))
                     except Exception as e:
-                        logger.warning(f"Erro ao inicializar peças OP {op_id}: {e}")
+                        logger.warning(f"Erro ao inicializar peças OP {op_id_i}: {e}")
+
+                if active_ops:
+                    logger.info(f"OPs ativas: {[o[0] for o in active_ops]}")
 
                 # Tick em ordem INVERSA de etapa — evita que uma peça avançada num
                 # estágio seja imediatamente processada pelo próximo no mesmo ciclo.
                 machines_rev = sorted(machines, key=lambda m: m.stage_num, reverse=True)
                 for machine in machines_rev:
                     try:
-                        machine.tick(conn_db, op_id, n_etapas)
+                        machine.tick(conn_db, active_ops, n_etapas)
                     except Exception as e:
                         logger.error(f"IHM {machine.id_ihm}: erro no tick: {e}")
 

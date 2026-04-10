@@ -1844,6 +1844,32 @@ def get_historico_data(data_inicio: datetime, data_fim: datetime) -> dict:
                 "percentual": pct_l, "acumulado": round(min(acum_l, 100.0), 1),
             })
 
+        # Ordens do período para esta linha
+        df_ordens_l = run_query("""
+            SELECT nu_numero_op, tx_peca, nu_quantidade, tx_status,
+                   COALESCE(nu_produzido, 0) AS nu_produzido,
+                   COALESCE(nu_refugo,    0) AS nu_refugo
+            FROM dbo.tb_ordem_producao
+            WHERE id_linha_producao = :lid
+              AND (dt_criacao BETWEEN :inicio AND :fim
+                   OR  dt_inicio BETWEEN :inicio AND :fim
+                   OR  tx_status = 'em_producao')
+            ORDER BY dt_criacao DESC
+        """, {"lid": line_id, "inicio": data_inicio, "fim": data_fim})
+        ordens_l: list = []
+        for _, o in df_ordens_l.iterrows():
+            qtd  = int(o["nu_quantidade"])
+            prod = int(o["nu_produzido"])
+            ordens_l.append({
+                "numero":     o["nu_numero_op"],
+                "peca":       o["tx_peca"],
+                "quantidade": qtd,
+                "produzido":  prod,
+                "refugo":     int(o["nu_refugo"]),
+                "status":     o["tx_status"],
+                "conclusao":  round(100 * prod / qtd) if qtd > 0 else 0,
+            })
+
         linhas.append({
             "id":              line_id,
             "nome":            linha["tx_name"],
@@ -1852,6 +1878,7 @@ def get_historico_data(data_inicio: datetime, data_fim: datetime) -> dict:
             "realizado_pct":   realizado_pct,
             "maquinas":        maquinas,
             "pareto_paradas":  pareto_linha,
+            "ordens":          ordens_l,
         })
 
     all_oees = [m["oee"] for l in linhas for m in l["maquinas"] if isinstance(m.get("oee"), (int, float))]
