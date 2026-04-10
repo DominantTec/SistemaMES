@@ -640,28 +640,28 @@ function FluxogramaProducao({ op, fluxo }) {
 }
 
 function MapaProducao({ ordens }) {
-  const [expandedId, setExpandedId]           = useState(null);
+  const [expandedIds, setExpandedIds]         = useState(new Set());
   const [fluxos, setFluxos]                   = useState({});
   const [loadingId, setLoadingId]             = useState(null);
   const [filtroStatus, setFiltroStatus]       = useState("todos");
   const [recentlyFinished, setRecentlyFinished] = useState(new Set());
   const refreshTimerRef                       = useRef(null);
 
-  // Mantém OP visível no filtro "ativos" por 30 s após finalizar
+  // Mantém OPs visíveis no filtro "ativos" por 30 s após finalizarem
   useEffect(() => {
-    if (!expandedId) return;
-    const op = ordens.find(o => o.id === expandedId);
-    if (!op || op.status !== "finalizado") return;
-    setRecentlyFinished(prev => new Set(prev).add(expandedId));
-    const t = setTimeout(() => {
-      setRecentlyFinished(prev => { const s = new Set(prev); s.delete(expandedId); return s; });
-    }, 30000);
-    return () => clearTimeout(t);
-  }, [expandedId, ordens]);
+    expandedIds.forEach(id => {
+      const op = ordens.find(o => o.id === id);
+      if (!op || op.status !== "finalizado" || recentlyFinished.has(id)) return;
+      setRecentlyFinished(prev => new Set(prev).add(id));
+      setTimeout(() => {
+        setRecentlyFinished(prev => { const s = new Set(prev); s.delete(id); return s; });
+      }, 30000);
+    });
+  }, [expandedIds, ordens]);
 
   const ordensFiltradas = ordens.filter(op => {
     if (filtroStatus === "ativos") {
-      if (op.id === expandedId || recentlyFinished.has(op.id)) return true;
+      if (expandedIds.has(op.id) || recentlyFinished.has(op.id)) return true;
       return op.status === "fila" || op.status === "em_producao";
     }
     return true;
@@ -670,26 +670,35 @@ function MapaProducao({ ordens }) {
     return (ordem[a.status] ?? 9) - (ordem[b.status] ?? 9);
   });
 
-  // Auto-refresh quando uma OP em_producao está expandida
+  // Auto-refresh de todas as OPs em_producao expandidas
   useEffect(() => {
     if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
-    if (!expandedId) return;
-    const op = ordens.find(o => o.id === expandedId);
-    if (!op || op.status !== "em_producao") return;
+    const activeIds = Array.from(expandedIds).filter(id => {
+      const op = ordens.find(o => o.id === id);
+      return op && op.status === "em_producao";
+    });
+    if (activeIds.length === 0) return;
 
     refreshTimerRef.current = setInterval(() => {
-      fetch(`${API_BASE}/api/ordens/${expandedId}/fluxo`)
-        .then(r => r.json())
-        .then(data => setFluxos(prev => ({ ...prev, [expandedId]: data })))
-        .catch(() => {});
+      activeIds.forEach(id => {
+        fetch(`${API_BASE}/api/ordens/${id}/fluxo`)
+          .then(r => r.json())
+          .then(data => setFluxos(prev => ({ ...prev, [id]: data })))
+          .catch(() => {});
+      });
     }, 2000);
 
     return () => clearInterval(refreshTimerRef.current);
-  }, [expandedId, ordens]);
+  }, [expandedIds, ordens]);
 
   async function toggleExpand(op) {
-    if (expandedId === op.id) { setExpandedId(null); return; }
-    setExpandedId(op.id);
+    const isOpen = expandedIds.has(op.id);
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      if (isOpen) { next.delete(op.id); } else { next.add(op.id); }
+      return next;
+    });
+    if (isOpen) return;
     if (fluxos[op.id] && op.status !== "em_producao") return; // fila: usa cache
     setLoadingId(op.id);
     try {
@@ -730,7 +739,7 @@ function MapaProducao({ ordens }) {
       )}
 
       {ordensFiltradas.map(op => {
-        const isOpen    = expandedId === op.id;
+        const isOpen    = expandedIds.has(op.id);
         const isLoading = loadingId === op.id;
         const fluxo     = fluxos[op.id];
         const badge     = badgePrioridade(op.prioridade);

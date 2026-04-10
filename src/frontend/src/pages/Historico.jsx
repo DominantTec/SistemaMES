@@ -1501,6 +1501,18 @@ async function exportarExcel(fabricaData, funil, inicio, fim, turno) {
 
   const linhas = fabricaData?.linhas || [];
 
+  // Derivados de ordens (usados em múltiplas sheets)
+  const allOrdensXls = linhas.flatMap(l => (l.ordens || []).map(o => ({
+    ...o, linhaNome: l.nome || ('Linha ' + l.id_linha),
+  })));
+  const funilXls = funil || (allOrdensXls.length > 0 ? {
+    total_ordens:  allOrdensXls.length,
+    concluidas:    allOrdensXls.filter(o => o.status === 'finalizado'   || o.conclusao >= 100).length,
+    iniciadas:     allOrdensXls.filter(o => o.status === 'em_producao').length,
+    nao_iniciadas: allOrdensXls.filter(o => o.status === 'fila').length,
+    atrasadas:     0,
+  } : null);
+
   // ── Sheet 1: Resumo Executivo ──────────────────────────────────────────────
   const s1 = wb.addWorksheet('Resumo Executivo', { properties: { tabColor: { argb: 'FF2563EB' } } });
   s1.columns = [{ width: 30 }, { width: 20 }, { width: 20 }, { width: 20 }, { width: 20 }, { width: 20 }];
@@ -1633,18 +1645,6 @@ async function exportarExcel(fabricaData, funil, inicio, fim, turno) {
   }
 
   // ── Sheet 4: Ordens de Produção (lista real) ─────────────────────────────
-  const allOrdensXls = linhas.flatMap(l => (l.ordens || []).map(o => ({
-    ...o, linhaNome: l.nome || ('Linha ' + l.id_linha),
-  })));
-  // Funil derivado das ordens reais se não disponível diretamente
-  const funilXls = funil || (allOrdensXls.length > 0 ? {
-    total_ordens:  allOrdensXls.length,
-    concluidas:    allOrdensXls.filter(o => o.status === 'finalizado'   || o.conclusao >= 100).length,
-    iniciadas:     allOrdensXls.filter(o => o.status === 'em_producao').length,
-    nao_iniciadas: allOrdensXls.filter(o => o.status === 'fila').length,
-    atrasadas:     0,
-  } : null);
-
   const s4 = wb.addWorksheet('Ordens de Produção', { properties: { tabColor: { argb: 'FFF59E0B' } } });
   s4.columns = [
     { width: 16 }, { width: 28 }, { width: 14 }, { width: 14 }, { width: 12 }, { width: 10 }, { width: 18 }, { width: 20 },
