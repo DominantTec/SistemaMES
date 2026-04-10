@@ -1939,6 +1939,8 @@ def get_historico_linha_detalhe(linha_id: int, dt_inicio: datetime, dt_fim: date
     total_reprovado = 0
     all_oees: list  = []
 
+    all_paradas_agg: dict = {}  # motivo -> minutos (agregado linha)
+
     for _, machine in df_machines.iterrows():
         mid     = int(machine["id_ihm"])
         metrics = get_metrics_machine(mid, data_inicio=dt_inicio, data_fim=dt_fim)
@@ -1949,6 +1951,9 @@ def get_historico_linha_detalhe(linha_id: int, dt_inicio: datetime, dt_fim: date
         total_reprovado += repr_
         if oee is not None:
             all_oees.append(oee)
+        pareto_maq = get_pareto_paradas(mid, dt_inicio, dt_fim)
+        for p in pareto_maq:
+            all_paradas_agg[p["motivo"]] = all_paradas_agg.get(p["motivo"], 0) + p["minutos"]
         maquinas.append({
             "id":              mid,
             "nome":            machine["tx_name"],
@@ -1960,6 +1965,22 @@ def get_historico_linha_detalhe(linha_id: int, dt_inicio: datetime, dt_fim: date
             "reprovado":       repr_,
             "meta":            metrics["meta"],
             "status":          metrics["status_maquina"],
+            "pareto_paradas":  pareto_maq,
+        })
+
+    # Pareto consolidado da linha
+    total_min = sum(all_paradas_agg.values())
+    sorted_agg = sorted(all_paradas_agg.items(), key=lambda x: x[1], reverse=True)
+    acum = 0.0
+    pareto_linha = []
+    for mot, mins in sorted_agg:
+        pct = round(100 * mins / total_min, 1) if total_min > 0 else 0
+        acum += pct
+        pareto_linha.append({
+            "motivo":     mot,
+            "minutos":    round(mins, 1),
+            "percentual": pct,
+            "acumulado":  round(min(acum, 100.0), 1),
         })
 
     # Produção hora a hora — máquinas terminais da rota
@@ -2062,6 +2083,7 @@ def get_historico_linha_detalhe(linha_id: int, dt_inicio: datetime, dt_fim: date
         "taxa_rejeicao":        taxa_rej,
         "total_produzido":      total_produzido,
         "total_reprovado":      total_reprovado,
+        "pareto_paradas":       pareto_linha,
     }
 
 

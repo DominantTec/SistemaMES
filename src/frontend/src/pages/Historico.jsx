@@ -3,6 +3,7 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
   CartesianGrid, ComposedChart, Line, ReferenceLine, Cell,
 } from "recharts";
+
 import "./historico.css";
 
 const DEFAULT_API = `http://${window.location.hostname}:8000`;
@@ -638,13 +639,18 @@ function OrdensTable({ ordens }) {
   );
 }
 
-function LinhaTab({ linhas, inicio, fim }) {
-  const [selectedId, setSelectedId]     = useState("");
+function LinhaTab({ linhas, inicio, fim, defaultLinhaId }) {
+  const [selectedId, setSelectedId]     = useState(() => defaultLinhaId ? String(defaultLinhaId) : "");
   const [turnoOpts, setTurnoOpts]       = useState([]);
   const [selectedTurno, setSelectedTurno] = useState("");
   const [data, setData]                 = useState(null);
   const [loading, setLoading]           = useState(false);
   const [error, setError]               = useState(null);
+
+  // Sincroniza com a linha padrão do header
+  useEffect(() => {
+    if (defaultLinhaId && !selectedId) setSelectedId(String(defaultLinhaId));
+  }, [defaultLinhaId]);
 
   // Busca turnos disponíveis ao selecionar a linha
   useEffect(() => {
@@ -892,133 +898,91 @@ function MaquinaTab({ linhas, inicio, fim }) {
   );
 }
 
-// ─── Tab 0: Por Turno (filtro primário) ──────────────────────────────────────
+// ─── Tab 0: Por Turno (driven by header selection) ──────────────────────────
 
-function TurnoTab() {
-  const [linhas,         setLinhas]         = useState([]);
-  const [selectedLinha,  setSelectedLinha]  = useState("");
-  const [turnoOpts,      setTurnoOpts]      = useState([]);
-  const [selectedTurno,  setSelectedTurno]  = useState(null);
-  const [data,           setData]           = useState(null);
-  const [loading,        setLoading]        = useState(false);
-  const [error,          setError]          = useState(null);
+function TurnoTab({ selectedTurno, selectedLinhaId }) {
+  const [data,    setData]    = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState(null);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/config/lines`).then((r) => r.json()).then(setLinhas).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (!selectedLinha) { setTurnoOpts([]); setSelectedTurno(null); setData(null); return; }
-    fetch(`${API_BASE}/api/config/lines/${selectedLinha}/turnos/historico?limit=60`)
-      .then((r) => r.json())
-      .then((list) => { setTurnoOpts((list || []).filter((t) => t.status !== "agendado")); setSelectedTurno(null); setData(null); })
-      .catch(() => setTurnoOpts([]));
-  }, [selectedLinha]);
-
-  function fmtLbl(t) {
-    const dt = t.dt_real_inicio || t.dt_inicio;
-    if (!dt) return t.nome;
-    const d = new Date(dt);
-    return `${t.nome} — ${d.toLocaleDateString("pt-BR")} ${d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
-  }
-
-  function pickTurno(t) {
-    setSelectedTurno(t);
-    if (!t) { setData(null); return; }
-    const di = t.dt_real_inicio || t.dt_inicio;
-    const df = t.dt_real_fim   || t.dt_fim;
-    if (!di) return;
-    const dfSafe = df || new Date().toISOString();
-    setLoading(true); setData(null); setError(null);
-    fetch(`${API_BASE}/api/historico/linha/${selectedLinha}?data_inicio=${encode(di)}&data_fim=${encode(dfSafe)}&turno_id=${t.id_ocorrencia}`)
-      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then((d) => { setData(d); setLoading(false); })
-      .catch((e) => { setError(String(e)); setLoading(false); });
-  }
-
-  function gerarRelatorio() {
-    if (!data || !selectedTurno) return;
+    if (!selectedTurno || !selectedLinhaId) { setData(null); return; }
     const di = selectedTurno.dt_real_inicio || selectedTurno.dt_inicio;
     const df = selectedTurno.dt_real_fim   || selectedTurno.dt_fim || new Date().toISOString();
-    // wrap data in fabricaData-like shape for PDF
-    const fab = { oee_global: data.oee, linhas: [{ ...data, nome: data.nome || "Linha", maquinas: data.maquinas || [], realizado: data.total_produzido, meta_total: data.meta_turno }] };
-    exportarPDF(fab, null, di, df);
+    if (!di) { setData(null); return; }
+    setLoading(true); setData(null); setError(null);
+    fetch(`${API_BASE}/api/historico/linha/${selectedLinhaId}?data_inicio=${encode(di)}&data_fim=${encode(df)}&turno_id=${selectedTurno.id_ocorrencia}`)
+      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then((d)  => { setData(d);   setLoading(false); })
+      .catch((e) => { setError(String(e)); setLoading(false); });
+  }, [selectedTurno?.id_ocorrencia, selectedLinhaId]);
+
+  function gerarPDF() {
+    if (!data || !selectedTurno) return;
+    const di  = selectedTurno.dt_real_inicio || selectedTurno.dt_inicio;
+    const df  = selectedTurno.dt_real_fim   || selectedTurno.dt_fim || new Date().toISOString();
+    const fab = {
+      oee_global: data.oee,
+      linhas: [{ ...data, nome: data.nome || "Linha", maquinas: data.maquinas || [],
+        realizado: data.total_produzido, meta_total: data.meta_turno }],
+    };
+    exportarPDF(fab, null, di, df, selectedTurno);
   }
 
-  const aderencia = selectedTurno && selectedTurno.meta > 0
-    ? Math.round(selectedTurno.produzido / selectedTurno.meta * 100) : null;
+  async function gerarExcel() {
+    if (!data || !selectedTurno) return;
+    const di  = selectedTurno.dt_real_inicio || selectedTurno.dt_inicio;
+    const df  = selectedTurno.dt_real_fim   || selectedTurno.dt_fim || new Date().toISOString();
+    const fab = {
+      oee_global: data.oee,
+      linhas: [{ ...data, nome: data.nome || "Linha", maquinas: data.maquinas || [],
+        realizado: data.total_produzido, meta_total: data.meta_turno }],
+    };
+    await exportarExcel(fab, null, di, df, selectedTurno);
+  }
+
+  if (!selectedTurno || !selectedLinhaId) {
+    return (
+      <div className="hi-tab-content">
+        <EmptyState icon="🔄" text="Selecione uma linha e um turno no painel acima para carregar os detalhes" />
+      </div>
+    );
+  }
+
+  const aderencia = selectedTurno.meta > 0
+    ? Math.round((selectedTurno.produzido / selectedTurno.meta) * 100) : null;
 
   return (
     <div className="hi-tab-content">
-      {/* Seletor de linha + turno */}
-      <div className="hi-turno-filter">
-        <div className="hi-turno-step">
-          <label className="hi-turno-step-lbl">Linha de Produção</label>
-          <select className="hi-select hi-select-lg" value={selectedLinha}
-            onChange={(e) => setSelectedLinha(e.target.value)}>
-            <option value="">— Selecione a linha —</option>
-            {linhas.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
-          </select>
-        </div>
-        <div className="hi-turno-step">
-          <label className="hi-turno-step-lbl">Turno</label>
-          <select className="hi-select hi-select-lg"
-            value={selectedTurno?.id_ocorrencia || ""}
-            onChange={(e) => pickTurno(turnoOpts.find((t) => String(t.id_ocorrencia) === e.target.value) || null)}
-            disabled={!selectedLinha || turnoOpts.length === 0}>
-            <option value="">— Selecione o turno —</option>
-            {turnoOpts.map((t) => <option key={t.id_ocorrencia} value={t.id_ocorrencia}>{fmtLbl(t)}</option>)}
-          </select>
-        </div>
-        {data && (
-          <button className="hi-buscar-btn hi-export-btn" onClick={gerarRelatorio}>
-            Gerar PDF
-          </button>
-        )}
-      </div>
-
-      {/* Banner do turno selecionado */}
-      {selectedTurno && (
-        <div className="hi-turno-banner">
-          <div className="hi-turno-banner-left">
-            <span className="hi-turno-banner-nome">{selectedTurno.nome}</span>
-            <span className={`hi-turno-banner-status hi-turno-banner-status--${selectedTurno.status}`}>
-              {selectedTurno.status === "finalizado" ? "Finalizado" : selectedTurno.status === "em_andamento" ? "Em andamento" : selectedTurno.status}
-            </span>
-          </div>
-          <div className="hi-turno-banner-times">
-            <span>Início real: <strong>{selectedTurno.dt_real_inicio ? new Date(selectedTurno.dt_real_inicio).toLocaleString("pt-BR") : "—"}</strong></span>
-            <span>Fim real: <strong>{selectedTurno.dt_real_fim ? new Date(selectedTurno.dt_real_fim).toLocaleString("pt-BR") : "Em curso"}</strong></span>
-          </div>
-          <div className="hi-turno-banner-kpis">
-            <span>Meta: <strong>{selectedTurno.meta}</strong></span>
-            <span>Produzido: <strong style={{ color: oeeColor(aderencia) }}>{selectedTurno.produzido}</strong></span>
-            {aderencia !== null && (
-              <span style={{ color: oeeColor(aderencia), fontWeight: 700 }}>Aderência: {aderencia}%</span>
-            )}
-          </div>
-        </div>
-      )}
-
       {loading && <div className="hi-loading"><Spinner /> Carregando dados do turno...</div>}
-      {error && <div className="hi-error">{error}</div>}
+      {error   && <div className="hi-error">{error}</div>}
 
       {data && !loading && (
         <>
+          {/* KPIs do turno */}
           <div className="hi-kpi-row">
-            <KPICard icon="⚡" label="OEE da Linha" value={data.oee ?? "—"} unit={data.oee !== null ? "%" : ""}
+            <KPICard icon="⚡" label="OEE da Linha"
+              value={data.oee ?? "—"} unit={data.oee !== null ? "%" : ""}
               color={oeeColor(data.oee)} sub={oeeLabel(data.oee)} />
-            <KPICard icon="📦" label="Produção Total" value={(data.total_produzido || 0).toLocaleString("pt-BR")}
-              unit="un" color="#3b82f6" sub={`${data.maquinas?.length || 0} máquinas`} />
-            <KPICard icon="🔍" label="Taxa de Rejeição" value={data.taxa_rejeicao ?? "—"}
-              unit={data.taxa_rejeicao != null ? "%" : ""} color={data.taxa_rejeicao > 10 ? "#dc2626" : "#16a34a"}
+            <KPICard icon="📦" label="Produção Total"
+              value={(data.total_produzido || 0).toLocaleString("pt-BR")}
+              unit="un" color="#3b82f6" sub={`${data.maquinas?.length || 0} máquinas na linha`} />
+            <KPICard icon="🔍" label="Taxa de Rejeição"
+              value={data.taxa_rejeicao ?? "—"} unit={data.taxa_rejeicao != null ? "%" : ""}
+              color={data.taxa_rejeicao > 10 ? "#dc2626" : "#16a34a"}
               sub={`${data.total_reprovado ?? 0} rejeitadas`} />
+            {aderencia !== null && (
+              <KPICard icon="🎯" label="Aderência à Meta"
+                value={aderencia} unit="%"
+                color={oeeColor(aderencia)}
+                sub={`${selectedTurno.produzido} / ${selectedTurno.meta} un`} />
+            )}
           </div>
 
-          {/* OEE breakdown por máquina */}
+          {/* OEE por máquina */}
           <div className="hi-section">
             <div className="hi-section-header">
-              <span className="hi-section-title">OEE por Máquina — Turno</span>
+              <span className="hi-section-title">OEE por Máquina</span>
               <span className="hi-section-sub">Disponibilidade × Performance × Qualidade</span>
             </div>
             <div className="hi-machine-grid">
@@ -1026,11 +990,12 @@ function TurnoTab() {
             </div>
           </div>
 
-          {/* Breakdown OEE chart */}
+          {/* OEE breakdown chart */}
           {data.maquinas?.length > 1 && (
             <div className="hi-section">
               <div className="hi-section-header">
-                <span className="hi-section-title">OEE Breakdown</span>
+                <span className="hi-section-title">OEE Breakdown por Máquina</span>
+                <span className="hi-section-sub">OEE · Disponibilidade · Performance · Qualidade</span>
               </div>
               <MaquinasOEEChart maquinas={data.maquinas} />
             </div>
@@ -1040,20 +1005,22 @@ function TurnoTab() {
           <div className="hi-section">
             <div className="hi-section-header">
               <span className="hi-section-title">Produção Hora a Hora</span>
-              <span className="hi-section-sub">Dentro do turno selecionado</span>
+              <span className="hi-section-sub">Dentro do turno</span>
             </div>
             <HourlyChart data={data.producao_hora_a_hora} />
           </div>
 
-          {/* Turnos + Ordens */}
+          {/* Ordens */}
           {data.ordens?.length > 0 && (
             <div className="hi-section">
-              <div className="hi-section-header"><span className="hi-section-title">Ordens de Produção no Turno</span></div>
+              <div className="hi-section-header">
+                <span className="hi-section-title">Ordens de Produção no Turno</span>
+              </div>
               <OrdensTable ordens={data.ordens} />
             </div>
           )}
 
-          {/* Pareto de paradas */}
+          {/* Pareto */}
           {data.pareto_paradas?.length > 0 && (
             <div className="hi-section">
               <div className="hi-section-header">
@@ -1063,188 +1030,1107 @@ function TurnoTab() {
               <ParetoChart data={data.pareto_paradas} />
             </div>
           )}
-        </>
-      )}
 
-      {!selectedTurno && !loading && (
-        <EmptyState icon="🔄" text="Selecione uma linha e um turno para ver o dashboard completo" />
+          {/* Export buttons do turno */}
+          <div className="hi-turno-export-row">
+            <button className="hi-buscar-btn hi-export-btn hi-export-btn--pdf" onClick={gerarPDF}>
+              📄 PDF do Turno
+            </button>
+            <TurnoExcelBtn data={data} turno={selectedTurno} />
+          </div>
+        </>
       )}
     </div>
   );
 }
 
-// ─── Export PDF (via window.print) ───────────────────────────────────────────
-
-function exportarPDF(fabricaData, funil, inicio, fim) {
-  if (!fabricaData) return;
-  const fmtDt = (s) => (s ? s.replace("T", " ") : "");
-  const n = (v) => (v ?? 0).toLocaleString("pt-BR");
-  const pct = (v) => v != null ? `${Number(v).toFixed(1)}%` : "—";
-  const totalProd = fabricaData.linhas.reduce((s, l) => s + (l.realizado || 0), 0);
-  const totalMeta = fabricaData.linhas.reduce((s, l) => s + (l.meta_total || 0), 0);
-  const allMaq    = fabricaData.linhas.flatMap((l) => l.maquinas || []);
-  const totalRej  = allMaq.reduce((s, m) => s + (m.reprovado || 0), 0);
-  const taxaRej   = (totalProd + totalRej) > 0 ? +((totalRej / (totalProd + totalRej)) * 100).toFixed(2) : 0;
-  const ader      = totalMeta > 0 ? +((totalProd / totalMeta) * 100).toFixed(1) : null;
-  const gerado    = new Date().toLocaleString("pt-BR");
-
-  function cls(v) { const x = Number(v); if (isNaN(x)) return ""; return x >= 75 ? "green" : x >= 50 ? "orange" : "red"; }
-
-  const linhasRows = fabricaData.linhas.map((l) => {
-    const a = l.meta_total > 0 ? +((l.realizado / l.meta_total) * 100).toFixed(1) : null;
-    return `<tr><td>${l.nome}</td><td class="c ${cls(l.oee)}">${pct(l.oee)}</td><td class="r">${n(l.realizado)}</td><td class="r">${n(l.meta_total)}</td><td class="c ${cls(a)}">${a != null ? a + "%" : "—"}</td><td class="c">${l.maquinas?.length || 0}</td></tr>`;
-  }).join("");
-  const maqRows = fabricaData.linhas.flatMap((l) =>
-    (l.maquinas || []).map((m) => `<tr><td>${l.nome}</td><td>${m.nome}</td><td class="c ${cls(m.oee)}">${pct(m.oee)}</td><td class="c ${cls(m.disponibilidade)}">${pct(m.disponibilidade)}</td><td class="c ${cls(m.performance)}">${pct(m.performance)}</td><td class="c ${cls(m.qualidade)}">${pct(m.qualidade)}</td><td class="r">${n(m.produzido)}</td><td class="r">${n(m.meta)}</td><td class="r ${(m.reprovado||0)>0?"red":""}">${n(m.reprovado)}</td><td>${m.status||"—"}</td></tr>`)
-  ).join("");
-  const funilHTML = funil ? `<div class="st">Ordens de Producao</div><table style="width:240px"><thead><tr><th>Status</th><th>OPs</th><th>Pecas</th></tr></thead><tbody><tr><td>Na Fila</td><td class="c">${funil.fila?.qty||0}</td><td class="r">${n(funil.fila?.pecas)}</td></tr><tr><td>Em Producao</td><td class="c">${funil.em_producao?.qty||0}</td><td class="r">${n(funil.em_producao?.pecas)}</td></tr><tr><td class="green">Finalizados</td><td class="c green">${funil.finalizado?.qty||0}</td><td class="r green">${n(funil.finalizado?.pecas)}</td></tr><tr><td class="red">Cancelados</td><td class="c red">${funil.cancelado?.qty||0}</td><td class="r red">${n(funil.cancelado?.pecas)}</td></tr></tbody></table>` : "";
-
-  const kpis = [
-    { label: "OEE Global", val: fabricaData.oee_global != null ? fabricaData.oee_global+"%" : "—", ac: cls(fabricaData.oee_global)||"blue" },
-    { label: "Producao Total", val: n(totalProd)+" un", ac: "blue" },
-    { label: "Meta Total", val: n(totalMeta)+" un", ac: "gray" },
-    { label: "Aderencia Meta", val: ader != null ? ader+"%" : "—", ac: cls(ader)||"blue" },
-    { label: "Rejeitado", val: n(totalRej)+" un", ac: taxaRej>10?"red":"green" },
-    { label: "Taxa Rejeicao", val: taxaRej+"%", ac: taxaRej>10?"red":"green" },
-  ];
-  const kpiHTML = kpis.map((k) => `<div class="kpi kpi-${k.ac}"><div class="kl">${k.label}</div><div class="kv">${k.val}</div></div>`).join("");
-
-  const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Relatorio de Producao</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;font-size:11px;color:#111}
-@page{size:A4 landscape;margin:12mm 14mm}
-@media print{.np{display:none!important}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
-.hdr{background:#1D4ED8;color:#fff;padding:12px 18px;display:flex;justify-content:space-between;border-radius:6px;margin-bottom:16px}
-.hdr h1{font-size:16px;font-weight:700}.hdr-r{text-align:right;font-size:9px;line-height:1.8;opacity:.9}
-.kgrid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:16px}
-.kpi{background:#f8fafc;border:1px solid #e5e7eb;border-radius:6px;padding:10px 8px;text-align:center;position:relative}
-.kpi::before{content:"";position:absolute;top:0;left:0;right:0;height:3px;border-radius:6px 6px 0 0;background:var(--ac)}
-.kpi-blue{--ac:#1D4ED8}.kpi-green{--ac:#16A34A}.kpi-orange{--ac:#D97706}.kpi-red{--ac:#DC2626}.kpi-gray{--ac:#6B7280}
-.kl{font-size:8px;color:#6b7280;text-transform:uppercase;letter-spacing:.3px;margin-bottom:4px}
-.kv{font-size:17px;font-weight:700;color:var(--ac)}
-.st{font-size:12px;font-weight:700;border-left:3px solid #1D4ED8;padding-left:8px;margin:14px 0 7px}
-table{width:100%;border-collapse:collapse;margin-bottom:14px;font-size:10px}
-th{background:#1D4ED8;color:#fff;padding:6px 8px;font-weight:700;white-space:nowrap}
-td{padding:5px 8px;border-bottom:1px solid #e5e7eb}tr:nth-child(even) td{background:#f8fafc}
-.c{text-align:center}.r{text-align:right}
-.green{color:#16A34A;font-weight:700}.orange{color:#D97706;font-weight:700}.red{color:#DC2626;font-weight:700}
-.two{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-.pb{page-break-before:always;padding-top:2px}
-.ftr{margin-top:16px;padding-top:8px;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;font-size:8px;color:#9ca3af}
-.btn{background:#1D4ED8;color:#fff;border:none;padding:8px 18px;font-size:13px;border-radius:5px;cursor:pointer;margin-bottom:14px}
-</style></head><body>
-<button class="btn np" onclick="window.print()">Imprimir / Salvar PDF</button>
-<div class="hdr"><div><h1>Relatorio de Producao</h1><div style="font-size:9px;opacity:.85;margin-top:3px">Resumo Executivo — Visao Geral da Fabrica</div></div><div class="hdr-r"><div>Periodo: <strong>${fmtDt(inicio)} &rarr; ${fmtDt(fim)}</strong></div><div>Gerado em: ${gerado}</div><div>${fabricaData.linhas.length} linhas &middot; ${allMaq.length} maquinas</div></div></div>
-<div class="kgrid">${kpiHTML}</div>
-<div class="two">
-<div><div class="st">Desempenho por Linha</div><table><thead><tr><th>Linha</th><th>OEE</th><th>Produzido</th><th>Meta</th><th>Aderencia</th><th>Maquinas</th></tr></thead><tbody>${linhasRows}</tbody></table></div>
-<div>${funilHTML}</div>
-</div>
-<div class="ftr"><span>PCP Analytics — Relatorio Confidencial</span><span>Pagina 1 de 2</span></div>
-<div class="pb">
-<div class="hdr"><div><h1>Relatorio de Producao</h1><div style="font-size:9px;opacity:.85;margin-top:3px">Drill-down por Maquina</div></div><div class="hdr-r"><div>Periodo: <strong>${fmtDt(inicio)} &rarr; ${fmtDt(fim)}</strong></div><div>Gerado em: ${gerado}</div></div></div>
-<div class="st">Detalhamento por Maquina</div>
-<table><thead><tr><th>Linha</th><th>Maquina</th><th>OEE</th><th>Disponib.</th><th>Perf.</th><th>Qualid.</th><th>Produzido</th><th>Meta</th><th>Rejeitado</th><th>Status</th></tr></thead><tbody>${maqRows}</tbody></table>
-<div class="ftr"><span>PCP Analytics — Relatorio Confidencial</span><span>Pagina 2 de 2</span></div>
-</div>
-</body></html>`;
-
-  const w = window.open("", "_blank");
-  w.document.write(html);
-  w.document.close();
-  w.focus();
-  setTimeout(() => w.print(), 500);
+function TurnoExcelBtn({ data, turno }) {
+  const [exp, setExp] = useState(false);
+  async function go() {
+    setExp(true);
+    try { await gerarExcelTurno(data, turno); }
+    finally { setExp(false); }
+  }
+  return (
+    <button className="hi-buscar-btn hi-export-btn hi-export-btn--excel" onClick={go} disabled={exp}>
+      {exp ? <><Spinner size={14} /> Excel...</> : "📊 Excel do Turno"}
+    </button>
+  );
 }
 
-// ─── Atalhos de período ───────────────────────────────────────────────────────
+async function gerarExcelTurno(data, turno) {
+  const di  = turno.dt_real_inicio || turno.dt_inicio;
+  const df  = turno.dt_real_fim   || turno.dt_fim || new Date().toISOString();
+  const fab = {
+    oee_global: data.oee,
+    linhas: [{ ...data, nome: data.nome || "Linha", maquinas: data.maquinas || [],
+      realizado: data.total_produzido, meta_total: data.meta_turno }],
+  };
+  await exportarExcel(fab, null, di, df, turno);
+}
 
-const SHORTCUTS = [
-  { label: "Hoje", range: () => { const s = new Date(); s.setHours(0,0,0,0); return [toLocalDT(s), toLocalDT(new Date())]; } },
-  { label: "Ontem", range: () => { const s = new Date(); s.setDate(s.getDate()-1); s.setHours(0,0,0,0); const e = new Date(); e.setDate(e.getDate()-1); e.setHours(23,59,0,0); return [toLocalDT(s), toLocalDT(e)]; } },
-  { label: "Últ. 8h", range: () => { const e = new Date(); return [toLocalDT(new Date(e - 8*3600e3)), toLocalDT(e)]; } },
-  { label: "Últ. 24h", range: () => { const e = new Date(); return [toLocalDT(new Date(e - 24*3600e3)), toLocalDT(e)]; } },
-  { label: "7 dias", range: () => { const e = new Date(); const s = new Date(e - 7*24*3600e3); s.setHours(0,0,0,0); return [toLocalDT(s), toLocalDT(e)]; } },
-];
+
+// ─── PDF helpers ─────────────────────────────────────────────────────────────
+
+function _pdfSVGGauge(pct, size = 90) {
+  const r = size / 2 - 8;
+  const cx = size / 2, cy = size / 2;
+  const angle = Math.PI * 1.5; // 270° arc
+  const startAngle = Math.PI * 0.75; // starts at 7-o'clock
+  const sweep = angle * Math.min(1, Math.max(0, pct / 100));
+  const x1 = cx + r * Math.cos(startAngle);
+  const y1 = cy + r * Math.sin(startAngle);
+  const x2 = cx + r * Math.cos(startAngle + sweep);
+  const y2 = cy + r * Math.sin(startAngle + sweep);
+  const color = pct >= 85 ? '#22c55e' : pct >= 60 ? '#f59e0b' : '#ef4444';
+  const largeArc = sweep > Math.PI ? 1 : 0;
+  const bg_x2 = cx + r * Math.cos(startAngle + angle);
+  const bg_y2 = cy + r * Math.sin(startAngle + angle);
+  return (
+    '<svg width="' + size + '" height="' + size + '" viewBox="0 0 ' + size + ' ' + size + '">' +
+    '<path d="M ' + x1.toFixed(2) + ' ' + y1.toFixed(2) +
+          ' A ' + r + ' ' + r + ' 0 1 1 ' + bg_x2.toFixed(2) + ' ' + bg_y2.toFixed(2) + '"' +
+          ' fill="none" stroke="#e5e7eb" stroke-width="8" stroke-linecap="round"/>' +
+    (sweep > 0.01 ?
+    '<path d="M ' + x1.toFixed(2) + ' ' + y1.toFixed(2) +
+          ' A ' + r + ' ' + r + ' 0 ' + largeArc + ' 1 ' + x2.toFixed(2) + ' ' + y2.toFixed(2) + '"' +
+          ' fill="none" stroke="' + color + '" stroke-width="8" stroke-linecap="round"/>' : '') +
+    '<text x="' + cx + '" y="' + (cy + 5) + '" text-anchor="middle" font-size="16" font-weight="bold" fill="' + color + '">' + pct.toFixed(1) + '%</text>' +
+    '</svg>'
+  );
+}
+
+function _pdfMiniBar(pct, width = 120) {
+  const color = pct >= 85 ? '#22c55e' : pct >= 60 ? '#f59e0b' : '#ef4444';
+  const fill = Math.min(100, Math.max(0, pct));
+  return (
+    '<svg width="' + width + '" height="14" viewBox="0 0 ' + width + ' 14">' +
+    '<rect x="0" y="3" width="' + width + '" height="8" rx="4" fill="#e5e7eb"/>' +
+    '<rect x="0" y="3" width="' + (width * fill / 100).toFixed(1) + '" height="8" rx="4" fill="' + color + '"/>' +
+    '</svg>'
+  );
+}
+
+function _categorizarMotivo(motivo) {
+  const m = (motivo || '').toLowerCase();
+  if (m.includes('manuten') || m.includes('manutentor'))
+    return { cat: 'Manutenção',   color: '#ef4444', argb: 'FFEF4444', bg: '#fef2f2', bgArgb: 'FFFEF2F2' };
+  if (m.includes('limpeza') || m.includes('setup') || m.includes('troca'))
+    return { cat: 'Setup/Limpeza', color: '#f59e0b', argb: 'FFF59E0B', bg: '#fffbeb', bgArgb: 'FFFFBEB' };
+  if (m.includes('aguardando') || m.includes('operador') || m.includes('material') || m.includes('insumo'))
+    return { cat: 'Aguardando',   color: '#3b82f6', argb: 'FF3B82F6', bg: '#eff6ff', bgArgb: 'FFEFF6FF' };
+  if (m === 'sem motivo' || m.startsWith('motivo 0'))
+    return { cat: 'Sem Motivo',   color: '#94a3b8', argb: 'FF94A3B8', bg: '#f8fafc', bgArgb: 'FFF8FAFC' };
+  return   { cat: 'Operacional',  color: '#8b5cf6', argb: 'FF8B5CF6', bg: '#faf5ff', bgArgb: 'FFFAF5FF' };
+}
+
+function exportarPDF(fabricaData, funil, inicio, fim, turno) {
+  const fmt  = (v, d = 1) => v == null ? '—' : Number(v).toFixed(d);
+  const pct  = (v) => v == null ? '—' : Number(v).toFixed(1) + '%';
+  const fmtDt = (s) => { try { return new Date(s).toLocaleString('pt-BR'); } catch { return s || '—'; } };
+  const fmtMin = (m) => {
+    const h = Math.floor(m / 60); const mn = Math.round(m % 60);
+    return h > 0 ? (h + 'h ' + mn + 'min') : (mn + 'min');
+  };
+  const oeeColor = (v) => v >= 85 ? '#16a34a' : v >= 60 ? '#d97706' : '#dc2626';
+  const linhas = fabricaData?.linhas || [];
+  const oeeGlobal = Number(fabricaData?.oee_global || 0);
+
+  const turnoNome = turno ? (turno.nome || ('Turno #' + turno.id_ocorrencia)) : null;
+  const periodoStr = turnoNome
+    ? (turnoNome + ' &nbsp;|&nbsp; ' + fmtDt(inicio) + ' → ' + fmtDt(fim))
+    : (fmtDt(inicio) + ' → ' + fmtDt(fim));
+
+  // ── Build linha rows ──────────────────────────────────────────────────────
+  const linhaRows = linhas.map((l, i) => {
+    const bg = i % 2 === 0 ? '#f8fafc' : '#ffffff';
+    const oee = Number(l.oee || 0);
+    return (
+      '<tr style="background:' + bg + '">' +
+      '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;font-weight:500">' + (l.nome || 'Linha ' + l.id_linha) + '</td>' +
+      '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:center;color:' + oeeColor(oee) + ';font-weight:700">' + pct(l.oee) + '</td>' +
+      '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:center">' + pct(l.disponibilidade) + '</td>' +
+      '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:center">' + pct(l.performance) + '</td>' +
+      '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:center">' + pct(l.qualidade) + '</td>' +
+      '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:right">' + fmt(l.realizado, 0) + '</td>' +
+      '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:right">' + fmt(l.meta_total, 0) + '</td>' +
+      '</tr>'
+    );
+  }).join('');
+
+  // ── Funil rows ────────────────────────────────────────────────────────────
+  const funilRows = funil ? [
+    ['Total de Ordens', funil.total_ordens || 0, '#3b82f6'],
+    ['Iniciadas', funil.iniciadas || 0, '#8b5cf6'],
+    ['Concluídas', funil.concluidas || 0, '#22c55e'],
+    ['Não Iniciadas', funil.nao_iniciadas || 0, '#f59e0b'],
+    ['Atrasadas', funil.atrasadas || 0, '#ef4444'],
+  ].map(([label, val, color], i) => {
+    const bg = i % 2 === 0 ? '#f8fafc' : '#ffffff';
+    const max = funil.total_ordens || 1;
+    return (
+      '<tr style="background:' + bg + '">' +
+      '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0">' + label + '</td>' +
+      '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:center;color:' + color + ';font-weight:700">' + val + '</td>' +
+      '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0">' + _pdfMiniBar(val / max * 100, 100) + '</td>' +
+      '</tr>'
+    );
+  }).join('') : '<tr><td colspan="3" style="padding:8px;color:#9ca3af">Sem dados de ordens</td></tr>';
+
+  // ── Pareto consolidado (todas as linhas) ──────────────────────────────────
+  const paradaAgg = {};
+  linhas.forEach(l => {
+    (l.pareto_paradas || []).forEach(p => {
+      paradaAgg[p.motivo] = (paradaAgg[p.motivo] || 0) + p.minutos;
+    });
+  });
+  const totalParadaMin = Object.values(paradaAgg).reduce((s, v) => s + v, 0);
+  const paradaSorted = Object.entries(paradaAgg).sort((a, b) => b[1] - a[1]).slice(0, 10);
+
+  // Pareto por categoria
+  const catAgg = {};
+  paradaSorted.forEach(([mot, mins]) => {
+    const c = _categorizarMotivo(mot);
+    catAgg[c.cat] = catAgg[c.cat] || { color: c.color, bg: c.bg, mins: 0, count: 0 };
+    catAgg[c.cat].mins  += mins;
+    catAgg[c.cat].count += 1;
+  });
+  const catSorted = Object.entries(catAgg).sort((a, b) => b[1].mins - a[1].mins);
+
+  const catRows = catSorted.map(([cat, data], i) => {
+    const bg = i % 2 === 0 ? '#f8fafc' : '#ffffff';
+    const pctCat = totalParadaMin > 0 ? (data.mins / totalParadaMin * 100) : 0;
+    return (
+      '<tr style="background:' + bg + '">' +
+      '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0">' +
+        '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + data.color + ';margin-right:6px;vertical-align:middle"></span>' + cat +
+      '</td>' +
+      '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:center;color:' + data.color + ';font-weight:700">' + fmtMin(data.mins) + '</td>' +
+      '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:center">' + pctCat.toFixed(1) + '%</td>' +
+      '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0">' + _pdfMiniBar(pctCat, 90) + '</td>' +
+      '</tr>'
+    );
+  }).join('');
+
+  const paradaRows = paradaSorted.map(([mot, mins], i) => {
+    const bg = i % 2 === 0 ? '#f8fafc' : '#ffffff';
+    const c = _categorizarMotivo(mot);
+    const pctMot = totalParadaMin > 0 ? (mins / totalParadaMin * 100) : 0;
+    return (
+      '<tr style="background:' + bg + '">' +
+      '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;font-weight:500">' + mot + '</td>' +
+      '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:center">' +
+        '<span style="background:' + c.bg + ';color:' + c.color + ';padding:1px 6px;border-radius:10px;font-size:9px;font-weight:600">' + c.cat + '</span>' +
+      '</td>' +
+      '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:center;color:' + c.color + ';font-weight:700">' + fmtMin(mins) + '</td>' +
+      '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:center">' + pctMot.toFixed(1) + '%</td>' +
+      '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0">' + _pdfMiniBar(pctMot, 90) + '</td>' +
+      '</tr>'
+    );
+  }).join('') || '<tr><td colspan="5" style="padding:8px;color:#9ca3af;text-align:center">Nenhuma parada registrada neste período</td></tr>';
+
+  // ── Pareto por máquina ────────────────────────────────────────────────────
+  const maqParadaRows = linhas.flatMap(l =>
+    (l.maquinas || []).filter(m => m.pareto_paradas?.length > 0).flatMap((m, mi) => {
+      const total = m.pareto_paradas.reduce((s, p) => s + p.minutos, 0);
+      return m.pareto_paradas.slice(0, 5).map((p, pi) => {
+        const bg = mi % 2 === 0 ? '#f8fafc' : '#ffffff';
+        const c  = _categorizarMotivo(p.motivo);
+        const bar = _pdfMiniBar(p.percentual, 70);
+        return (
+          '<tr style="background:' + bg + '">' +
+          (pi === 0
+            ? '<td rowspan="' + Math.min(5, m.pareto_paradas.length) + '" style="padding:6px 8px;border-bottom:1px solid #e2e8f0;font-weight:600;vertical-align:top">' + (m.nome || 'Máquina ' + m.id) + '</td>'
+            : '') +
+          '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0">' + p.motivo + '</td>' +
+          '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:center">' +
+            '<span style="background:' + c.bg + ';color:' + c.color + ';padding:1px 6px;border-radius:10px;font-size:9px;font-weight:600">' + c.cat + '</span>' +
+          '</td>' +
+          '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:center;color:' + c.color + ';font-weight:600">' + fmtMin(p.minutos) + '</td>' +
+          '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:center">' + p.percentual.toFixed(1) + '%</td>' +
+          '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0">' + bar + '</td>' +
+          '</tr>'
+        );
+      });
+    })
+  ).join('') || '<tr><td colspan="6" style="padding:8px;color:#9ca3af;text-align:center">Sem dados por máquina</td></tr>';
+
+  const temParadas = paradaSorted.length > 0;
+
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<title>Relatório PCP</title>
+<style>
+  @page { size: A4 landscape; margin: 12mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; }
+  body { background: #fff; color: #1e293b; font-size: 11px; }
+  .page { width: 100%; page-break-after: always; }
+  .page:last-child { page-break-after: avoid; }
+  h1 { font-size: 20px; font-weight: 800; }
+  h2 { font-size: 13px; font-weight: 700; margin-bottom: 8px; color: #1e293b; }
+  table { width: 100%; border-collapse: collapse; font-size: 10.5px; }
+  th { background: #1e3a5f; color: #fff; padding: 6px 8px; text-align: left; font-weight: 600; }
+  th:not(:first-child) { text-align: center; }
+  .section-badge { display:inline-block;background:#1e3a5f;color:#fff;font-size:9px;font-weight:700;padding:2px 8px;border-radius:10px;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px }
+</style>
+</head>
+<body>
+
+<!-- PAGE 1: KPIs + Linhas -->
+<div class="page">
+  <div style="background:linear-gradient(135deg,#1e3a5f,#2563eb);color:#fff;padding:16px 20px;border-radius:8px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">
+    <div>
+      <h1>Relatório de Produção</h1>
+      <div style="font-size:11px;opacity:.85;margin-top:4px">${periodoStr}</div>
+    </div>
+    <div style="text-align:right;font-size:10px;opacity:.75">
+      Gerado em: ${new Date().toLocaleString('pt-BR')}<br/>Sistema PCP — MES
+    </div>
+  </div>
+
+  <div style="display:flex;gap:12px;margin-bottom:16px">
+    <div style="flex:1;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px;text-align:center">
+      ${_pdfSVGGauge(oeeGlobal, 80)}
+      <div style="font-size:10px;color:#16a34a;font-weight:600;margin-top:4px">OEE Global</div>
+    </div>
+    <div style="flex:1;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px;text-align:center">
+      <div style="font-size:28px;font-weight:800;color:#1d4ed8">${linhas.length}</div>
+      <div style="font-size:10px;color:#1d4ed8;font-weight:600;margin-top:4px">Linhas Ativas</div>
+    </div>
+    <div style="flex:1;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:12px;text-align:center">
+      <div style="font-size:28px;font-weight:800;color:#c2410c">${funil?.total_ordens || 0}</div>
+      <div style="font-size:10px;color:#c2410c;font-weight:600;margin-top:4px">Total de Ordens</div>
+    </div>
+    <div style="flex:1;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px;text-align:center">
+      <div style="font-size:28px;font-weight:800;color:#16a34a">${funil?.concluidas || 0}</div>
+      <div style="font-size:10px;color:#16a34a;font-weight:600;margin-top:4px">Ordens Concluídas</div>
+    </div>
+    <div style="flex:1;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px;text-align:center">
+      <div style="font-size:28px;font-weight:800;color:#dc2626">${funil?.atrasadas || 0}</div>
+      <div style="font-size:10px;color:#dc2626;font-weight:600;margin-top:4px">Ordens Atrasadas</div>
+    </div>
+    <div style="flex:1;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px;text-align:center">
+      <div style="font-size:28px;font-weight:800;color:#7c3aed">${temParadas ? fmtMin(totalParadaMin) : '—'}</div>
+      <div style="font-size:10px;color:#7c3aed;font-weight:600;margin-top:4px">Tempo Total Parado</div>
+    </div>
+  </div>
+
+  <h2>Performance por Linha</h2>
+  <table>
+    <thead><tr><th>Linha</th><th>OEE</th><th>Disponib.</th><th>Performance</th><th>Qualidade</th><th>Produzido</th><th>Meta</th></tr></thead>
+    <tbody>${linhaRows || '<tr><td colspan="7" style="padding:8px;color:#9ca3af">Sem dados de linhas</td></tr>'}</tbody>
+  </table>
+</div>
+
+<!-- PAGE 2: Funil + OEE Componentes -->
+<div class="page">
+  <div style="background:linear-gradient(135deg,#1e3a5f,#2563eb);color:#fff;padding:10px 20px;border-radius:8px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">
+    <div style="font-size:14px;font-weight:700">Relatório de Produção — Ordens &amp; OEE</div>
+    <div style="font-size:10px;opacity:.75">${periodoStr}</div>
+  </div>
+
+  <div style="display:flex;gap:20px;margin-bottom:20px">
+    <div style="flex:1">
+      <h2>Funil de Ordens de Produção</h2>
+      <table>
+        <thead><tr><th>Status</th><th>Qtd</th><th>Proporção</th></tr></thead>
+        <tbody>${funilRows}</tbody>
+      </table>
+    </div>
+    <div style="flex:1">
+      <h2>OEE Médio por Componente</h2>
+      ${linhas.length > 0 ? (() => {
+        const avgDisp = linhas.reduce((s, l) => s + Number(l.disponibilidade || 0), 0) / linhas.length;
+        const avgPerf = linhas.reduce((s, l) => s + Number(l.performance || 0), 0) / linhas.length;
+        const avgQual = linhas.reduce((s, l) => s + Number(l.qualidade || 0), 0) / linhas.length;
+        return (
+          '<div style="display:flex;gap:16px;margin-top:8px">' +
+          '<div style="text-align:center">' + _pdfSVGGauge(avgDisp, 80) + '<div style="font-size:10px;color:#1d4ed8;font-weight:600">Disponib.</div></div>' +
+          '<div style="text-align:center">' + _pdfSVGGauge(avgPerf, 80) + '<div style="font-size:10px;color:#7c3aed;font-weight:600">Performance</div></div>' +
+          '<div style="text-align:center">' + _pdfSVGGauge(avgQual, 80) + '<div style="font-size:10px;color:#059669;font-weight:600">Qualidade</div></div>' +
+          '</div>'
+        );
+      })() : '<p style="color:#9ca3af">Sem dados</p>'}
+    </div>
+  </div>
+
+  <div style="border-top:1px solid #e2e8f0;padding-top:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <h2 style="margin-bottom:0">Paradas por Categoria</h2>
+      ${temParadas ? '<span style="font-size:10px;color:#64748b">Total: ' + fmtMin(totalParadaMin) + ' parado</span>' : ''}
+    </div>
+    ${temParadas
+      ? '<table><thead><tr><th>Categoria</th><th>Tempo Total</th><th>%</th><th>Proporção</th></tr></thead><tbody>' + catRows + '</tbody></table>'
+      : '<p style="color:#9ca3af;font-size:11px;padding:8px 0">Nenhuma parada registrada neste período.</p>'
+    }
+  </div>
+
+  <div style="margin-top:auto;padding-top:16px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;font-size:9px;color:#9ca3af;margin-top:24px">
+    <span>Sistema PCP — Manufacturing Execution System</span>
+    <span>Documento gerado automaticamente em ${new Date().toLocaleString('pt-BR')}</span>
+    <span>Página 2 de 3</span>
+  </div>
+</div>
+
+<!-- PAGE 3: Pareto de paradas detalhado -->
+<div class="page">
+  <div style="background:linear-gradient(135deg,#7c3aed,#8b5cf6);color:#fff;padding:10px 20px;border-radius:8px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">
+    <div>
+      <div style="font-size:14px;font-weight:700">Análise de Paradas e Manutenção</div>
+      <div style="font-size:10px;opacity:.85;margin-top:2px">${periodoStr}</div>
+    </div>
+    <div style="text-align:right;font-size:10px;opacity:.75">Sistema PCP — MES</div>
+  </div>
+
+  <div style="display:flex;gap:20px">
+    <div style="flex:1">
+      <div class="section-badge">Pareto Consolidado</div>
+      <table style="margin-top:4px">
+        <thead><tr><th>Motivo</th><th>Categoria</th><th>Tempo</th><th>%</th><th>Proporção</th></tr></thead>
+        <tbody>${paradaRows}</tbody>
+      </table>
+    </div>
+
+    <div style="flex:1.6">
+      <div class="section-badge">Paradas por Máquina (Top 5 cada)</div>
+      <table style="margin-top:4px">
+        <thead><tr><th>Máquina</th><th>Motivo</th><th>Categoria</th><th>Tempo</th><th>%</th><th>Barra</th></tr></thead>
+        <tbody>${maqParadaRows}</tbody>
+      </table>
+    </div>
+  </div>
+
+  <div style="margin-top:auto;padding-top:16px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;font-size:9px;color:#9ca3af;margin-top:24px">
+    <span>Sistema PCP — Manufacturing Execution System</span>
+    <span>Documento gerado automaticamente em ${new Date().toLocaleString('pt-BR')}</span>
+    <span>Página 3 de 3</span>
+  </div>
+</div>
+
+</body>
+</html>`;
+
+  const win = window.open('', '_blank', 'width=1200,height=900');
+  if (!win) { alert('Permita popups para gerar o PDF.'); return; }
+  win.document.write(html);
+  win.document.close();
+  win.onload = () => { win.focus(); win.print(); };
+}
+
+async function exportarExcel(fabricaData, funil, inicio, fim, turno) {
+  const { default: ExcelJS } = await import('exceljs');
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'PCP MES';
+  wb.created = new Date();
+
+  const fmtDt = (s) => { try { return new Date(s).toLocaleString('pt-BR'); } catch { return s || ''; } };
+  const pct = (v) => v == null ? '' : Number(v).toFixed(1) + '%';
+  const fmtMin = (m) => {
+    const h = Math.floor(m / 60); const mn = Math.round(m % 60);
+    return h > 0 ? (h + 'h ' + mn + 'min') : (mn + 'min');
+  };
+  const turnoNome = turno ? (turno.nome || ('Turno #' + turno.id_ocorrencia)) : '';
+  const periodoLabel = turnoNome
+    ? (turnoNome + ' | ' + fmtDt(inicio) + ' → ' + fmtDt(fim))
+    : (fmtDt(inicio) + ' → ' + fmtDt(fim));
+
+  const hdrFill    = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A5F' } };
+  const hdrFont    = { color: { argb: 'FFFFFFFF' }, bold: true };
+  const titleFill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2563EB' } };
+  const titleFont  = { color: { argb: 'FFFFFFFF' }, bold: true, size: 14 };
+  const sub2Fill   = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFF6FF' } };
+  const purpleHdr  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF7C3AED' } };
+  const oeeFont = (v) => ({
+    bold: true,
+    color: { argb: v >= 85 ? 'FF16A34A' : v >= 60 ? 'FFD97706' : 'FFDC2626' },
+  });
+  const addBorder = (cell) => {
+    cell.border = {
+      top:    { style: 'thin', color: { argb: 'FFE2E8F0' } },
+      left:   { style: 'thin', color: { argb: 'FFE2E8F0' } },
+      bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+      right:  { style: 'thin', color: { argb: 'FFE2E8F0' } },
+    };
+  };
+
+  const linhas = fabricaData?.linhas || [];
+
+  // ── Sheet 1: Resumo Executivo ──────────────────────────────────────────────
+  const s1 = wb.addWorksheet('Resumo Executivo', { properties: { tabColor: { argb: 'FF2563EB' } } });
+  s1.columns = [{ width: 30 }, { width: 20 }, { width: 20 }, { width: 20 }, { width: 20 }, { width: 20 }];
+
+  s1.mergeCells('A1:F1');
+  const t1 = s1.getCell('A1');
+  t1.value = 'RELATÓRIO DE PRODUÇÃO — RESUMO EXECUTIVO';
+  t1.fill = titleFill; t1.font = titleFont; t1.alignment = { horizontal: 'center', vertical: 'middle' };
+  s1.getRow(1).height = 32;
+
+  s1.mergeCells('A2:F2');
+  const t2 = s1.getCell('A2');
+  t2.value = periodoLabel;
+  t2.fill = sub2Fill; t2.font = { bold: true, color: { argb: 'FF1E3A5F' }, size: 11 };
+  t2.alignment = { horizontal: 'center', vertical: 'middle' };
+  s1.getRow(2).height = 22;
+  s1.addRow([]);
+
+  const kpiHdr = s1.addRow(['INDICADORES CHAVE']);
+  s1.mergeCells(`A${kpiHdr.number}:F${kpiHdr.number}`);
+  kpiHdr.getCell(1).fill = hdrFill; kpiHdr.getCell(1).font = hdrFont;
+  kpiHdr.getCell(1).alignment = { horizontal: 'center' };
+
+  // Calcula tempo total parado
+  const paradaAggEx = {};
+  linhas.forEach(l => {
+    (l.pareto_paradas || []).forEach(p => { paradaAggEx[p.motivo] = (paradaAggEx[p.motivo] || 0) + p.minutos; });
+  });
+  const totalParadaMinEx = Object.values(paradaAggEx).reduce((s, v) => s + v, 0);
+
+  const kpiData = [
+    ['OEE Global', (fabricaData?.oee_global != null ? Number(fabricaData.oee_global).toFixed(1) + '%' : '—')],
+    ['Linhas Ativas', linhas.length],
+    ['Total de Ordens', funil?.total_ordens || 0],
+    ['Ordens Concluídas', funil?.concluidas || 0],
+    ['Ordens em Andamento', funil?.iniciadas || 0],
+    ['Ordens Não Iniciadas', funil?.nao_iniciadas || 0],
+    ['Ordens Atrasadas', funil?.atrasadas || 0],
+    ['Tempo Total Parado', totalParadaMinEx > 0 ? fmtMin(totalParadaMinEx) : '—'],
+    ['Tipos de Parada Registrados', Object.keys(paradaAggEx).length],
+  ];
+  kpiData.forEach(([label, val]) => {
+    const row = s1.addRow([label, val]);
+    row.getCell(1).font = { bold: true };
+    row.getCell(2).alignment = { horizontal: 'right' };
+    addBorder(row.getCell(1)); addBorder(row.getCell(2));
+  });
+
+  // ── Sheet 2: Por Linha ────────────────────────────────────────────────────
+  const s2 = wb.addWorksheet('Por Linha', { properties: { tabColor: { argb: 'FF22C55E' } } });
+  s2.columns = [{ width: 24 }, { width: 14 }, { width: 16 }, { width: 16 }, { width: 14 }, { width: 16 }, { width: 16 }, { width: 16 }];
+
+  s2.mergeCells('A1:H1');
+  const s2t = s2.getCell('A1');
+  s2t.value = 'PERFORMANCE POR LINHA' + (turnoNome ? ' — ' + turnoNome : '');
+  s2t.fill = titleFill; s2t.font = titleFont; s2t.alignment = { horizontal: 'center', vertical: 'middle' };
+  s2.getRow(1).height = 28;
+  s2.mergeCells('A2:H2');
+  const s2p = s2.getCell('A2');
+  s2p.value = periodoLabel;
+  s2p.fill = sub2Fill; s2p.font = { bold: true, color: { argb: 'FF1E3A5F' } };
+  s2p.alignment = { horizontal: 'center', vertical: 'middle' };
+  s2.addRow([]);
+
+  const s2hdr = s2.addRow(['Linha', 'OEE (%)', 'Disponib. (%)', 'Performance (%)', 'Qualidade (%)', 'Produzido', 'Meta', 'Atingimento (%)']);
+  s2hdr.eachCell(c => { c.fill = hdrFill; c.font = hdrFont; c.alignment = { horizontal: 'center' }; addBorder(c); });
+  s2.getRow(s2hdr.number).height = 20;
+
+  linhas.forEach((l, i) => {
+    const oee = Number(l.oee || 0);
+    const ating = l.meta_total ? (Number(l.realizado || 0) / Number(l.meta_total) * 100) : null;
+    const row = s2.addRow([
+      l.nome || ('Linha ' + l.id_linha),
+      pct(l.oee), pct(l.disponibilidade), pct(l.performance), pct(l.qualidade),
+      l.realizado || 0, l.meta_total || 0,
+      ating != null ? ating.toFixed(1) + '%' : '—',
+    ]);
+    row.getCell(1).font = { bold: true };
+    row.getCell(2).font = oeeFont(oee);
+    const bg = i % 2 === 0 ? 'FFF8FAFC' : 'FFFFFFFF';
+    row.eachCell(c => {
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+      c.alignment = { horizontal: c === row.getCell(1) ? 'left' : 'center' };
+      addBorder(c);
+    });
+    if (oee >= 85) row.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0FDF4' } };
+    else if (oee < 60) row.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF2F2' } };
+    else row.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF7ED' } };
+  });
+
+  // ── Sheet 3: Por Máquina ──────────────────────────────────────────────────
+  const s3 = wb.addWorksheet('Por Máquina', { properties: { tabColor: { argb: 'FF8B5CF6' } } });
+  s3.columns = [{ width: 26 }, { width: 20 }, { width: 14 }, { width: 16 }, { width: 16 }, { width: 14 }, { width: 18 }];
+
+  s3.mergeCells('A1:G1');
+  const s3t = s3.getCell('A1');
+  s3t.value = 'PERFORMANCE POR MÁQUINA' + (turnoNome ? ' — ' + turnoNome : '');
+  s3t.fill = titleFill; s3t.font = titleFont; s3t.alignment = { horizontal: 'center', vertical: 'middle' };
+  s3.getRow(1).height = 28;
+  s3.addRow([]);
+
+  const s3hdr = s3.addRow(['Máquina', 'Linha', 'OEE (%)', 'Disponib. (%)', 'Performance (%)', 'Produzido', 'Status']);
+  s3hdr.eachCell(c => { c.fill = hdrFill; c.font = hdrFont; c.alignment = { horizontal: 'center' }; addBorder(c); });
+
+  const allMaquinas = linhas.flatMap(l => (l.maquinas || []).map(m => ({ ...m, linhaNome: l.nome || ('Linha ' + l.id_linha) })));
+  allMaquinas.forEach((m, i) => {
+    const oee = Number(m.oee || 0);
+    const row = s3.addRow([
+      m.nome || ('Máquina ' + m.id),
+      m.linhaNome,
+      pct(m.oee), pct(m.disponibilidade), pct(m.performance),
+      m.realizado || m.produzido || 0,
+      m.status || '—',
+    ]);
+    const bg = i % 2 === 0 ? 'FFF8FAFC' : 'FFFFFFFF';
+    row.eachCell(c => {
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+      c.alignment = { horizontal: 'center' };
+      addBorder(c);
+    });
+    row.getCell(1).font = { bold: true }; row.getCell(1).alignment = { horizontal: 'left' };
+    row.getCell(2).alignment = { horizontal: 'left' };
+    row.getCell(3).font = oeeFont(oee);
+  });
+  if (allMaquinas.length === 0) {
+    const r = s3.addRow(['Sem dados de máquinas disponíveis']);
+    s3.mergeCells(`A${r.number}:G${r.number}`);
+    r.getCell(1).alignment = { horizontal: 'center' };
+    r.getCell(1).font = { italic: true, color: { argb: 'FF9CA3AF' } };
+  }
+
+  // ── Sheet 4: Ordens de Produção ───────────────────────────────────────────
+  const s4 = wb.addWorksheet('Ordens de Produção', { properties: { tabColor: { argb: 'FFF59E0B' } } });
+  s4.columns = [{ width: 22 }, { width: 16 }, { width: 16 }, { width: 16 }, { width: 16 }, { width: 16 }];
+
+  s4.mergeCells('A1:F1');
+  const s4t = s4.getCell('A1');
+  s4t.value = 'FUNIL DE ORDENS DE PRODUÇÃO' + (turnoNome ? ' — ' + turnoNome : '');
+  s4t.fill = titleFill; s4t.font = titleFont; s4t.alignment = { horizontal: 'center', vertical: 'middle' };
+  s4.getRow(1).height = 28;
+  s4.addRow([]);
+
+  const s4hdr = s4.addRow(['Status', 'Quantidade', '% do Total', '', '', '']);
+  s4hdr.eachCell(c => { c.fill = hdrFill; c.font = hdrFont; c.alignment = { horizontal: 'center' }; addBorder(c); });
+
+  if (funil) {
+    const total = funil.total_ordens || 1;
+    [
+      ['Total de Ordens', funil.total_ordens || 0, 'FF3B82F6'],
+      ['Concluídas', funil.concluidas || 0, 'FF22C55E'],
+      ['Em Andamento', funil.iniciadas || 0, 'FF8B5CF6'],
+      ['Não Iniciadas', funil.nao_iniciadas || 0, 'FFF59E0B'],
+      ['Atrasadas', funil.atrasadas || 0, 'FFEF4444'],
+    ].forEach(([label, val, argb], i) => {
+      const row = s4.addRow([label, val, ((val / total) * 100).toFixed(1) + '%']);
+      row.getCell(1).font = { bold: true };
+      row.getCell(2).font = { bold: true, color: { argb } };
+      row.getCell(2).alignment = { horizontal: 'center' };
+      row.getCell(3).alignment = { horizontal: 'center' };
+      const bg = i % 2 === 0 ? 'FFF8FAFC' : 'FFFFFFFF';
+      row.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } }; addBorder(c); });
+    });
+  } else {
+    const r = s4.addRow(['Sem dados de ordens']);
+    s4.mergeCells(`A${r.number}:F${r.number}`);
+    r.getCell(1).font = { italic: true, color: { argb: 'FF9CA3AF' } };
+    r.getCell(1).alignment = { horizontal: 'center' };
+  }
+
+  // ── Sheet 5: Motivos de Parada ────────────────────────────────────────────
+  const s5 = wb.addWorksheet('Motivos de Parada', { properties: { tabColor: { argb: 'FF7C3AED' } } });
+  s5.columns = [
+    { width: 30 }, { width: 20 }, { width: 18 }, { width: 16 }, { width: 16 }, { width: 24 },
+  ];
+
+  s5.mergeCells('A1:F1');
+  const s5t = s5.getCell('A1');
+  s5t.value = 'ANÁLISE DE PARADAS E MANUTENÇÃO' + (turnoNome ? ' — ' + turnoNome : '');
+  s5t.fill = purpleHdr; s5t.font = titleFont; s5t.alignment = { horizontal: 'center', vertical: 'middle' };
+  s5.getRow(1).height = 28;
+  s5.mergeCells('A2:F2');
+  const s5p = s5.getCell('A2');
+  s5p.value = periodoLabel;
+  s5p.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFAF5FF' } };
+  s5p.font = { bold: true, color: { argb: 'FF7C3AED' } };
+  s5p.alignment = { horizontal: 'center', vertical: 'middle' };
+  s5.addRow([]);
+
+  // ─ Resumo por categoria ─
+  const s5CatHdr = s5.addRow(['RESUMO POR CATEGORIA']);
+  s5.mergeCells(`A${s5CatHdr.number}:F${s5CatHdr.number}`);
+  s5CatHdr.getCell(1).fill = purpleHdr; s5CatHdr.getCell(1).font = hdrFont;
+  s5CatHdr.getCell(1).alignment = { horizontal: 'center' };
+
+  const catHdrRow = s5.addRow(['Categoria', 'Tempo Total', '% do Total', 'Qtd Motivos', '', '']);
+  catHdrRow.eachCell(c => { c.fill = hdrFill; c.font = hdrFont; c.alignment = { horizontal: 'center' }; addBorder(c); });
+
+  // Build category aggregation
+  const catAggEx = {};
+  linhas.forEach(l => {
+    (l.pareto_paradas || []).forEach(p => {
+      const c = _categorizarMotivo(p.motivo);
+      if (!catAggEx[c.cat]) catAggEx[c.cat] = { argb: c.argb, bgArgb: c.bgArgb, mins: 0, count: 0 };
+      catAggEx[c.cat].mins  += p.minutos;
+      catAggEx[c.cat].count += 1;
+    });
+  });
+  const catSortedEx = Object.entries(catAggEx).sort((a, b) => b[1].mins - a[1].mins);
+  const totMin = catSortedEx.reduce((s, [, v]) => s + v.mins, 0);
+
+  catSortedEx.forEach(([cat, v], i) => {
+    const row = s5.addRow([cat, fmtMin(v.mins), totMin > 0 ? (v.mins / totMin * 100).toFixed(1) + '%' : '—', v.count]);
+    row.getCell(1).font = { bold: true, color: { argb: v.argb } };
+    row.getCell(2).font = { bold: true, color: { argb: v.argb } };
+    row.getCell(3).alignment = { horizontal: 'center' };
+    row.getCell(4).alignment = { horizontal: 'center' };
+    const bg = i % 2 === 0 ? v.bgArgb : 'FFFFFFFF';
+    row.eachCell(c => {
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg || 'FFFFFFFF' } };
+      addBorder(c);
+    });
+  });
+  if (catSortedEx.length === 0) {
+    const r = s5.addRow(['Nenhuma parada registrada neste período']);
+    s5.mergeCells(`A${r.number}:F${r.number}`);
+    r.getCell(1).font = { italic: true, color: { argb: 'FF9CA3AF' } };
+    r.getCell(1).alignment = { horizontal: 'center' };
+  }
+
+  s5.addRow([]);
+
+  // ─ Pareto consolidado (top 20) ─
+  const s5ParetoHdr = s5.addRow(['PARETO CONSOLIDADO — TOP 20 MOTIVOS']);
+  s5.mergeCells(`A${s5ParetoHdr.number}:F${s5ParetoHdr.number}`);
+  s5ParetoHdr.getCell(1).fill = purpleHdr; s5ParetoHdr.getCell(1).font = hdrFont;
+  s5ParetoHdr.getCell(1).alignment = { horizontal: 'center' };
+
+  const paretoColHdr = s5.addRow(['Motivo', 'Categoria', 'Tempo Total', '% do Total', 'Acumulado %', '']);
+  paretoColHdr.eachCell(c => { c.fill = hdrFill; c.font = hdrFont; c.alignment = { horizontal: 'center' }; addBorder(c); });
+
+  // Aggregate pareto across all lines
+  const paradaAggEx2 = {};
+  linhas.forEach(l => {
+    (l.pareto_paradas || []).forEach(p => { paradaAggEx2[p.motivo] = (paradaAggEx2[p.motivo] || 0) + p.minutos; });
+  });
+  const totParetMin = Object.values(paradaAggEx2).reduce((s, v) => s + v, 0);
+  const paretoSorted = Object.entries(paradaAggEx2).sort((a, b) => b[1] - a[1]).slice(0, 20);
+  let acumPct = 0;
+  paretoSorted.forEach(([mot, mins], i) => {
+    const c = _categorizarMotivo(mot);
+    const pctVal = totParetMin > 0 ? (mins / totParetMin * 100) : 0;
+    acumPct += pctVal;
+    const row = s5.addRow([mot, c.cat, fmtMin(mins), pctVal.toFixed(1) + '%', acumPct.toFixed(1) + '%']);
+    row.getCell(1).font = { bold: true };
+    row.getCell(2).font = { color: { argb: c.argb } };
+    row.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: c.bgArgb || 'FFFFFFFF' } };
+    row.getCell(3).font = { bold: true, color: { argb: c.argb } };
+    [3, 4, 5].forEach(n => row.getCell(n).alignment = { horizontal: 'center' });
+    const bg = i % 2 === 0 ? 'FFF8FAFC' : 'FFFFFFFF';
+    row.eachCell(c2 => {
+      if (!c2.fill || c2.fill.fgColor?.argb === bg) c2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+      addBorder(c2);
+    });
+  });
+  if (paretoSorted.length === 0) {
+    const r = s5.addRow(['Nenhum motivo de parada registrado']);
+    s5.mergeCells(`A${r.number}:F${r.number}`);
+    r.getCell(1).font = { italic: true, color: { argb: 'FF9CA3AF' } };
+    r.getCell(1).alignment = { horizontal: 'center' };
+  }
+
+  s5.addRow([]);
+
+  // ─ Detalhe por máquina ─
+  const s5MaqHdr = s5.addRow(['PARADAS POR MÁQUINA']);
+  s5.mergeCells(`A${s5MaqHdr.number}:F${s5MaqHdr.number}`);
+  s5MaqHdr.getCell(1).fill = purpleHdr; s5MaqHdr.getCell(1).font = hdrFont;
+  s5MaqHdr.getCell(1).alignment = { horizontal: 'center' };
+
+  const maqDetailHdr = s5.addRow(['Máquina', 'Motivo', 'Categoria', 'Tempo', '% na Máquina', 'Acumulado %']);
+  maqDetailHdr.eachCell(c => { c.fill = hdrFill; c.font = hdrFont; c.alignment = { horizontal: 'center' }; addBorder(c); });
+
+  allMaquinas.forEach((m) => {
+    const paradas = m.pareto_paradas || [];
+    if (paradas.length === 0) return;
+    paradas.forEach((p, pi) => {
+      const c = _categorizarMotivo(p.motivo);
+      const row = s5.addRow([
+        pi === 0 ? (m.nome || ('Máquina ' + m.id)) : '',
+        p.motivo,
+        c.cat,
+        fmtMin(p.minutos),
+        p.percentual.toFixed(1) + '%',
+        p.acumulado.toFixed(1) + '%',
+      ]);
+      row.getCell(1).font = { bold: pi === 0 };
+      row.getCell(3).font = { color: { argb: c.argb } };
+      row.getCell(3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: c.bgArgb || 'FFFFFFFF' } };
+      row.getCell(4).font = { bold: true, color: { argb: c.argb } };
+      [4, 5, 6].forEach(n => row.getCell(n).alignment = { horizontal: 'center' });
+      row.eachCell(c2 => {
+        if (!c2.fill || !c2.fill.fgColor?.argb?.startsWith('FF') || c2.fill.fgColor.argb === 'FF000000')
+          c2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: pi % 2 === 0 ? 'FFF8FAFC' : 'FFFFFFFF' } };
+        addBorder(c2);
+      });
+    });
+  });
+
+  // ── Download ──────────────────────────────────────────────────────────────
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const label = turnoNome ? turnoNome.replace(/[^a-zA-Z0-9]/g, '_') : 'periodo';
+  a.href = url; a.download = 'relatorio_pcp_' + label + '.xlsx';
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+
+// ─── Quick Excel button (async wrapper) ──────────────────────────────────────
+
+function QuickExcelBtn({ fabricaData, funil, inicio, fim }) {
+  const [exp, setExp] = useState(false);
+  async function go() {
+    setExp(true);
+    try { await exportarExcel(fabricaData, funil, inicio, fim); }
+    finally { setExp(false); }
+  }
+  return (
+    <button className="hi-buscar-btn hi-export-btn hi-export-btn--excel"
+      onClick={go} disabled={exp} title="Exportar planilha Excel (4 abas formatadas)">
+      {exp ? <><Spinner size={14} /> Excel...</> : "📊 Excel"}
+    </button>
+  );
+}
+
+// ─── Aba Relatório ───────────────────────────────────────────────────────────
+
+function RelatorioTab({ fabricaData, funil, inicio, fim, onBuscar, loading }) {
+  const [exporting, setExporting] = useState(false);
+
+  async function handleExcel() {
+    if (!fabricaData) return;
+    setExporting(true);
+    try { await exportarExcel(fabricaData, funil, inicio, fim); }
+    finally { setExporting(false); }
+  }
+
+  const totalProd = fabricaData?.linhas.reduce((s, l) => s + (l.realizado   || 0), 0) ?? 0;
+  const totalMeta = fabricaData?.linhas.reduce((s, l) => s + (l.meta_total  || 0), 0) ?? 0;
+  const allMaq    = fabricaData?.linhas.flatMap((l) => l.maquinas || []) ?? [];
+  const totalRej  = allMaq.reduce((s, m) => s + (m.reprovado || 0), 0);
+  const taxaRej   = (totalProd + totalRej) > 0 ? +((totalRej / (totalProd + totalRej)) * 100).toFixed(1) : 0;
+  const ader      = totalMeta > 0 ? +((totalProd / totalMeta) * 100).toFixed(1) : null;
+  const totalOPs  = funil ? Object.values(funil).reduce((s, v) => s + (v?.qty || 0), 0) : 0;
+
+  if (!fabricaData) {
+    return (
+      <div className="hi-tab-content">
+        <div className="hi-relatorio-empty">
+          <div className="hi-relatorio-empty-icon">📋</div>
+          <div className="hi-relatorio-empty-title">Nenhum dado carregado</div>
+          <div className="hi-relatorio-empty-sub">
+            Volte ao painel e clique em "Buscar Dados" para carregar o período desejado antes de gerar relatórios.
+          </div>
+          <button className="hi-buscar-btn" onClick={onBuscar} disabled={loading} style={{ marginTop: 12 }}>
+            {loading ? <><Spinner size={14} /> Buscando...</> : "Buscar Dados Agora"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="hi-tab-content">
+
+      {/* ── Export actions ── */}
+      <div className="hi-relatorio-header">
+        <div className="hi-relatorio-header-left">
+          <span className="hi-relatorio-badge">Pronto para exportar</span>
+          <h2 className="hi-relatorio-title">Gerar Relatório</h2>
+          <p className="hi-relatorio-sub">
+            {fabricaData.linhas.length} linhas · {allMaq.length} máquinas · período selecionado
+          </p>
+        </div>
+        <div className="hi-relatorio-export-btns">
+          <button className="hi-export-card hi-export-card--pdf"
+            onClick={() => exportarPDF(fabricaData, funil, inicio, fim)}>
+            <div className="hi-export-card-icon">📄</div>
+            <div className="hi-export-card-body">
+              <div className="hi-export-card-title">Relatório PDF</div>
+              <div className="hi-export-card-sub">2 páginas · A4 Paisagem · OEE gauges · Tabelas profissionais</div>
+            </div>
+          </button>
+          <button className="hi-export-card hi-export-card--excel"
+            onClick={handleExcel} disabled={exporting}>
+            <div className="hi-export-card-icon">{exporting ? "⏳" : "📊"}</div>
+            <div className="hi-export-card-body">
+              <div className="hi-export-card-title">{exporting ? "Gerando planilha..." : "Planilha Excel"}</div>
+              <div className="hi-export-card-sub">{funil ? "4" : "3"} abas · Células formatadas · Download direto</div>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      {/* ── What's included ── */}
+      <div className="hi-section">
+        <div className="hi-section-header">
+          <span className="hi-section-title">Conteúdo dos Relatórios</span>
+          <span className="hi-section-sub">O que será incluído na exportação</span>
+        </div>
+        <div className="hi-relatorio-docs">
+          <div className="hi-relatorio-doc hi-relatorio-doc--pdf">
+            <div className="hi-relatorio-doc-hdr">
+              <span className="hi-relatorio-doc-icon">📄</span>
+              <span className="hi-relatorio-doc-title">PDF — 2 Páginas A4 Paisagem</span>
+            </div>
+            <ul className="hi-relatorio-doc-list">
+              <li><strong>Página 1:</strong> KPIs executivos (6 cards) · Gauges OEE, Disponib., Perf., Qualidade · Tabela de linhas com barras de progresso · {funil ? "Funil de ordens · " : ""}Resumo do período</li>
+              <li><strong>Página 2:</strong> Detalhamento por máquina com OEE breakdown completo, aderência à meta, status e rejeições</li>
+            </ul>
+          </div>
+          <div className="hi-relatorio-doc hi-relatorio-doc--excel">
+            <div className="hi-relatorio-doc-hdr">
+              <span className="hi-relatorio-doc-icon">📊</span>
+              <span className="hi-relatorio-doc-title">Excel — {funil ? "4" : "3"} Abas Formatadas</span>
+            </div>
+            <ul className="hi-relatorio-doc-list">
+              <li><strong>Resumo Executivo:</strong> KPIs globais + performance por linha + {funil ? "funil de ordens" : "dados do período"}</li>
+              <li><strong>Por Linha:</strong> OEE · Disponibilidade · Performance · Qualidade · Aderência · Rejeições</li>
+              <li><strong>Por Máquina:</strong> Breakdown completo OEE de cada máquina com FPY</li>
+              {funil && <li><strong>Ordens de Produção:</strong> Funil com quantidades, peças e percentuais por status</li>}
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Data summary ── */}
+      <div className="hi-section">
+        <div className="hi-section-header">
+          <span className="hi-section-title">Resumo dos Dados</span>
+          <span className="hi-section-sub">Dados que serão exportados</span>
+        </div>
+        <div className="hi-kpi-row">
+          <KPICard icon="⚡" label="OEE Global"
+            value={fabricaData.oee_global != null ? `${fabricaData.oee_global}` : "—"}
+            unit={fabricaData.oee_global != null ? "%" : ""}
+            color={oeeColor(fabricaData.oee_global)} sub={oeeLabel(fabricaData.oee_global)} />
+          <KPICard icon="📦" label="Produção Total"
+            value={totalProd.toLocaleString("pt-BR")} unit="un" color="#3b82f6"
+            sub={`Meta: ${totalMeta.toLocaleString("pt-BR")} un`} />
+          <KPICard icon="📊" label="Aderência à Meta"
+            value={ader ?? "—"} unit={ader != null ? "%" : ""}
+            color={oeeColor(ader)} sub={`${totalProd} / ${totalMeta} un`} />
+          <KPICard icon="🔍" label="Taxa de Rejeição"
+            value={taxaRej} unit="%"
+            color={taxaRej > 10 ? "#dc2626" : "#16a34a"}
+            sub={`${totalRej} peças rejeitadas`} />
+          <KPICard icon="🏭" label="Linhas"
+            value={fabricaData.linhas.length} color="#8b5cf6"
+            sub={`${allMaq.length} máquinas monitoradas`} />
+          {funil && (
+            <KPICard icon="📋" label="OPs no Período"
+              value={totalOPs} color="#f59e0b"
+              sub={`${funil.finalizado?.qty || 0} finalizadas · ${funil.em_producao?.qty || 0} em produção`} />
+          )}
+        </div>
+      </div>
+
+      {/* ── Lines table preview ── */}
+      <div className="hi-section">
+        <div className="hi-section-header">
+          <span className="hi-section-title">Linhas de Produção</span>
+          <span className="hi-section-sub">Prévia dos dados exportados</span>
+        </div>
+        <div className="hi-table-wrap">
+          <table className="hi-table">
+            <thead>
+              <tr>
+                <th>Linha</th><th>OEE</th><th>Produzido</th>
+                <th>Meta</th><th>Aderência</th><th>Máquinas</th><th>Rejeitado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {fabricaData.linhas.map((l) => {
+                const a   = l.meta_total > 0 ? +((l.realizado / l.meta_total) * 100).toFixed(1) : null;
+                const rej = (l.maquinas || []).reduce((s, m) => s + (m.reprovado || 0), 0);
+                return (
+                  <tr key={l.id}>
+                    <td className="hi-td-name">{l.nome}</td>
+                    <td style={{ color: oeeColor(l.oee), fontWeight: 800 }}>{fmtPct(l.oee)}</td>
+                    <td>{(l.realizado || 0).toLocaleString("pt-BR")}</td>
+                    <td style={{ color: "#9ca3af" }}>{(l.meta_total || 0).toLocaleString("pt-BR")}</td>
+                    <td style={{ color: oeeColor(a), fontWeight: 700 }}>{a != null ? `${a}%` : "—"}</td>
+                    <td>{l.maquinas?.length || 0}</td>
+                    <td style={{ color: rej > 0 ? "#dc2626" : "#16a34a", fontWeight: rej > 0 ? 700 : 400 }}>{rej}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  );
+}
+
+// ─── Tabs ────────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { key: "turno",   label: "🔄 Por Turno",       sub: "Principal" },
-  { key: "fabrica", label: "🏭 Visão Geral",      sub: "Fábrica" },
-  { key: "linha",   label: "🔧 Por Linha",        sub: "Análise" },
-  { key: "maquina", label: "⚙️ Por Máquina",     sub: "Drill-down" },
+  { key: "turno",     label: "🔄 Detalhes do Turno", sub: "Principal"  },
+  { key: "fabrica",   label: "🏭 Visão Geral",        sub: "Fábrica"    },
+  { key: "linha",     label: "🔧 Por Linha",          sub: "Análise"    },
+  { key: "maquina",   label: "⚙️ Por Máquina",       sub: "Drill-down" },
+  { key: "relatorio", label: "📋 Relatórios",         sub: "Exportar"   },
 ];
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function Historico() {
-  const now        = new Date();
-  const startOfDay = new Date(now); startOfDay.setHours(0,0,0,0);
-
-  const [inicio,        setInicio]        = useState(toLocalDT(startOfDay));
-  const [fim,           setFim]           = useState(toLocalDT(now));
-  const [activeShortcut, setActiveShortcut] = useState("Hoje");
+  // ── Seleção de turno (filtro primário) ──
+  const [allLinhas,     setAllLinhas]     = useState([]);
+  const [selLinhaId,    setSelLinhaId]    = useState("");
+  const [turnoOpts,     setTurnoOpts]     = useState([]);
+  const [selectedTurno, setSelectedTurno] = useState(null);
   const [activeTab,     setActiveTab]     = useState("turno");
 
+  // ── Dados carregados ──
   const [fabricaData, setFabricaData] = useState(null);
   const [funil,       setFunil]       = useState(null);
   const [loading,     setLoading]     = useState(false);
   const [error,       setError]       = useState(null);
 
-  function applyShortcut(s) {
-    const [i, f] = s.range();
-    setInicio(i); setFim(f); setActiveShortcut(s.label);
+  // ── Derivados do turno selecionado ──
+  const inicio = selectedTurno ? (selectedTurno.dt_real_inicio || selectedTurno.dt_inicio || "") : "";
+  const fim    = selectedTurno ? (selectedTurno.dt_real_fim   || selectedTurno.dt_fim    || new Date().toISOString()) : "";
+
+  // Carrega linhas ao montar
+  useEffect(() => {
+    fetch(`${API_BASE}/api/config/lines`)
+      .then((r) => r.json())
+      .then((data) => {
+        const list = data || [];
+        setAllLinhas(list);
+        if (list.length > 0) setSelLinhaId(String(list[0].id));
+      })
+      .catch(() => {});
+  }, []);
+
+  // Carrega turnos quando a linha muda
+  useEffect(() => {
+    if (!selLinhaId) { setTurnoOpts([]); setSelectedTurno(null); return; }
+    fetch(`${API_BASE}/api/config/lines/${selLinhaId}/turnos/historico?limit=40`)
+      .then((r) => r.json())
+      .then((list) => {
+        const opts = (list || []).filter((t) => t.status !== "agendado");
+        setTurnoOpts(opts);
+        // Auto-seleciona o turno mais recente
+        if (opts.length > 0) {
+          const keep = opts.find((t) => t.id_ocorrencia === selectedTurno?.id_ocorrencia);
+          setSelectedTurno(keep || opts[0]);
+        } else {
+          setSelectedTurno(null);
+        }
+      })
+      .catch(() => { setTurnoOpts([]); setSelectedTurno(null); });
+  }, [selLinhaId]);
+
+  function fmtTurnoLbl(t) {
+    const dt = t.dt_real_inicio || t.dt_inicio;
+    if (!dt) return t.nome;
+    const d = new Date(dt);
+    return `${t.nome} — ${d.toLocaleDateString("pt-BR")} ${d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
   }
 
   function buscar() {
+    if (!selectedTurno) return;
+    const di = selectedTurno.dt_real_inicio || selectedTurno.dt_inicio;
+    const df = selectedTurno.dt_real_fim   || selectedTurno.dt_fim || new Date().toISOString();
     setLoading(true); setError(null); setFabricaData(null); setFunil(null);
     Promise.all([
-      fetch(`${API_BASE}/api/historico?data_inicio=${encode(inicio)}&data_fim=${encode(fim)}`).then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
-      fetch(`${API_BASE}/api/historico/ordens?data_inicio=${encode(inicio)}&data_fim=${encode(fim)}`).then((r) => r.ok ? r.json() : null),
+      fetch(`${API_BASE}/api/historico?data_inicio=${encode(di)}&data_fim=${encode(df)}`)
+        .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
+      fetch(`${API_BASE}/api/historico/ordens?data_inicio=${encode(di)}&data_fim=${encode(df)}`)
+        .then((r) => r.ok ? r.json() : null),
     ])
       .then(([fab, fun]) => { setFabricaData(fab); setFunil(fun); setLoading(false); })
       .catch((e) => { setError(String(e)); setLoading(false); });
   }
 
+  const aderenciaTurno = selectedTurno && selectedTurno.meta > 0
+    ? Math.round((selectedTurno.produzido / selectedTurno.meta) * 100) : null;
+
   return (
     <div className="hi-root">
 
-      {/* ── Header ──────────────────────────────────────────────────────── */}
+      {/* ── Header — seleção de turno ─────────────────────────────────────── */}
       <div className="hi-filter-card">
         <div className="hi-filter-top">
           <div className="hi-filter-title-block">
             <h1 className="hi-page-title">Analytics de Produção</h1>
-            <p className="hi-page-sub">Indicadores de desempenho por período, linha e máquina</p>
+            <p className="hi-page-sub">Turno como filtro principal — todos os indicadores refletem o turno selecionado</p>
           </div>
-          <div className="hi-filter-shortcuts">
-            {SHORTCUTS.map((s) => (
-              <button key={s.label}
-                className={`hi-shortcut${activeShortcut === s.label ? " hi-shortcut--active" : ""}`}
-                onClick={() => applyShortcut(s)}
-              >{s.label}</button>
-            ))}
-          </div>
-        </div>
-        <div className="hi-filter-row">
-          <div className="hi-filter-field">
-            <label className="hi-filter-label">Início</label>
-            <input type="datetime-local" className="hi-filter-input" value={inicio}
-              onChange={(e) => { setInicio(e.target.value); setActiveShortcut(null); }} />
-          </div>
-          <div className="hi-filter-sep">→</div>
-          <div className="hi-filter-field">
-            <label className="hi-filter-label">Fim</label>
-            <input type="datetime-local" className="hi-filter-input" value={fim}
-              onChange={(e) => { setFim(e.target.value); setActiveShortcut(null); }} />
-          </div>
-          <button className="hi-buscar-btn" onClick={buscar} disabled={loading}>
-            {loading ? <><Spinner size={14} /> Buscando...</> : "Buscar Dados"}
-          </button>
           {fabricaData && (
-            <button className="hi-buscar-btn hi-export-btn"
-              onClick={() => exportarPDF(fabricaData, funil, inicio, fim)}>
-              ⬇ Gerar PDF
-            </button>
+            <div className="hi-quick-export">
+              <button className="hi-buscar-btn hi-export-btn hi-export-btn--pdf"
+                onClick={() => exportarPDF(fabricaData, funil, inicio, fim, selectedTurno)}
+                title="Gerar PDF profissional">📄 PDF</button>
+              <QuickExcelBtn fabricaData={fabricaData} funil={funil} inicio={inicio} fim={fim} turno={selectedTurno} />
+            </div>
           )}
         </div>
+
+        <div className="hi-filter-row">
+          <div className="hi-filter-field">
+            <label className="hi-filter-label">Linha de Referência</label>
+            <select className="hi-filter-input"
+              value={selLinhaId}
+              onChange={(e) => { setSelLinhaId(e.target.value); setFabricaData(null); setFunil(null); }}>
+              <option value="">— Selecione a linha —</option>
+              {allLinhas.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
+            </select>
+          </div>
+          <div className="hi-filter-sep">→</div>
+          <div className="hi-filter-field hi-filter-field--wide">
+            <label className="hi-filter-label">Turno</label>
+            <select className="hi-filter-input"
+              value={selectedTurno?.id_ocorrencia || ""}
+              onChange={(e) => {
+                const t = turnoOpts.find((t) => String(t.id_ocorrencia) === e.target.value) || null;
+                setSelectedTurno(t);
+                setFabricaData(null); setFunil(null);
+              }}
+              disabled={!selLinhaId || turnoOpts.length === 0}>
+              <option value="">— Selecione o turno —</option>
+              {turnoOpts.map((t) => (
+                <option key={t.id_ocorrencia} value={t.id_ocorrencia}>{fmtTurnoLbl(t)}</option>
+              ))}
+            </select>
+          </div>
+          <button className="hi-buscar-btn" onClick={buscar} disabled={loading || !selectedTurno}>
+            {loading ? <><Spinner size={14} /> Carregando...</> : "Ver Dados da Fábrica"}
+          </button>
+        </div>
+
+        {/* Banner do turno selecionado */}
+        {selectedTurno && (
+          <div className="hi-turno-banner">
+            <div className="hi-turno-banner-left">
+              <span className="hi-turno-banner-nome">{selectedTurno.nome}</span>
+              <span className={`hi-turno-banner-status hi-turno-banner-status--${selectedTurno.status}`}>
+                {selectedTurno.status === "finalizado" ? "Finalizado"
+                  : selectedTurno.status === "em_andamento" ? "Em andamento"
+                  : selectedTurno.status}
+              </span>
+            </div>
+            <div className="hi-turno-banner-times">
+              <span>Início: <strong>{selectedTurno.dt_real_inicio ? new Date(selectedTurno.dt_real_inicio).toLocaleString("pt-BR") : "—"}</strong></span>
+              <span>Fim: <strong>{selectedTurno.dt_real_fim ? new Date(selectedTurno.dt_real_fim).toLocaleString("pt-BR") : "Em curso"}</strong></span>
+            </div>
+            <div className="hi-turno-banner-kpis">
+              <span>Meta: <strong>{selectedTurno.meta ?? "—"}</strong></span>
+              <span>Produzido: <strong style={{ color: oeeColor(aderenciaTurno) }}>{selectedTurno.produzido ?? "—"}</strong></span>
+              {aderenciaTurno !== null && (
+                <span style={{ color: oeeColor(aderenciaTurno), fontWeight: 700 }}>
+                  Aderência: {aderenciaTurno}%
+                </span>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {error && <div className="hi-error">⚠ {error}</div>}
@@ -1254,8 +2140,7 @@ export default function Historico() {
         {TABS.map((t) => (
           <button key={t.key}
             className={`hi-tab${activeTab === t.key ? " hi-tab--active" : ""}`}
-            onClick={() => setActiveTab(t.key)}
-          >
+            onClick={() => setActiveTab(t.key)}>
             <span className="hi-tab-label">{t.label}</span>
             <span className="hi-tab-sub">{t.sub}</span>
           </button>
@@ -1267,10 +2152,20 @@ export default function Historico() {
         <div className="hi-loading"><Spinner /> Carregando dados da fábrica...</div>
       ) : (
         <>
-          {activeTab === "turno"   && <TurnoTab />}
-          {activeTab === "fabrica" && <FabricaTab data={fabricaData} funil={funil} />}
-          {activeTab === "linha"   && <LinhaTab   linhas={fabricaData?.linhas} inicio={inicio} fim={fim} />}
-          {activeTab === "maquina" && <MaquinaTab linhas={fabricaData?.linhas} inicio={inicio} fim={fim} />}
+          {activeTab === "turno"     && (
+            <TurnoTab selectedTurno={selectedTurno} selectedLinhaId={selLinhaId} />
+          )}
+          {activeTab === "fabrica"   && <FabricaTab data={fabricaData} funil={funil} />}
+          {activeTab === "linha"     && (
+            <LinhaTab linhas={fabricaData?.linhas} inicio={inicio} fim={fim} defaultLinhaId={selLinhaId} />
+          )}
+          {activeTab === "maquina"   && (
+            <MaquinaTab linhas={fabricaData?.linhas} inicio={inicio} fim={fim} />
+          )}
+          {activeTab === "relatorio" && (
+            <RelatorioTab fabricaData={fabricaData} funil={funil} inicio={inicio} fim={fim}
+              turno={selectedTurno} onBuscar={buscar} loading={loading} />
+          )}
         </>
       )}
 
