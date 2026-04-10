@@ -831,45 +831,105 @@ def get_machine_detail(machine_id: int) -> dict:
     tempos_parada_s: List[float] = []
 
     if not df_logs.empty:
-        df_status = df_logs[df_logs["tx_descricao"] == "status_maquina"]
-        df_motivo = df_logs[df_logs["tx_descricao"] == "motivo_parada"]
+        df_status = df_logs[df_logs["tx_descricao"] == "status_maquina"].sort_values("dt_created_at")
+        df_motivo = df_logs[df_logs["tx_descricao"] == "motivo_parada"].sort_values("dt_created_at")
         rows      = df_status[["dt_created_at", "nu_valor_bruto"]].values.tolist()
 
-        inicio_parada    = None
-        status_ant       = None
-        motivo_parada_cod = None  # código não-0/não-49 visto durante a parada
+        # Lista de (timestamp, cod) para correlação assíncrona do motivo
+        motivo_log = list(zip(
+            pd.to_datetime(df_motivo["dt_created_at"]),
+            df_motivo["nu_valor_bruto"].astype(int),
+        ))
+        mo_ptr = 0
+
+        # Estados transitórios: aguardam o motivo definitivo para fechar o segmento.
+        # - Status 0  (Máquina Parada)  : absorve duração até o motivo operacional chegar
+        # - Status 52 (Em Manutenção)   : absorve duração até código 3300+ chegar
+        # Status 51 (Ag. Manutentor) é PERMANENTE: gera registro próprio até 52 chegar.
+        _TRANSITIONAL = {0, 52}
+
+        estado_atual = None   # status atual do segmento aberto
+        inicio_seg   = None   # timestamp de início do segmento atual
+        label_cod    = 0      # código de motivo do segmento (atualizado assincronamente)
+        status_ant   = None
+
+        def _fechar_segmento(dt_fim, cod_label):
+            """Fecha o segmento atual e adiciona à lista de paradas."""
+            dur_s = (dt_fim - inicio_seg).total_seconds()
+            tempos_parada_s.append(dur_s)
+            h_s, r_s = divmod(int(dur_s), 3600)
+            mot = depara_status_txt.get(cod_label, depara_status_txt.get(0, "Máquina Parada"))
+            paradas.append({
+                "inicio":  inicio_seg.strftime("%H:%M"),
+                "motivo":  mot,
+                "duracao": f"{h_s}h {r_s // 60:02d}m" if h_s else f"{r_s // 60}m",
+                "status":  mot,
+                "codigo":  cod_label,
+            })
 
         for dt, cod in rows:
             cod = int(cod)
+            dt  = pd.Timestamp(dt)
+
+            # ── Passo 1: transições de estado ──────────────────────────────────
 
             if status_ant == 49 and cod != 49:
-                # Saída de produção: início da parada
-                inicio_parada    = dt
-                motivo_parada_cod = None
+                # Saindo de produção → abre segmento
+                estado_atual = cod
+                inicio_seg   = dt
+                label_cod    = 0 if cod in _TRANSITIONAL else cod
 
-            elif status_ant != 49 and cod not in (0, 49):
-                # Código intermediário durante a parada = motivo informado pelo operador
-                motivo_parada_cod = cod
+            elif status_ant is not None and status_ant != 49 and cod != 49:
+                # Transição entre estados não-produtivos
+                if cod == estado_atual and cod in _TRANSITIONAL:
+                    # Mesmo estado transitório re-inserido (simulador): não faz nada
+                    pass
 
-            elif status_ant != 49 and cod == 49 and inicio_parada is not None:
-                # Retorno à produção: fecha o intervalo de parada
-                dur_s = (dt - inicio_parada).total_seconds()
-                tempos_parada_s.append(dur_s)
-                h, r = divmod(int(dur_s), 3600)
+                elif estado_atual == 51 and cod == 52:
+                    # Ag. Manutentor (permanente) → Em Manutenção (transitório):
+                    # fecha o 51, abre novo segmento transitório para o 52.
+                    _fechar_segmento(dt, 51)
+                    estado_atual = 52
+                    inicio_seg   = dt
+                    label_cod    = 0
 
-                motivo = depara_status_txt.get(motivo_parada_cod, depara_status_txt.get(0, "Máquina Parada")) \
-                    if motivo_parada_cod is not None \
-                    else depara_status_txt.get(0, "Máquina Parada")
+                elif estado_atual in _TRANSITIONAL and cod not in _TRANSITIONAL and cod not in (0, 49):
+                    # Motivo definitivo chegou para o estado transitório: só atualiza o label.
+                    label_cod = cod
 
-                paradas.append({
-                    "inicio":  inicio_parada.strftime("%H:%M"),
-                    "motivo":  motivo,
-                    "duracao": f"{h}h {r // 60:02d}m" if h else f"{r // 60}m",
-                    "status":  depara_status_txt.get(motivo_parada_cod or 0, "Máquina Parada"),
-                    "codigo": motivo_parada_cod or 0
-                })
-                inicio_parada    = None
-                motivo_parada_cod = None
+                elif cod in _TRANSITIONAL and cod != estado_atual:
+                    # Entrando num estado transitório diferente (edge case): fecha e reabre.
+                    _fechar_segmento(dt, label_cod)
+                    estado_atual = cod
+                    inicio_seg   = dt
+                    label_cod    = 0
+
+                else:
+                    # Transição entre estados permanentes: fecha e reabre.
+                    _fechar_segmento(dt, label_cod)
+                    estado_atual = cod
+                    inicio_seg   = dt
+                    label_cod    = 0 if cod in _TRANSITIONAL else cod
+
+            # ── Passo 2: avança ponteiro de motivo (assíncrono / simulador) ───
+            while mo_ptr < len(motivo_log):
+                m_dt, m_cod = motivo_log[mo_ptr]
+                if m_dt > dt:
+                    break
+                if (inicio_seg is not None
+                        and m_dt >= inicio_seg
+                        and m_cod not in (0, 49)
+                        and m_cod not in _TRANSITIONAL
+                        and estado_atual in _TRANSITIONAL):
+                    label_cod = m_cod
+                mo_ptr += 1
+
+            # ── Passo 3: fecha segmento ao retornar à produção ─────────────────
+            if status_ant is not None and status_ant != 49 and cod == 49 and inicio_seg is not None:
+                _fechar_segmento(dt, label_cod)
+                estado_atual = None
+                inicio_seg   = None
+                label_cod    = 0
 
             status_ant = cod
 
@@ -1746,6 +1806,7 @@ def get_historico_data(data_inicio: datetime, data_fim: datetime) -> dict:
         for _, machine in df_machines.iterrows():
             machine_id = int(machine["id_ihm"])
             metrics    = get_metrics_machine(machine_id, data_inicio=data_inicio, data_fim=data_fim)
+            pareto_maq = get_pareto_paradas(machine_id, data_inicio, data_fim)
 
             produzido = metrics["produzido"] if isinstance(metrics["produzido"], (int, float)) else 0
             meta      = metrics["meta"]      if isinstance(metrics["meta"],      (int, float)) else 0
@@ -1762,16 +1823,35 @@ def get_historico_data(data_inicio: datetime, data_fim: datetime) -> dict:
                 "performance":     metrics["performance"],
                 "produzido":       produzido,
                 "meta":            meta,
+                "pareto_paradas":  pareto_maq,
             })
 
         realizado_pct = int(100 * total_produzido / total_meta) if total_meta else 0
+
+        # Pareto consolidado da linha (agrega os paretos de cada máquina)
+        parada_agg: dict = {}
+        for m in maquinas:
+            for p in m.get("pareto_paradas", []):
+                parada_agg[p["motivo"]] = parada_agg.get(p["motivo"], 0) + p["minutos"]
+        total_min_linha = sum(parada_agg.values())
+        acum_l = 0.0
+        pareto_linha: list = []
+        for mot, mins in sorted(parada_agg.items(), key=lambda x: x[1], reverse=True):
+            pct_l = round(100 * mins / total_min_linha, 1) if total_min_linha > 0 else 0
+            acum_l += pct_l
+            pareto_linha.append({
+                "motivo": mot, "minutos": round(mins, 1),
+                "percentual": pct_l, "acumulado": round(min(acum_l, 100.0), 1),
+            })
+
         linhas.append({
-            "id":            line_id,
-            "nome":          linha["tx_name"],
-            "realizado":     total_produzido,
-            "meta_total":    total_meta,
-            "realizado_pct": realizado_pct,
-            "maquinas":      maquinas,
+            "id":              line_id,
+            "nome":            linha["tx_name"],
+            "realizado":       total_produzido,
+            "meta_total":      total_meta,
+            "realizado_pct":   realizado_pct,
+            "maquinas":        maquinas,
+            "pareto_paradas":  pareto_linha,
         })
 
     all_oees = [m["oee"] for l in linhas for m in l["maquinas"] if isinstance(m.get("oee"), (int, float))]
@@ -1816,48 +1896,121 @@ def get_producao_hora_maquina(maquina_id: int, dt_inicio: datetime, dt_fim: date
 
 
 def get_pareto_paradas(maquina_id: int, dt_inicio: datetime, dt_fim: datetime) -> list:
-    """Pareto de motivos de parada. Retorna [{motivo, minutos, percentual, acumulado}] ordenado."""
+    """Pareto de motivos de parada usando state-machine sobre os logs.
+
+    Lê status_maquina e motivo_parada separadamente e correlaciona por
+    intervalo temporal — suporta o fluxo real assíncrono onde o operador
+    informa o motivo alguns segundos APÓS a parada ocorrer.
+    """
     df = run_query("""
-        SELECT
-            lr1.dt_created_at,
-            lr1.nu_valor_bruto                   AS nu_status,
-            ISNULL(lr2.nu_valor_bruto, 0)        AS nu_motivo
-        FROM dbo.tb_log_registrador lr1
-        JOIN dbo.tb_registrador r1
-            ON r1.id_registrador = lr1.id_registrador AND r1.tx_descricao = 'status'
-        LEFT JOIN dbo.tb_registrador r2
-            ON r2.id_ihm = :id AND r2.tx_descricao = 'motivo_parada'
-        LEFT JOIN dbo.tb_log_registrador lr2
-            ON lr2.id_ihm = :id
-           AND lr2.dt_created_at  = lr1.dt_created_at
-           AND lr2.id_registrador = r2.id_registrador
-        WHERE lr1.id_ihm         = :id
-          AND lr1.dt_created_at >= :inicio
-          AND lr1.dt_created_at <= :fim
-        ORDER BY lr1.dt_created_at
+        SELECT lr.dt_created_at, lr.nu_valor_bruto, r.tx_descricao
+        FROM dbo.tb_log_registrador lr
+        JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
+        WHERE lr.id_ihm         = :id
+          AND lr.dt_created_at >= :inicio
+          AND lr.dt_created_at <= :fim
+          AND r.tx_descricao   IN ('status_maquina', 'motivo_parada')
+        ORDER BY lr.dt_created_at
     """, {"id": maquina_id, "inicio": dt_inicio, "fim": dt_fim})
 
     if df.empty:
         return []
 
+    df_st = df[df["tx_descricao"] == "status_maquina"].sort_values("dt_created_at")
+    df_mo = df[df["tx_descricao"] == "motivo_parada"].sort_values("dt_created_at")
+
+    # Lista de (timestamp, motivo_cod) para varredura durante cada intervalo de parada
+    motivo_log: list = list(zip(
+        pd.to_datetime(df_mo["dt_created_at"]),
+        df_mo["nu_valor_bruto"].astype(int),
+    ))
+    mo_ptr = 0  # ponteiro de varredura — avança monotonicamente com o tempo
+
+    status_rows = list(zip(
+        pd.to_datetime(df_st["dt_created_at"]),
+        df_st["nu_valor_bruto"].astype(int),
+    ))
+
+    # Estados transitórios (aguardam motivo definitivo para fechar o segmento):
+    #   0  = Máquina Parada   — motivo operacional (1-32) chega depois
+    #   52 = Em Manutenção    — código 3300+ chega depois
+    # Status 51 (Ag. Manutentor) é PERMANENTE: agrega sua própria duração.
+    _TRANS = {0, 52}
+
     durations: dict = {}
-    rows = df.to_dict("records")
-    for i in range(len(rows) - 1):
-        curr = rows[i]
-        nxt  = rows[i + 1]
-        try:
-            if int(curr["nu_status"]) == 49:
-                continue
-        except (TypeError, ValueError):
-            continue
-        secs = (pd.Timestamp(nxt["dt_created_at"]) - pd.Timestamp(curr["dt_created_at"])).total_seconds()
-        if secs <= 0:
-            continue
-        try:
-            motivo = int(curr["nu_motivo"])
-        except (TypeError, ValueError):
-            motivo = 0
-        durations[motivo] = durations.get(motivo, 0) + secs
+    status_ant: Optional[int] = None
+    estado_atual: Optional[int] = None
+    inicio_seg:   Optional[Any] = None
+    label_cod:    int           = 0
+
+    for dt, cod in status_rows:
+        # ── Passo 1: transições de estado ──────────────────────────────────────
+
+        if status_ant == 49 and cod != 49:
+            # Saindo de produção → abre segmento
+            estado_atual = cod
+            inicio_seg   = dt
+            label_cod    = 0 if cod in _TRANS else cod
+
+        elif status_ant is not None and status_ant != 49 and cod != 49:
+            if cod == estado_atual and cod in _TRANS:
+                # Mesmo estado transitório re-inserido (simulador): não faz nada
+                pass
+
+            elif estado_atual == 51 and cod == 52:
+                # Ag. Manutentor → Em Manutenção: fecha 51, abre segmento transitório 52
+                secs = (dt - inicio_seg).total_seconds()
+                if secs > 0:
+                    durations[51] = durations.get(51, 0) + secs
+                estado_atual = 52
+                inicio_seg   = dt
+                label_cod    = 0
+
+            elif estado_atual in _TRANS and cod not in _TRANS and cod not in (0, 49):
+                # Motivo definitivo do estado transitório: só atualiza label
+                label_cod = cod
+
+            elif cod in _TRANS and cod != estado_atual:
+                # Entrando num estado transitório diferente (edge case)
+                secs = (dt - inicio_seg).total_seconds()
+                if secs > 0:
+                    durations[label_cod] = durations.get(label_cod, 0) + secs
+                estado_atual = cod
+                inicio_seg   = dt
+                label_cod    = 0
+
+            else:
+                # Transição entre estados permanentes
+                secs = (dt - inicio_seg).total_seconds()
+                if secs > 0:
+                    durations[label_cod] = durations.get(label_cod, 0) + secs
+                estado_atual = cod
+                inicio_seg   = dt
+                label_cod    = 0 if cod in _TRANS else cod
+
+        # ── Passo 2: avança ponteiro de motivo (assíncrono / simulador) ────────
+        while mo_ptr < len(motivo_log):
+            m_dt, m_cod = motivo_log[mo_ptr]
+            if m_dt > dt:
+                break
+            if (inicio_seg is not None
+                    and m_dt >= inicio_seg
+                    and m_cod not in (0, 49)
+                    and m_cod not in _TRANS
+                    and estado_atual in _TRANS):
+                label_cod = m_cod
+            mo_ptr += 1
+
+        # ── Passo 3: fecha segmento ao retornar à produção ─────────────────────
+        if status_ant is not None and status_ant != 49 and cod == 49 and inicio_seg is not None:
+            secs = (dt - inicio_seg).total_seconds()
+            if secs > 0:
+                durations[label_cod] = durations.get(label_cod, 0) + secs
+            estado_atual = None
+            inicio_seg   = None
+            label_cod    = 0
+
+        status_ant = cod
 
     if not durations:
         return []
@@ -1868,10 +2021,10 @@ def get_pareto_paradas(maquina_id: int, dt_inicio: datetime, dt_fim: datetime) -
     """, {"id": maquina_id})
     nomes = {int(r["nu_cod_motivo_parada"]): r["tx_motivo_parada"] for _, r in df_nomes.iterrows()}
 
-    total_s   = sum(durations.values())
-    sorted_d  = sorted(durations.items(), key=lambda x: x[1], reverse=True)
-    result    = []
-    acum      = 0.0
+    total_s  = sum(durations.values())
+    sorted_d = sorted(durations.items(), key=lambda x: x[1], reverse=True)
+    result: list = []
+    acum = 0.0
     for cod, secs in sorted_d:
         nome = nomes.get(cod, f"Motivo {cod}" if cod != 0 else "Sem motivo")
         pct  = round(100 * secs / total_s, 1) if total_s > 0 else 0

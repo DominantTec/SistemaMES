@@ -50,10 +50,11 @@ OPERATORS = {
 
 # ─── Status de máquina ─────────────────────────────────────────────────────────
 
-STATUS_PRODUZINDO = 49
-STATUS_PARADA     = 0
-STATUS_LIMPEZA    = 4
-STATUS_MANUTENCAO = 52
+STATUS_PRODUZINDO    = 49
+STATUS_PARADA        = 0
+STATUS_LIMPEZA       = 4
+STATUS_AG_MANUTENCAO = 51   # Aguardando Manutentor (permanente)
+STATUS_MANUTENCAO    = 52   # Em Manutenção (transitório — aguarda motivo)
 
 PROB_IR_PARADA           = 0.010
 PROB_IR_MANUTENCAO       = 0.003
@@ -62,8 +63,19 @@ PROB_VOLTA_DE_PARADA     = 0.18
 PROB_VOLTA_DE_MANUTENCAO = 0.07
 PROB_VOLTA_DE_LIMPEZA    = 0.30
 MIN_CICLOS_PARADA        = 2
-MIN_CICLOS_MANUTENCAO    = 4
+MIN_CICLOS_MANUTENCAO    = 4   # min ciclos em STATUS_MANUTENCAO antes de liberar
 MIN_CICLOS_LIMPEZA       = 2
+
+# Delay para o operador informar o motivo de parada (fluxo real assíncrono):
+# 49 → 0 (sem motivo) → [delay] → motivo (1-32) → 49
+MIN_CICLOS_MOTIVO_DELAY  = 1   # 1 ciclo  ≈  5 segundos
+MAX_CICLOS_MOTIVO_DELAY  = 6   # 6 ciclos ≈ 30 segundos
+
+# Delay para o manutentor chegar (fluxo manutenção):
+# 49 → 51 (Ag. Manutentor) → [delay] → 52 (Em Manutenção) → [delay] → motivo → 49
+MIN_CICLOS_AG_MANUTENCAO    = 2   # ciclos aguardando manutentor chegar
+MAX_CICLOS_AG_MANUTENCAO    = 8
+MAX_CICLOS_MANUTENCAO_DELAY = 4   # ciclos após 52 para registrar o motivo
 
 TAXA_REPROVADO = 0.09
 
@@ -201,8 +213,13 @@ class MachineState:
         self.parada_duracao  = 0
         self.prev_values     = None
 
-        self._acum           = 0.0    # acumulador fracionário de peças por ciclo
-        self._op_id_atual    = None   # detecta troca de OP
+        self._acum                       = 0.0  # acumulador fracionário de peças por ciclo
+        self._motivo_pendente            = 0    # motivo operacional, aguardando ser revelado
+        self._ciclos_motivo_delay        = 0    # ciclos restantes até revelar motivo operacional
+        self._ciclos_ag_manutencao       = 0    # ciclos restantes aguardando manutentor chegar
+        self._motivo_manutencao_pendente = 0    # motivo de manutenção, revelado após delay
+        self._ciclos_manutencao_delay    = 0    # ciclos restantes até revelar motivo de manutenção
+        self._op_id_atual                = None  # detecta troca de OP
 
     def load_from_db(self, conn_db):
         """Restaura contadores de produção do último registro gravado."""
@@ -273,6 +290,8 @@ class MachineState:
             self._tick_produzindo(conn_db, op_id)
         elif self.status == STATUS_PARADA:
             self._tick_parada()
+        elif self.status == STATUS_AG_MANUTENCAO:
+            self._tick_ag_manutencao()
         elif self.status == STATUS_MANUTENCAO:
             self._tick_manutencao()
         elif self.status == STATUS_LIMPEZA:
@@ -308,12 +327,66 @@ class MachineState:
 
     def _tick_parada(self):
         self.parada_duracao += 1
-        if self.parada_duracao >= MIN_CICLOS_PARADA and random.random() < PROB_VOLTA_DE_PARADA:
+
+        # Operador informa o motivo após um delay (fluxo real assíncrono).
+        if self._ciclos_motivo_delay > 0:
+            self._ciclos_motivo_delay -= 1
+            if self._ciclos_motivo_delay == 0 and self._motivo_pendente != 0:
+                self.motivo_parada = self._motivo_pendente
+                self._motivo_pendente = 0
+                # Retorno antecipado: garante que este ciclo só grave o motivo.
+                # O insert_if_changed verá (status=0, motivo=X) separadamente de
+                # (status=49, motivo=0), preservando o registro assíncrono no log.
+                return
+
+        # A máquina pode retomar produção quando:
+        #   (a) o motivo foi registrado pelo operador — fluxo normal de parada, OU
+        #   (b) não há motivo pendente nem delay em andamento — significa que a parada
+        #       foi forçada por ausência de OP (_forcar_parada) e a OP acaba de chegar.
+        #       Nesse caso não faz sentido bloquear a retomada esperando um motivo que
+        #       nunca será setado.
+        motivo_ok = (self.motivo_parada != 0) or (
+            self._motivo_pendente == 0 and self._ciclos_motivo_delay == 0
+        )
+        if (motivo_ok
+                and self.parada_duracao >= MIN_CICLOS_PARADA
+                and random.random() < PROB_VOLTA_DE_PARADA):
             self._transicao_produzindo()
 
-    def _tick_manutencao(self):
+    def _tick_ag_manutencao(self):
+        """Status 51 — Aguardando Manutentor (permanente). Aguarda o manutentor chegar."""
         self.parada_duracao += 1
-        if self.parada_duracao >= MIN_CICLOS_MANUTENCAO and random.random() < PROB_VOLTA_DE_MANUTENCAO:
+        if self._ciclos_ag_manutencao > 0:
+            self._ciclos_ag_manutencao -= 1
+            if self._ciclos_ag_manutencao == 0:
+                # Manutentor chegou → transiciona para STATUS_MANUTENCAO (52, transitório).
+                # O motivo só será revelado após _ciclos_manutencao_delay ciclos.
+                self.status                   = STATUS_MANUTENCAO
+                self.motivo_parada            = 0   # ainda sem motivo
+                self._ciclos_manutencao_delay = random.randint(1, MAX_CICLOS_MANUTENCAO_DELAY)
+                self.parada_duracao           = 0
+
+    def _tick_manutencao(self):
+        """Status 52 — Em Manutenção (transitório). Aguarda motivo e depois libera."""
+        self.parada_duracao += 1
+
+        # Manutentor registra o motivo após um delay (fluxo real assíncrono).
+        if self._ciclos_manutencao_delay > 0:
+            self._ciclos_manutencao_delay -= 1
+            if self._ciclos_manutencao_delay == 0 and self._motivo_manutencao_pendente != 0:
+                self.motivo_parada                = self._motivo_manutencao_pendente
+                self._motivo_manutencao_pendente  = 0
+                # Retorno antecipado: garante que (status=52, motivo=X) seja gravado
+                # separadamente de (status=49, motivo=0) na próxima retomada.
+                return
+
+        # Pode retomar quando motivo já foi registrado (ou não havia motivo pendente).
+        motivo_ok = (self.motivo_parada != 0) or (
+            self._motivo_manutencao_pendente == 0 and self._ciclos_manutencao_delay == 0
+        )
+        if (motivo_ok
+                and self.parada_duracao >= MIN_CICLOS_MANUTENCAO
+                and random.random() < PROB_VOLTA_DE_MANUTENCAO):
             self._transicao_produzindo()
 
     def _tick_limpeza(self):
@@ -323,23 +396,36 @@ class MachineState:
 
     def _forcar_parada(self):
         if self.status != STATUS_PARADA:
-            self.status         = STATUS_PARADA
-            self.motivo_parada  = 0
-            self.manutentor     = 0
-            self.engenheiro     = 0
-            self.parada_duracao = 0
+            self.status                      = STATUS_PARADA
+            self.motivo_parada               = 0
+            self.manutentor                  = 0
+            self.engenheiro                  = 0
+            self.parada_duracao              = 0
+            self._ciclos_ag_manutencao       = 0
+            self._motivo_manutencao_pendente = 0
+            self._ciclos_manutencao_delay    = 0
 
     def _transicao_parada(self):
-        self.status         = STATUS_PARADA
-        self.motivo_parada  = random.choice(self.motivos) if self.motivos else 1
-        self.parada_duracao = 0
+        # Fluxo real: máquina para (status=0, sem motivo ainda).
+        # O operador informa o motivo depois — simulado via delay assíncrono.
+        self.status              = STATUS_PARADA
+        self.motivo_parada       = 0   # ainda sem motivo
+        self._motivo_pendente    = random.choice(self.motivos) if self.motivos else 1
+        self._ciclos_motivo_delay = random.randint(MIN_CICLOS_MOTIVO_DELAY, MAX_CICLOS_MOTIVO_DELAY)
+        self.parada_duracao      = 0
 
     def _transicao_manutencao(self):
-        self.status         = STATUS_MANUTENCAO
-        self.motivo_parada  = 3
-        self.manutentor     = random.choice(self.manutentores) if self.manutentores else 1
-        self.engenheiro     = random.choice(self.engenheiros)  if self.engenheiros  else 0
-        self.parada_duracao = 0
+        # Fluxo real: operador chama manutenção → STATUS 51 (Ag. Manutentor).
+        # Manutentor chega depois → STATUS 52 (Em Manutenção).
+        # Manutentor registra o motivo → código de motivo assíncrono.
+        self.status                      = STATUS_AG_MANUTENCAO  # 51
+        self.motivo_parada               = 0
+        self.manutentor                  = random.choice(self.manutentores) if self.manutentores else 1
+        self.engenheiro                  = random.choice(self.engenheiros)  if self.engenheiros  else 0
+        self.parada_duracao              = 0
+        self._ciclos_ag_manutencao       = random.randint(MIN_CICLOS_AG_MANUTENCAO, MAX_CICLOS_AG_MANUTENCAO)
+        self._motivo_manutencao_pendente = random.choice(self.motivos) if self.motivos else 3
+        self._ciclos_manutencao_delay    = 0
 
     def _transicao_limpeza(self):
         self.status         = STATUS_LIMPEZA
@@ -347,11 +433,16 @@ class MachineState:
         self.parada_duracao = 0
 
     def _transicao_produzindo(self):
-        self.status         = STATUS_PRODUZINDO
-        self.motivo_parada  = 0
-        self.manutentor     = 0
-        self.engenheiro     = 0
-        self.parada_duracao = 0
+        self.status               = STATUS_PRODUZINDO
+        self.motivo_parada        = 0
+        self.manutentor           = 0
+        self.engenheiro           = 0
+        self.parada_duracao       = 0
+        self._motivo_pendente            = 0
+        self._ciclos_motivo_delay        = 0
+        self._ciclos_ag_manutencao       = 0
+        self._motivo_manutencao_pendente = 0
+        self._ciclos_manutencao_delay    = 0
 
 
 # ─── Carregamento ──────────────────────────────────────────────────────────────

@@ -1158,16 +1158,26 @@ function exportarPDF(fabricaData, funil, inicio, fim, turno) {
     );
   }).join('');
 
-  // ── Funil rows ────────────────────────────────────────────────────────────
-  const funilRows = funil ? [
-    ['Total de Ordens', funil.total_ordens || 0, '#3b82f6'],
-    ['Iniciadas', funil.iniciadas || 0, '#8b5cf6'],
-    ['Concluídas', funil.concluidas || 0, '#22c55e'],
-    ['Não Iniciadas', funil.nao_iniciadas || 0, '#f59e0b'],
-    ['Atrasadas', funil.atrasadas || 0, '#ef4444'],
+  // ── Ordens — usa lista real das linhas; funil (sumário) como fallback ───────
+  const allOrdens = linhas.flatMap(l => l.ordens || []);
+  // Deriva resumo do funil a partir das ordens reais quando funil não está disponível
+  const funilEfetivo = funil || (allOrdens.length > 0 ? {
+    total_ordens:  allOrdens.length,
+    concluidas:    allOrdens.filter(o => o.status === 'finalizado'   || o.conclusao >= 100).length,
+    iniciadas:     allOrdens.filter(o => o.status === 'em_producao').length,
+    nao_iniciadas: allOrdens.filter(o => o.status === 'fila').length,
+    atrasadas:     0,
+  } : null);
+
+  const funilRows = funilEfetivo ? [
+    ['Total de Ordens',   funilEfetivo.total_ordens  || 0, '#3b82f6'],
+    ['Em Produção',       funilEfetivo.iniciadas     || 0, '#8b5cf6'],
+    ['Concluídas',        funilEfetivo.concluidas    || 0, '#22c55e'],
+    ['Não Iniciadas',     funilEfetivo.nao_iniciadas || 0, '#f59e0b'],
+    ['Atrasadas',         funilEfetivo.atrasadas     || 0, '#ef4444'],
   ].map(([label, val, color], i) => {
     const bg = i % 2 === 0 ? '#f8fafc' : '#ffffff';
-    const max = funil.total_ordens || 1;
+    const max = funilEfetivo.total_ordens || 1;
     return (
       '<tr style="background:' + bg + '">' +
       '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0">' + label + '</td>' +
@@ -1175,7 +1185,31 @@ function exportarPDF(fabricaData, funil, inicio, fim, turno) {
       '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0">' + _pdfMiniBar(val / max * 100, 100) + '</td>' +
       '</tr>'
     );
-  }).join('') : '<tr><td colspan="3" style="padding:8px;color:#9ca3af">Sem dados de ordens</td></tr>';
+  }).join('') : '<tr><td colspan="3" style="padding:8px;color:#9ca3af;text-align:center">Nenhuma ordem encontrada</td></tr>';
+
+  // Linhas detalhadas das ordens (para a tabela da pág. 2)
+  const statusColor = (s) => s === 'finalizado' ? '#16a34a' : s === 'em_producao' ? '#2563eb' : s === 'cancelada' ? '#dc2626' : '#92400e';
+  const statusLabel = (s) => s === 'finalizado' ? 'Concluída' : s === 'em_producao' ? 'Em Produção' : s === 'fila' ? 'Na Fila' : s === 'cancelada' ? 'Cancelada' : s || '—';
+  const ordensRows = allOrdens.length > 0
+    ? allOrdens.map((o, i) => {
+        const bg = i % 2 === 0 ? '#f8fafc' : '#ffffff';
+        const sc = statusColor(o.status);
+        const conc = o.conclusao ?? (o.quantidade > 0 ? Math.round(o.produzido / o.quantidade * 100) : 0);
+        return (
+          '<tr style="background:' + bg + '">' +
+          '<td style="padding:5px 7px;border-bottom:1px solid #e2e8f0;font-weight:600">' + (o.numero || '—') + '</td>' +
+          '<td style="padding:5px 7px;border-bottom:1px solid #e2e8f0">' + (o.peca || '—') + '</td>' +
+          '<td style="padding:5px 7px;border-bottom:1px solid #e2e8f0;text-align:center">' + (o.quantidade || 0).toLocaleString('pt-BR') + '</td>' +
+          '<td style="padding:5px 7px;border-bottom:1px solid #e2e8f0;text-align:center">' + (o.produzido || 0).toLocaleString('pt-BR') + '</td>' +
+          '<td style="padding:5px 7px;border-bottom:1px solid #e2e8f0;text-align:center;color:#dc2626">' + (o.refugo || 0) + '</td>' +
+          '<td style="padding:5px 7px;border-bottom:1px solid #e2e8f0;text-align:center">' +
+            '<span style="background:' + sc + '1a;color:' + sc + ';padding:1px 7px;border-radius:10px;font-size:9.5px;font-weight:600">' + statusLabel(o.status) + '</span>' +
+          '</td>' +
+          '<td style="padding:5px 7px;border-bottom:1px solid #e2e8f0">' + _pdfMiniBar(conc, 80) + '</td>' +
+          '</tr>'
+        );
+      }).join('')
+    : '<tr><td colspan="7" style="padding:8px;color:#9ca3af;text-align:center">Nenhuma ordem no período</td></tr>';
 
   // ── Pareto consolidado (todas as linhas) ──────────────────────────────────
   const paradaAgg = {};
@@ -1300,15 +1334,15 @@ function exportarPDF(fabricaData, funil, inicio, fim, turno) {
       <div style="font-size:10px;color:#1d4ed8;font-weight:600;margin-top:4px">Linhas Ativas</div>
     </div>
     <div style="flex:1;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:12px;text-align:center">
-      <div style="font-size:28px;font-weight:800;color:#c2410c">${funil?.total_ordens || 0}</div>
+      <div style="font-size:28px;font-weight:800;color:#c2410c">${funilEfetivo?.total_ordens || allOrdens.length || 0}</div>
       <div style="font-size:10px;color:#c2410c;font-weight:600;margin-top:4px">Total de Ordens</div>
     </div>
     <div style="flex:1;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px;text-align:center">
-      <div style="font-size:28px;font-weight:800;color:#16a34a">${funil?.concluidas || 0}</div>
+      <div style="font-size:28px;font-weight:800;color:#16a34a">${funilEfetivo?.concluidas || 0}</div>
       <div style="font-size:10px;color:#16a34a;font-weight:600;margin-top:4px">Ordens Concluídas</div>
     </div>
     <div style="flex:1;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px;text-align:center">
-      <div style="font-size:28px;font-weight:800;color:#dc2626">${funil?.atrasadas || 0}</div>
+      <div style="font-size:28px;font-weight:800;color:#dc2626">${funilEfetivo?.atrasadas || 0}</div>
       <div style="font-size:10px;color:#dc2626;font-weight:600;margin-top:4px">Ordens Atrasadas</div>
     </div>
     <div style="flex:1;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px;text-align:center">
@@ -1333,10 +1367,20 @@ function exportarPDF(fabricaData, funil, inicio, fim, turno) {
 
   <div style="display:flex;gap:20px;margin-bottom:20px">
     <div style="flex:1">
-      <h2>Funil de Ordens de Produção</h2>
+      <h2>Ordens de Produção</h2>
+      <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+        ${funilEfetivo ? [
+          ['Total', funilEfetivo.total_ordens||0, '#3b82f6'],
+          ['Em Produção', funilEfetivo.iniciadas||0, '#8b5cf6'],
+          ['Concluídas', funilEfetivo.concluidas||0, '#22c55e'],
+          ['Na Fila', funilEfetivo.nao_iniciadas||0, '#f59e0b'],
+        ].map(([l,v,c]) =>
+          '<span style="background:' + c + '1a;color:' + c + ';padding:2px 8px;border-radius:10px;font-size:9.5px;font-weight:700">' + l + ': ' + v + '</span>'
+        ).join('') : ''}
+      </div>
       <table>
-        <thead><tr><th>Status</th><th>Qtd</th><th>Proporção</th></tr></thead>
-        <tbody>${funilRows}</tbody>
+        <thead><tr><th>Nº OP</th><th>Peça</th><th>Qtd</th><th>Produzido</th><th>Refugo</th><th>Status</th><th>Progresso</th></tr></thead>
+        <tbody>${ordensRows}</tbody>
       </table>
     </div>
     <div style="flex:1">
@@ -1490,11 +1534,11 @@ async function exportarExcel(fabricaData, funil, inicio, fim, turno) {
   const kpiData = [
     ['OEE Global', (fabricaData?.oee_global != null ? Number(fabricaData.oee_global).toFixed(1) + '%' : '—')],
     ['Linhas Ativas', linhas.length],
-    ['Total de Ordens', funil?.total_ordens || 0],
-    ['Ordens Concluídas', funil?.concluidas || 0],
-    ['Ordens em Andamento', funil?.iniciadas || 0],
-    ['Ordens Não Iniciadas', funil?.nao_iniciadas || 0],
-    ['Ordens Atrasadas', funil?.atrasadas || 0],
+    ['Total de Ordens', funilXls?.total_ordens ?? allOrdensXls.length],
+    ['Ordens Concluídas', funilXls?.concluidas ?? allOrdensXls.filter(o => o.status === 'finalizado').length],
+    ['Ordens em Produção', funilXls?.iniciadas ?? allOrdensXls.filter(o => o.status === 'em_producao').length],
+    ['Ordens Na Fila', funilXls?.nao_iniciadas ?? allOrdensXls.filter(o => o.status === 'fila').length],
+    ['Ordens Atrasadas', funilXls?.atrasadas || 0],
     ['Tempo Total Parado', totalParadaMinEx > 0 ? fmtMin(totalParadaMinEx) : '—'],
     ['Tipos de Parada Registrados', Object.keys(paradaAggEx).length],
   ];
@@ -1588,40 +1632,79 @@ async function exportarExcel(fabricaData, funil, inicio, fim, turno) {
     r.getCell(1).font = { italic: true, color: { argb: 'FF9CA3AF' } };
   }
 
-  // ── Sheet 4: Ordens de Produção ───────────────────────────────────────────
-  const s4 = wb.addWorksheet('Ordens de Produção', { properties: { tabColor: { argb: 'FFF59E0B' } } });
-  s4.columns = [{ width: 22 }, { width: 16 }, { width: 16 }, { width: 16 }, { width: 16 }, { width: 16 }];
+  // ── Sheet 4: Ordens de Produção (lista real) ─────────────────────────────
+  const allOrdensXls = linhas.flatMap(l => (l.ordens || []).map(o => ({
+    ...o, linhaNome: l.nome || ('Linha ' + l.id_linha),
+  })));
+  // Funil derivado das ordens reais se não disponível diretamente
+  const funilXls = funil || (allOrdensXls.length > 0 ? {
+    total_ordens:  allOrdensXls.length,
+    concluidas:    allOrdensXls.filter(o => o.status === 'finalizado'   || o.conclusao >= 100).length,
+    iniciadas:     allOrdensXls.filter(o => o.status === 'em_producao').length,
+    nao_iniciadas: allOrdensXls.filter(o => o.status === 'fila').length,
+    atrasadas:     0,
+  } : null);
 
-  s4.mergeCells('A1:F1');
+  const s4 = wb.addWorksheet('Ordens de Produção', { properties: { tabColor: { argb: 'FFF59E0B' } } });
+  s4.columns = [
+    { width: 16 }, { width: 28 }, { width: 14 }, { width: 14 }, { width: 12 }, { width: 10 }, { width: 18 }, { width: 20 },
+  ];
+
+  s4.mergeCells('A1:H1');
   const s4t = s4.getCell('A1');
-  s4t.value = 'FUNIL DE ORDENS DE PRODUÇÃO' + (turnoNome ? ' — ' + turnoNome : '');
+  s4t.value = 'ORDENS DE PRODUÇÃO' + (turnoNome ? ' — ' + turnoNome : '');
   s4t.fill = titleFill; s4t.font = titleFont; s4t.alignment = { horizontal: 'center', vertical: 'middle' };
   s4.getRow(1).height = 28;
+
+  // Linha de resumo do funil
+  if (funilXls) {
+    s4.mergeCells('A2:H2');
+    const s4summ = s4.getCell('A2');
+    s4summ.value = `Total: ${funilXls.total_ordens}  |  Em Produção: ${funilXls.iniciadas}  |  Concluídas: ${funilXls.concluidas}  |  Na Fila: ${funilXls.nao_iniciadas}`;
+    s4summ.fill = sub2Fill; s4summ.font = { bold: true, color: { argb: 'FF1E3A5F' } };
+    s4summ.alignment = { horizontal: 'center', vertical: 'middle' };
+  }
+
   s4.addRow([]);
-
-  const s4hdr = s4.addRow(['Status', 'Quantidade', '% do Total', '', '', '']);
+  const s4hdr = s4.addRow(['Nº OP', 'Peça / Produto', 'Quantidade', 'Produzido', 'Refugo', '% Conclusão', 'Status', 'Linha']);
   s4hdr.eachCell(c => { c.fill = hdrFill; c.font = hdrFont; c.alignment = { horizontal: 'center' }; addBorder(c); });
+  s4.getRow(s4hdr.number).height = 20;
 
-  if (funil) {
-    const total = funil.total_ordens || 1;
-    [
-      ['Total de Ordens', funil.total_ordens || 0, 'FF3B82F6'],
-      ['Concluídas', funil.concluidas || 0, 'FF22C55E'],
-      ['Em Andamento', funil.iniciadas || 0, 'FF8B5CF6'],
-      ['Não Iniciadas', funil.nao_iniciadas || 0, 'FFF59E0B'],
-      ['Atrasadas', funil.atrasadas || 0, 'FFEF4444'],
-    ].forEach(([label, val, argb], i) => {
-      const row = s4.addRow([label, val, ((val / total) * 100).toFixed(1) + '%']);
-      row.getCell(1).font = { bold: true };
-      row.getCell(2).font = { bold: true, color: { argb } };
-      row.getCell(2).alignment = { horizontal: 'center' };
-      row.getCell(3).alignment = { horizontal: 'center' };
+  const statusArgb = (s) => s === 'finalizado' ? 'FF16A34A' : s === 'em_producao' ? 'FF2563EB' : s === 'cancelada' ? 'FFDC2626' : 'FF92400E';
+  const statusLbl  = (s) => s === 'finalizado' ? 'Concluída' : s === 'em_producao' ? 'Em Produção' : s === 'fila' ? 'Na Fila' : s === 'cancelada' ? 'Cancelada' : s || '—';
+  const statusBg   = (s) => s === 'finalizado' ? 'FFF0FDF4' : s === 'em_producao' ? 'FFEFF6FF' : s === 'cancelada' ? 'FFFEF2F2' : 'FFFFF7ED';
+
+  if (allOrdensXls.length > 0) {
+    allOrdensXls.forEach((o, i) => {
+      const conc = o.conclusao ?? (o.quantidade > 0 ? Math.round(o.produzido / o.quantidade * 100) : 0);
+      const row = s4.addRow([
+        o.numero || '—',
+        o.peca   || '—',
+        o.quantidade || 0,
+        o.produzido  || 0,
+        o.refugo     || 0,
+        conc + '%',
+        statusLbl(o.status),
+        o.linhaNome || '—',
+      ]);
       const bg = i % 2 === 0 ? 'FFF8FAFC' : 'FFFFFFFF';
-      row.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } }; addBorder(c); });
+      row.eachCell(c => {
+        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+        c.alignment = { horizontal: 'center' };
+        addBorder(c);
+      });
+      row.getCell(1).font = { bold: true }; row.getCell(1).alignment = { horizontal: 'left' };
+      row.getCell(2).alignment = { horizontal: 'left' };
+      row.getCell(7).font = { bold: true, color: { argb: statusArgb(o.status) } };
+      row.getCell(7).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: statusBg(o.status) } };
+      // Highlight conclusao
+      if (conc >= 100) row.getCell(6).font = { bold: true, color: { argb: 'FF16A34A' } };
+      else if (conc >= 50) row.getCell(6).font = { color: { argb: 'FFD97706' } };
+      else row.getCell(6).font = { color: { argb: 'FFDC2626' } };
     });
   } else {
-    const r = s4.addRow(['Sem dados de ordens']);
-    s4.mergeCells(`A${r.number}:F${r.number}`);
+    const r = s4.addRow(['Nenhuma ordem de produção encontrada para este período']);
+    s4.mergeCells(`A${r.number}:H${r.number}`);
     r.getCell(1).font = { italic: true, color: { argb: 'FF9CA3AF' } };
     r.getCell(1).alignment = { horizontal: 'center' };
   }
