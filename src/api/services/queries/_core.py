@@ -1734,6 +1734,19 @@ def get_overview_linhas() -> list:
         line_id    = int(linha["id_linha_producao"])
         df_machines = get_machines_by_line_df(line_id)
 
+        df_term_ov = run_query("""
+            SELECT DISTINCT r.id_ihm
+            FROM dbo.tb_peca_rota r
+            JOIN dbo.tb_peca p ON p.id_peca = r.id_peca
+            WHERE p.id_linha_producao = :lid
+              AND r.nu_ordem = (
+                  SELECT MAX(r2.nu_ordem) FROM dbo.tb_peca_rota r2 WHERE r2.id_peca = r.id_peca
+              )
+        """, {"lid": line_id})
+        term_ids_ov: set = set(int(r["id_ihm"]) for _, r in df_term_ov.iterrows())
+        if not term_ids_ov:
+            term_ids_ov = set(int(r["id_ihm"]) for _, r in df_machines.iterrows())
+
         maquinas        = []
         total_produzido = 0
         total_meta      = 0
@@ -1745,7 +1758,8 @@ def get_overview_linhas() -> list:
             produzido = metrics["produzido"] if isinstance(metrics["produzido"], (int, float)) else 0
             reprovado = metrics["reprovado"] if isinstance(metrics["reprovado"], (int, float)) else 0
             meta      = metrics["meta"]      if isinstance(metrics["meta"],      (int, float)) else 0
-            total_produzido += produzido
+            if machine_id in term_ids_ov:
+                total_produzido += produzido
             total_meta      += meta
 
             maquinas.append({
@@ -1799,6 +1813,19 @@ def get_historico_data(data_inicio: datetime, data_fim: datetime) -> dict:
         line_id     = int(linha["id_linha_producao"])
         df_machines = get_machines_by_line_df(line_id)
 
+        df_term_h = run_query("""
+            SELECT DISTINCT r.id_ihm
+            FROM dbo.tb_peca_rota r
+            JOIN dbo.tb_peca p ON p.id_peca = r.id_peca
+            WHERE p.id_linha_producao = :lid
+              AND r.nu_ordem = (
+                  SELECT MAX(r2.nu_ordem) FROM dbo.tb_peca_rota r2 WHERE r2.id_peca = r.id_peca
+              )
+        """, {"lid": line_id})
+        term_ids_h: set = set(int(r["id_ihm"]) for _, r in df_term_h.iterrows())
+        if not term_ids_h:
+            term_ids_h = set(int(r["id_ihm"]) for _, r in df_machines.iterrows())
+
         maquinas        = []
         total_produzido = 0
         total_meta      = 0
@@ -1810,7 +1837,8 @@ def get_historico_data(data_inicio: datetime, data_fim: datetime) -> dict:
 
             produzido = metrics["produzido"] if isinstance(metrics["produzido"], (int, float)) else 0
             meta      = metrics["meta"]      if isinstance(metrics["meta"],      (int, float)) else 0
-            total_produzido += produzido
+            if machine_id in term_ids_h:
+                total_produzido += produzido
             total_meta      += meta
 
             maquinas.append({
@@ -2114,6 +2142,21 @@ def get_historico_linha_detalhe(linha_id: int, dt_inicio: datetime, dt_fim: date
     nome        = df_l.iloc[0]["tx_name"]
     df_machines = get_machines_by_line_df(linha_id)
 
+    # Máquinas terminais do roteiro (última etapa): apenas elas representam peças acabadas.
+    # A mesma peça passa por todas as máquinas, então somar todas multiplicaria a contagem.
+    df_term_pre = run_query("""
+        SELECT DISTINCT r.id_ihm
+        FROM dbo.tb_peca_rota r
+        JOIN dbo.tb_peca p ON p.id_peca = r.id_peca
+        WHERE p.id_linha_producao = :lid
+          AND r.nu_ordem = (
+              SELECT MAX(r2.nu_ordem) FROM dbo.tb_peca_rota r2 WHERE r2.id_peca = r.id_peca
+          )
+    """, {"lid": linha_id})
+    term_ids_set: set = set(int(r["id_ihm"]) for _, r in df_term_pre.iterrows())
+    if not term_ids_set:
+        term_ids_set = set(int(r["id_ihm"]) for _, r in df_machines.iterrows())
+
     maquinas        = []
     total_produzido = 0
     total_reprovado = 0
@@ -2127,7 +2170,9 @@ def get_historico_linha_detalhe(linha_id: int, dt_inicio: datetime, dt_fim: date
         prod    = metrics["produzido"] if isinstance(metrics["produzido"], (int, float)) else 0
         repr_   = metrics["reprovado"] if isinstance(metrics["reprovado"], (int, float)) else 0
         oee     = metrics["oee"]       if isinstance(metrics["oee"],       (int, float)) else None
-        total_produzido += prod
+        # Só a máquina terminal conta como saída da linha; refugo acumula de todas as etapas.
+        if mid in term_ids_set:
+            total_produzido += prod
         total_reprovado += repr_
         if oee is not None:
             all_oees.append(oee)
@@ -2163,19 +2208,8 @@ def get_historico_linha_detalhe(linha_id: int, dt_inicio: datetime, dt_fim: date
             "acumulado":  round(min(acum, 100.0), 1),
         })
 
-    # Produção hora a hora — máquinas terminais da rota
-    df_term = run_query("""
-        SELECT DISTINCT r.id_ihm
-        FROM dbo.tb_peca_rota r
-        JOIN dbo.tb_peca p ON p.id_peca = r.id_peca
-        WHERE p.id_linha_producao = :lid
-          AND r.nu_ordem = (
-              SELECT MAX(r2.nu_ordem) FROM dbo.tb_peca_rota r2 WHERE r2.id_peca = r.id_peca
-          )
-    """, {"lid": linha_id})
-    term_ids = [int(r["id_ihm"]) for _, r in df_term.iterrows()]
-    if not term_ids:
-        term_ids = [int(r["id_ihm"]) for _, r in df_machines.iterrows()]
+    # Produção hora a hora — máquinas terminais da rota (já calculado acima)
+    term_ids = list(term_ids_set)
 
     hourly_agg: dict = {}
     for tid in term_ids:
@@ -3192,22 +3226,35 @@ def calcular_metas_op(linha_id: int, quantidade: int, peca_id: int = None) -> di
 
 
 def _get_producao_linha_desde(linha_id: int, dt_inicio: datetime) -> int:
-    """Soma a produção real de todas as máquinas da linha desde dt_inicio.
-    Usa o delta do registrador 'total_produzido' (acumulador) por máquina."""
-    df_maquinas = run_query("""
-        SELECT id_ihm FROM dbo.tb_ihm WHERE id_linha_producao = :lid
+    """Conta peças aprovadas nas máquinas terminais da linha desde dt_inicio.
+    Usa o delta do registrador 'produzido' (aprovadas) apenas das IHMs terminais
+    do roteiro, evitando a multiplicação de contagem em linhas multi-etapa."""
+    # Máquinas terminais do roteiro
+    df_term_l = run_query("""
+        SELECT DISTINCT r.id_ihm
+        FROM dbo.tb_peca_rota r
+        JOIN dbo.tb_peca p ON p.id_peca = r.id_peca
+        WHERE p.id_linha_producao = :lid
+          AND r.nu_ordem = (
+              SELECT MAX(r2.nu_ordem) FROM dbo.tb_peca_rota r2 WHERE r2.id_peca = r.id_peca
+          )
     """, {"lid": linha_id})
-    if df_maquinas.empty:
+    if df_term_l.empty:
+        df_term_l = run_query(
+            "SELECT id_ihm FROM dbo.tb_ihm WHERE id_linha_producao = :lid",
+            {"lid": linha_id}
+        )
+    if df_term_l.empty:
         return 0
     total = 0
-    for _, m in df_maquinas.iterrows():
+    for _, m in df_term_l.iterrows():
         df = run_query("""
             SELECT MIN(lr.nu_valor_bruto) AS val_inicio,
                    MAX(lr.nu_valor_bruto) AS val_fim
             FROM dbo.tb_log_registrador lr
             JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
             WHERE lr.id_ihm      = :id
-              AND r.tx_descricao = 'total_produzido'
+              AND r.tx_descricao = 'produzido'
               AND lr.dt_created_at >= :dt_inicio
         """, {"id": int(m["id_ihm"]), "dt_inicio": dt_inicio})
         if not df.empty and df.iloc[0]["val_inicio"] is not None:
