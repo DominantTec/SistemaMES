@@ -1046,15 +1046,20 @@ function TurnoTab({ selectedTurno, selectedLinhaId }) {
 
 function TurnoExcelBtn({ data, turno }) {
   const [exp, setExp] = useState(false);
+  const [err, setErr] = useState(null);
   async function go() {
-    setExp(true);
+    setExp(true); setErr(null);
     try { await gerarExcelTurno(data, turno); }
+    catch (e) { console.error('Erro ao gerar Excel do Turno:', e); setErr(e?.message || String(e)); }
     finally { setExp(false); }
   }
   return (
-    <button className="hi-buscar-btn hi-export-btn hi-export-btn--excel" onClick={go} disabled={exp}>
-      {exp ? <><Spinner size={14} /> Excel...</> : "📊 Excel do Turno"}
-    </button>
+    <>
+      <button className="hi-buscar-btn hi-export-btn hi-export-btn--excel" onClick={go} disabled={exp}>
+        {exp ? <><Spinner size={14} /> Excel...</> : "📊 Excel do Turno"}
+      </button>
+      {err && <span style={{color:'#dc2626',fontSize:'0.75rem',marginLeft:6}}>Erro: {err}</span>}
+    </>
   );
 }
 
@@ -1116,7 +1121,7 @@ function _categorizarMotivo(motivo) {
   if (m.includes('manuten') || m.includes('manutentor'))
     return { cat: 'Manutenção',   color: '#ef4444', argb: 'FFEF4444', bg: '#fef2f2', bgArgb: 'FFFEF2F2' };
   if (m.includes('limpeza') || m.includes('setup') || m.includes('troca'))
-    return { cat: 'Setup/Limpeza', color: '#f59e0b', argb: 'FFF59E0B', bg: '#fffbeb', bgArgb: 'FFFFBEB' };
+    return { cat: 'Setup/Limpeza', color: '#f59e0b', argb: 'FFF59E0B', bg: '#fffbeb', bgArgb: 'FFFFFBEB' };
   if (m.includes('aguardando') || m.includes('operador') || m.includes('material') || m.includes('insumo'))
     return { cat: 'Aguardando',   color: '#3b82f6', argb: 'FF3B82F6', bg: '#eff6ff', bgArgb: 'FFEFF6FF' };
   if (m === 'sem motivo' || m.startsWith('motivo 0'))
@@ -1832,8 +1837,8 @@ async function exportarExcel(fabricaData, funil, inicio, fim, turno) {
         p.motivo,
         c.cat,
         fmtMin(p.minutos),
-        p.percentual.toFixed(1) + '%',
-        p.acumulado.toFixed(1) + '%',
+        (p.percentual ?? 0).toFixed(1) + '%',
+        (p.acumulado ?? 0).toFixed(1) + '%',
       ]);
       row.getCell(1).font = { bold: pi === 0 };
       row.getCell(3).font = { color: { argb: c.argb } };
@@ -1865,16 +1870,21 @@ async function exportarExcel(fabricaData, funil, inicio, fim, turno) {
 
 function QuickExcelBtn({ fabricaData, funil, inicio, fim }) {
   const [exp, setExp] = useState(false);
+  const [err, setErr] = useState(null);
   async function go() {
-    setExp(true);
+    setExp(true); setErr(null);
     try { await exportarExcel(fabricaData, funil, inicio, fim); }
+    catch (e) { console.error('Erro ao gerar Excel:', e); setErr(e?.message || String(e)); }
     finally { setExp(false); }
   }
   return (
-    <button className="hi-buscar-btn hi-export-btn hi-export-btn--excel"
-      onClick={go} disabled={exp} title="Exportar planilha Excel (4 abas formatadas)">
-      {exp ? <><Spinner size={14} /> Excel...</> : "📊 Excel"}
-    </button>
+    <>
+      <button className="hi-buscar-btn hi-export-btn hi-export-btn--excel"
+        onClick={go} disabled={exp} title="Exportar planilha Excel (4 abas formatadas)">
+        {exp ? <><Spinner size={14} /> Excel...</> : "📊 Excel"}
+      </button>
+      {err && <span style={{color:'#dc2626',fontSize:'0.75rem',marginLeft:6}}>Erro: {err}</span>}
+    </>
   );
 }
 
@@ -1887,6 +1897,7 @@ function RelatorioTab({ fabricaData, funil, inicio, fim, onBuscar, loading }) {
     if (!fabricaData) return;
     setExporting(true);
     try { await exportarExcel(fabricaData, funil, inicio, fim); }
+    catch (e) { console.error('Erro ao gerar Excel:', e); alert('Erro ao gerar Excel:\n' + (e?.message || String(e))); }
     finally { setExporting(false); }
   }
 
