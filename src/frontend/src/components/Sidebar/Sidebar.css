@@ -1,11 +1,17 @@
 .sidebar{
+  position: fixed;
+  top: 0;
+  left: 0;
   width: 290px;
+  height: 100vh;
+  overflow-y: auto;
   background: var(--sidebar-bg);
   border-right: 1px solid var(--line);
   padding: 18px 16px;
   display: flex;
   flex-direction: column;
   gap: 14px;
+  z-index: 100;
 }
 
 .sb-header{

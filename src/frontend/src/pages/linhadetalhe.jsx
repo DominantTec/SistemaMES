@@ -232,13 +232,13 @@ function OpCard({ op }) {
 
 // ── MachineCard ───────────────────────────────────────────────────────────────
 
-function MachineCard({ machine, metrica }) {
+function MachineCard({ machine }) {
   const st = getStatus(machine.status);
   const isProduzindo = machine.status?.toLowerCase().includes("produz");
   const isParada = !isProduzindo;
 
   const oeeVal = machine.oee;
-  const oc = oeeColor(isProduzindo ? oeeVal : null);
+  const oc = oeeColor(oeeVal);
 
   return (
     <div className="ld-machine-card">
@@ -257,10 +257,10 @@ function MachineCard({ machine, metrica }) {
       {/* OEE + OP/Peça */}
       <div className="ld-mc-oee-row">
         <div>
-          <div className="ld-mc-oee-val" style={{ color: isParada ? "#d1d5db" : oc }}>
-            {isParada ? "0%" : `${oeeVal}%`}
+          <div className="ld-mc-oee-val" style={{ color: oc }}>
+            {oeeVal !== null && oeeVal !== undefined ? `${oeeVal}%` : "-"}
           </div>
-          <div className="ld-mc-oee-label">OEE ATUAL</div>
+          <div className="ld-mc-oee-label">OEE DO TURNO</div>
         </div>
 
         {machine.op && (
@@ -283,29 +283,15 @@ function MachineCard({ machine, metrica }) {
         )}
       </div>
 
-      {/* barras de métricas */}
-      {isProduzindo ? (
-        <div className="ld-mc-metrics">
-          {metrica === "OEE" && (
-            <>
-              <MetricRow label="Disponibilidade" value={machine.disponibilidade} />
-              <MetricRow label="Performance"     value={machine.performance} />
-            </>
-          )}
-          {metrica === "Disponibilidade" && (
-            <>
-              <MetricRow label="Disponibilidade" value={machine.disponibilidade} />
-              <MetricRow label="Qualidade"       value={machine.qualidade} />
-            </>
-          )}
-          {metrica === "Desempenho" && (
-            <>
-              <MetricRow label="Performance" value={machine.performance} />
-              <MetricRow label="Qualidade"   value={machine.qualidade} />
-            </>
-          )}
-        </div>
-      ) : (
+      {/* barras de métricas — sempre visíveis */}
+      <div className="ld-mc-metrics">
+        <MetricRow label="Disponibilidade" value={machine.disponibilidade} />
+        <MetricRow label="Performance"     value={machine.performance} />
+        <MetricRow label="Qualidade"       value={machine.qualidade} />
+      </div>
+
+      {/* contexto de parada (quando aplicável) */}
+      {isParada && (machine.parada_ha || machine.manutencao || machine.engenheiro) && (
         <div className="ld-mc-parada-info">
           {machine.parada_ha && (
             <div className="ld-mc-parada-item">
@@ -365,10 +351,9 @@ export default function LinhaDetalhe() {
   const { lineId } = useParams();
   const navigate   = useNavigate();
 
-  const [data,    setData]    = useState(null);
-  const [error,   setError]   = useState(null);
-  const [metrica, setMetrica] = useState("OEE");
-  const [filtro,  setFiltro]  = useState("Todas");
+  const [data,   setData]   = useState(null);
+  const [error,  setError]  = useState(null);
+  const [filtro, setFiltro] = useState("Todas");
 
   const wsRef = useRef(null);
 
@@ -592,18 +577,6 @@ export default function LinhaDetalhe() {
               ))}
             </div>
           </div>
-          <div className="ld-tab-group">
-            {["OEE", "Disponibilidade", "Desempenho"].map(m => (
-              <button
-                key={m}
-                type="button"
-                className={"ld-tab" + (metrica === m ? " active" : "")}
-                onClick={() => setMetrica(m)}
-              >
-                {m}
-              </button>
-            ))}
-          </div>
         </div>
 
         {maquinasFiltradas.length === 0 ? (
@@ -611,7 +584,7 @@ export default function LinhaDetalhe() {
         ) : (
           <div className="ld-machine-grid">
             {maquinasFiltradas.map(m => (
-              <MachineCard key={m.id} machine={m} metrica={metrica} />
+              <MachineCard key={m.id} machine={m} />
             ))}
           </div>
         )}

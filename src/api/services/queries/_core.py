@@ -2503,27 +2503,42 @@ def get_line_detail(line_id: int) -> dict:
     total_all = total_produzido + total_rejeitado
     qualidade_global = round(total_produzido / total_all * 100, 1) if total_all > 0 else None
 
-    # OPs ativas desta linha
+    # OPs ativas desta linha — usa tb_op_peca_producao para rastreamento em tempo real
     ops_ativas: list = []
     try:
         df_ops = run_query("""
-            SELECT id_ordem, nu_numero_op, tx_peca, nu_quantidade,
-                   nu_produzido, nu_refugo, tx_status, nu_prioridade
-            FROM dbo.tb_ordem_producao
-            WHERE id_linha_producao = :id
-              AND tx_status NOT IN ('concluida', 'cancelada')
-            ORDER BY nu_prioridade DESC, dt_criacao
+            SELECT o.id_ordem, o.nu_numero_op, o.tx_peca, o.nu_quantidade,
+                   o.nu_produzido, o.nu_refugo, o.tx_status, o.nu_prioridade,
+                   COALESCE(rt.nu_produzido_rt, 0) AS nu_produzido_rt,
+                   COALESCE(rt.nu_refugo_rt,   0) AS nu_refugo_rt
+            FROM dbo.tb_ordem_producao o
+            LEFT JOIN (
+                SELECT id_ordem,
+                    SUM(CASE WHEN nu_etapa_atual >= nu_etapas_total AND nu_etapa_erro IS NULL THEN 1 ELSE 0 END) AS nu_produzido_rt,
+                    SUM(CASE WHEN nu_etapa_erro  IS NOT NULL THEN 1 ELSE 0 END) AS nu_refugo_rt
+                FROM dbo.tb_op_peca_producao
+                GROUP BY id_ordem
+            ) rt ON rt.id_ordem = o.id_ordem
+            WHERE o.id_linha_producao = :id
+              AND o.tx_status NOT IN ('concluida', 'cancelada')
+            ORDER BY o.nu_prioridade DESC, o.dt_criacao
         """, {"id": line_id})
         for _, op in df_ops.iterrows():
-            qtd  = int(op["nu_quantidade"]) if not pd.isna(op["nu_quantidade"]) else 0
-            prod = int(op["nu_produzido"])  if not pd.isna(op["nu_produzido"])  else 0
+            qtd         = int(op["nu_quantidade"])   if not pd.isna(op["nu_quantidade"])   else 0
+            prod_rt     = int(op["nu_produzido_rt"]) if not pd.isna(op["nu_produzido_rt"]) else 0
+            prod_static = int(op["nu_produzido"])    if not pd.isna(op["nu_produzido"])    else 0
+            # Preferir contagem em tempo real; cair no valor estático se a tabela não tiver dados
+            prod   = prod_rt if prod_rt > 0 else prod_static
+            refugo_rt     = int(op["nu_refugo_rt"]) if not pd.isna(op["nu_refugo_rt"]) else 0
+            refugo_static = int(op["nu_refugo"])     if not pd.isna(op["nu_refugo"])     else 0
+            refugo = refugo_rt if refugo_rt > 0 else refugo_static
             ops_ativas.append({
                 "id":         int(op["id_ordem"]),
                 "numero":     op["nu_numero_op"],
                 "peca":       op["tx_peca"],
                 "quantidade": qtd,
                 "produzido":  prod,
-                "refugo":     int(op["nu_refugo"]) if not pd.isna(op["nu_refugo"]) else 0,
+                "refugo":     refugo,
                 "status":     op["tx_status"],
                 "progresso":  round(prod / qtd * 100, 1) if qtd > 0 else 0,
             })
