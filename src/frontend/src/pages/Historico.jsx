@@ -3,6 +3,7 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
   CartesianGrid, ComposedChart, Line, ReferenceLine, Cell,
 } from "recharts";
+import ExcelJS from "exceljs";
 
 import "./historico.css";
 
@@ -924,7 +925,7 @@ function TurnoTab({ selectedTurno, selectedLinhaId }) {
     const fab = {
       oee_global: data.oee,
       linhas: [{ ...data, nome: data.nome || "Linha", maquinas: data.maquinas || [],
-        realizado: data.total_produzido, meta_total: data.meta_turno }],
+        realizado: data.total_produzido, meta_total: selectedTurno.meta || 0 }],
     };
     exportarPDF(fab, null, di, df, selectedTurno);
   }
@@ -936,7 +937,7 @@ function TurnoTab({ selectedTurno, selectedLinhaId }) {
     const fab = {
       oee_global: data.oee,
       linhas: [{ ...data, nome: data.nome || "Linha", maquinas: data.maquinas || [],
-        realizado: data.total_produzido, meta_total: data.meta_turno }],
+        realizado: data.total_produzido, meta_total: selectedTurno.meta || 0 }],
     };
     await exportarExcel(fab, null, di, df, selectedTurno);
   }
@@ -1069,7 +1070,7 @@ async function gerarExcelTurno(data, turno) {
   const fab = {
     oee_global: data.oee,
     linhas: [{ ...data, nome: data.nome || "Linha", maquinas: data.maquinas || [],
-      realizado: data.total_produzido, meta_total: data.meta_turno }],
+      realizado: data.total_produzido, meta_total: turno.meta || 0 }],
   };
   await exportarExcel(fab, null, di, df, turno);
 }
@@ -1391,9 +1392,19 @@ function exportarPDF(fabricaData, funil, inicio, fim, turno) {
     <div style="flex:1">
       <h2>OEE Médio por Componente</h2>
       ${linhas.length > 0 ? (() => {
-        const avgDisp = linhas.reduce((s, l) => s + Number(l.disponibilidade || 0), 0) / linhas.length;
-        const avgPerf = linhas.reduce((s, l) => s + Number(l.performance || 0), 0) / linhas.length;
-        const avgQual = linhas.reduce((s, l) => s + Number(l.qualidade || 0), 0) / linhas.length;
+        // Usa campos de linha (adicionados pelo backend); se não existirem, calcula das máquinas
+        const _allMaq = linhas.flatMap(l => l.maquinas || []);
+        const _maqAvg = (key) => {
+          const vals = _allMaq.map(m => Number(m[key])).filter(v => !isNaN(v) && v > 0);
+          return vals.length > 0 ? vals.reduce((s, v) => s + v, 0) / vals.length : 0;
+        };
+        const _linhaAvg = (key) => {
+          const vals = linhas.map(l => Number(l[key])).filter(v => !isNaN(v) && v > 0);
+          return vals.length > 0 ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
+        };
+        const avgDisp = _linhaAvg('disponibilidade') ?? _maqAvg('disponibilidade');
+        const avgPerf = _linhaAvg('performance')     ?? _maqAvg('performance');
+        const avgQual = _linhaAvg('qualidade')       ?? _maqAvg('qualidade');
         return (
           '<div style="display:flex;gap:16px;margin-top:8px">' +
           '<div style="text-align:center">' + _pdfSVGGauge(avgDisp, 80) + '<div style="font-size:10px;color:#1d4ed8;font-weight:600">Disponib.</div></div>' +
@@ -1469,7 +1480,6 @@ function exportarPDF(fabricaData, funil, inicio, fim, turno) {
 }
 
 async function exportarExcel(fabricaData, funil, inicio, fim, turno) {
-  const { default: ExcelJS } = await import('exceljs');
   const wb = new ExcelJS.Workbook();
   wb.creator = 'PCP MES';
   wb.created = new Date();

@@ -1828,7 +1828,6 @@ def get_historico_data(data_inicio: datetime, data_fim: datetime) -> dict:
 
         maquinas        = []
         total_produzido = 0
-        total_meta      = 0
 
         for _, machine in df_machines.iterrows():
             machine_id = int(machine["id_ihm"])
@@ -1839,7 +1838,6 @@ def get_historico_data(data_inicio: datetime, data_fim: datetime) -> dict:
             meta      = metrics["meta"]      if isinstance(metrics["meta"],      (int, float)) else 0
             if machine_id in term_ids_h:
                 total_produzido += produzido
-            total_meta      += meta
 
             maquinas.append({
                 "id":              machine_id,
@@ -1853,8 +1851,6 @@ def get_historico_data(data_inicio: datetime, data_fim: datetime) -> dict:
                 "meta":            meta,
                 "pareto_paradas":  pareto_maq,
             })
-
-        realizado_pct = int(100 * total_produzido / total_meta) if total_meta else 0
 
         # Pareto consolidado da linha (agrega os paretos de cada máquina)
         parada_agg: dict = {}
@@ -1898,12 +1894,31 @@ def get_historico_data(data_inicio: datetime, data_fim: datetime) -> dict:
                 "conclusao":  round(100 * prod / qtd) if qtd > 0 else 0,
             })
 
+        # Meta = soma das quantidades das OPs (não soma de metas por máquina,
+        # pois a mesma peça passa por várias máquinas e duplicaria o valor)
+        total_meta = sum(o["quantidade"] for o in ordens_l) if ordens_l else 0
+        realizado_pct = int(100 * total_produzido / total_meta) if total_meta else 0
+
+        # OEE e componentes médios da linha (média das máquinas)
+        oee_vals  = [m["oee"]             for m in maquinas if isinstance(m.get("oee"),             (int, float))]
+        disp_vals = [m["disponibilidade"] for m in maquinas if isinstance(m.get("disponibilidade"), (int, float))]
+        perf_vals = [m["performance"]     for m in maquinas if isinstance(m.get("performance"),     (int, float))]
+        qual_vals = [m["qualidade"]       for m in maquinas if isinstance(m.get("qualidade"),       (int, float))]
+        oee_linha  = round(sum(oee_vals)  / len(oee_vals),  1) if oee_vals  else None
+        disp_linha = round(sum(disp_vals) / len(disp_vals), 1) if disp_vals else None
+        perf_linha = round(sum(perf_vals) / len(perf_vals), 1) if perf_vals else None
+        qual_linha = round(sum(qual_vals) / len(qual_vals), 1) if qual_vals else None
+
         linhas.append({
             "id":              line_id,
             "nome":            linha["tx_name"],
             "realizado":       total_produzido,
             "meta_total":      total_meta,
             "realizado_pct":   realizado_pct,
+            "oee":             oee_linha,
+            "disponibilidade": disp_linha,
+            "performance":     perf_linha,
+            "qualidade":       qual_linha,
             "maquinas":        maquinas,
             "pareto_paradas":  pareto_linha,
             "ordens":          ordens_l,
@@ -2451,10 +2466,74 @@ def get_line_detail(line_id: int) -> dict:
         for nome, cor in list(operadores_vistos.items())[:5]
     ]
 
+    # Distribuição de status
+    status_dist = {"produzindo": 0, "alerta": 0, "parada": 0, "manutencao": 0, "limpeza": 0}
+    for m in maquinas:
+        s = (m["status"] or "").lower()
+        if "produz" in s:
+            status_dist["produzindo"] += 1
+        elif "alerta" in s or "aguardando" in s:
+            status_dist["alerta"] += 1
+        elif "manuten" in s:
+            status_dist["manutencao"] += 1
+        elif "limpeza" in s:
+            status_dist["limpeza"] += 1
+        elif s and s != "-":
+            status_dist["parada"] += 1
+
+    # Status geral dinâmico
+    n_criticos = status_dist["parada"] + status_dist["manutencao"] + status_dist["alerta"]
+    n_total = len(maquinas)
+    if n_total == 0:
+        status_geral = "Sem máquinas"
+    elif n_criticos == 0:
+        status_geral = "Operação Normal"
+    elif n_criticos == 1:
+        status_geral = "1 máquina requer atenção"
+    elif n_criticos <= n_total // 2:
+        status_geral = f"{n_criticos} máquinas requerem atenção"
+    else:
+        status_geral = "Atenção — múltiplas paradas"
+
+    # Qualidade global (% de peças boas)
+    total_rejeitado = sum(
+        m["rejeitos"] for m in maquinas
+        if isinstance(m["rejeitos"], (int, float))
+    )
+    total_all = total_produzido + total_rejeitado
+    qualidade_global = round(total_produzido / total_all * 100, 1) if total_all > 0 else None
+
+    # OPs ativas desta linha
+    ops_ativas: list = []
+    try:
+        df_ops = run_query("""
+            SELECT id_ordem, nu_numero_op, tx_peca, nu_quantidade,
+                   nu_produzido, nu_refugo, tx_status, nu_prioridade
+            FROM dbo.tb_ordem_producao
+            WHERE id_linha_producao = :id
+              AND tx_status NOT IN ('concluida', 'cancelada')
+            ORDER BY nu_prioridade DESC, dt_criacao
+        """, {"id": line_id})
+        for _, op in df_ops.iterrows():
+            qtd  = int(op["nu_quantidade"]) if not pd.isna(op["nu_quantidade"]) else 0
+            prod = int(op["nu_produzido"])  if not pd.isna(op["nu_produzido"])  else 0
+            ops_ativas.append({
+                "id":         int(op["id_ordem"]),
+                "numero":     op["nu_numero_op"],
+                "peca":       op["tx_peca"],
+                "quantidade": qtd,
+                "produzido":  prod,
+                "refugo":     int(op["nu_refugo"]) if not pd.isna(op["nu_refugo"]) else 0,
+                "status":     op["tx_status"],
+                "progresso":  round(prod / qtd * 100, 1) if qtd > 0 else 0,
+            })
+    except Exception:
+        pass
+
     return {
         "id":                 line_id,
         "nome":               nome_linha,
-        "status_geral":       "Operação Normal",
+        "status_geral":       status_geral,
         "ultima_atualizacao": datetime.now().strftime("%H:%M:%S"),
         "kpis": {
             "oee_global":       oee_global,
@@ -2464,11 +2543,14 @@ def get_line_detail(line_id: int) -> dict:
             "previsao_termino": None,
             "maquinas_ativas":  maquinas_ativas,
             "maquinas_total":   len(maquinas),
+            "qualidade_global": qualidade_global,
+            "status_dist":      status_dist,
             "equipe":           equipe,
             "equipe_extras":    max(0, len(operadores_vistos) - 5),
             "supervisor":       None,
         },
-        "maquinas": maquinas,
+        "ops_ativas": ops_ativas,
+        "maquinas":   maquinas,
     }
 
 # =========================

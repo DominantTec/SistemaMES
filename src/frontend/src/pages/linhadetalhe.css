@@ -31,6 +31,12 @@
   padding: 20px; color: #dc2626;
   background: #fee2e2; border-radius: 10px; font-size: 13px;
 }
+.ld-empty {
+  padding: 32px; text-align: center;
+  color: var(--muted); font-size: 14px;
+  background: #fff; border: 1px solid var(--line);
+  border-radius: 14px;
+}
 
 /* ── Page header ───────────────────────────────────────────── */
 .ld-page-header {
@@ -56,8 +62,8 @@
 .ld-status-dot {
   width: 8px; height: 8px;
   border-radius: 50%;
-  background: #22c55e;
   display: inline-block;
+  flex-shrink: 0;
 }
 .ld-sep { opacity: 0.4; }
 
@@ -77,7 +83,6 @@
   cursor: pointer; color: var(--text);
 }
 .ld-btn-secondary:hover { background: #f9fafb; }
-
 .ld-btn-primary {
   padding: 8px 18px;
   background: var(--text);
@@ -95,7 +100,6 @@
   grid-template-columns: repeat(4, 1fr);
   gap: 14px;
 }
-
 .ld-kpi-card {
   background: #fff;
   border: 1px solid var(--line);
@@ -123,9 +127,9 @@
   background: #f0fdf4;
 }
 .ld-kpi-mini-bar {
-  height: 4px; background: #f3f4f6; border-radius: 999px; overflow: hidden;
+  height: 5px; background: #f3f4f6; border-radius: 999px; overflow: hidden;
 }
-.ld-kpi-mini-bar div { height: 100%; border-radius: 999px; transition: width 0.4s; }
+.ld-kpi-mini-bar div { height: 100%; border-radius: 999px; transition: width 0.5s; }
 
 /* Produção card */
 .ld-kpi-prod { display: flex; align-items: baseline; gap: 8px; }
@@ -141,12 +145,6 @@
 .ld-kpi-maq-total { font-size: 28px; font-weight: 300; color: var(--muted); }
 .ld-kpi-maq-label { font-size: 12px; color: var(--muted); }
 
-/* Equipe card */
-.ld-kpi-equipe { display: flex; align-items: center; }
-.ld-avatar-stack { display: flex; }
-.ld-avatar-stack .ld-avatar + .ld-avatar { margin-left: -8px; }
-.ld-kpi-supervisor { font-size: 12px; color: var(--muted); }
-
 /* Avatar */
 .ld-avatar {
   border-radius: 50%;
@@ -158,25 +156,146 @@
   flex-shrink: 0;
   font-size: 11px;
 }
-.ld-avatar-extra {
-  background: #e5e7eb;
-  color: var(--text);
-  font-size: 11px;
+
+/* ── Cards genéricos ───────────────────────────────────────── */
+.ld-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
+.ld-card-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* ── Visão geral row ───────────────────────────────────────── */
+.ld-overview-row {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 14px;
+}
+
+/* Chart card */
+.ld-chart-card { min-height: 220px; }
+.ld-chart-legend {
+  display: flex;
+  gap: 14px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.ld-chart-tooltip {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+.ld-chart-tooltip-name { font-weight: 700; margin-bottom: 4px; }
+.ld-chart-tooltip-status { color: var(--muted); font-size: 11px; margin-top: 2px; }
+
+/* Status distribution card */
+.ld-dist-card { gap: 14px; }
+.ld-dist-total { font-size: 12px; color: var(--muted); }
+.ld-status-dist { display: flex; flex-direction: column; gap: 10px; }
+.ld-sd-row { display: flex; flex-direction: column; gap: 4px; }
+.ld-sd-label-group { display: flex; align-items: center; gap: 6px; }
+.ld-sd-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.ld-sd-label { font-size: 12px; font-weight: 600; color: var(--text); }
+.ld-sd-bar-group { display: flex; align-items: center; gap: 8px; }
+.ld-sd-bar-track {
+  flex: 1; height: 8px;
+  background: #f3f4f6; border-radius: 999px; overflow: hidden;
+}
+.ld-sd-bar-fill { height: 100%; border-radius: 999px; transition: width 0.5s; }
+.ld-sd-count { font-size: 12px; font-weight: 800; width: 20px; text-align: right; flex-shrink: 0; }
+
+/* ── Section headers ───────────────────────────────────────── */
+.ld-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ld-section-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+/* ── OPs section ───────────────────────────────────────────── */
+.ld-ops-section { display: flex; flex-direction: column; gap: 12px; }
+.ld-ops-count {
+  font-size: 12px;
+  font-weight: 700;
+  color: #2563eb;
+  background: #dbeafe;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+.ld-ops-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+.ld-op-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: box-shadow 0.15s;
+}
+.ld-op-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.07); }
+.ld-op-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.ld-op-numero { font-size: 15px; font-weight: 800; }
+.ld-op-peca { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.ld-op-badge {
+  font-size: 11px; font-weight: 700;
+  padding: 3px 9px; border-radius: 999px;
+  white-space: nowrap; flex-shrink: 0;
+}
+.ld-op-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ld-op-bar-track {
+  flex: 1; height: 8px;
+  background: #f3f4f6; border-radius: 999px; overflow: hidden;
+}
+.ld-op-bar-fill { height: 100%; border-radius: 999px; transition: width 0.4s; }
+.ld-op-pct { font-size: 12px; font-weight: 800; width: 34px; text-align: right; flex-shrink: 0; }
+.ld-op-footer {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+}
+.ld-op-refugo { color: #dc2626; font-weight: 600; }
 
 /* ── Machines section ──────────────────────────────────────── */
 .ld-machines-section { display: flex; flex-direction: column; gap: 14px; }
-
 .ld-machines-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
-.ld-machines-title {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 700;
+.ld-machines-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
+.ld-machines-title { margin: 0; font-size: 16px; font-weight: 700; }
 
 .ld-tab-group {
   display: flex;
@@ -239,7 +358,6 @@
   min-width: 0;
 }
 .ld-mc-tipo { font-size: 12px; color: var(--muted); margin-top: 2px; }
-
 .ld-mc-badge {
   display: flex;
   align-items: center;
@@ -283,27 +401,16 @@
   color: var(--muted);
   margin-top: 4px;
 }
-.ld-mc-op-block {
-  text-align: right;
-  min-width: 0;
-  overflow: hidden;
-}
+.ld-mc-op-block { text-align: right; min-width: 0; overflow: hidden; }
 .ld-mc-op { font-size: 12px; color: var(--muted); }
 .ld-mc-peca {
-  font-size: 13px;
-  font-weight: 700;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: 13px; font-weight: 700;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-
 .ld-mc-motivo {
-  font-size: 12px;
-  font-weight: 700;
-  padding: 6px 10px;
-  border-radius: 8px;
-  text-align: center;
-  align-self: center;
+  font-size: 12px; font-weight: 700;
+  padding: 6px 10px; border-radius: 8px;
+  text-align: center; align-self: center;
 }
 
 /* Metrics */
@@ -315,7 +422,11 @@
   background: #f3f4f6; border-radius: 999px; overflow: hidden;
 }
 .ld-bar-fill { height: 100%; border-radius: 999px; transition: width 0.4s; }
-.ld-metric-val { font-size: 12px; font-weight: 700; width: 52px; text-align: right; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.ld-metric-val {
+  font-size: 12px; font-weight: 700;
+  width: 52px; text-align: right; flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
 
 /* Parada info */
 .ld-mc-parada-info {
@@ -324,6 +435,7 @@
   padding: 10px 0;
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
 }
 .ld-mc-parada-item { display: flex; flex-direction: column; gap: 3px; }
 .ld-mc-parada-label { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; color: var(--muted); }
@@ -339,14 +451,13 @@
   flex-wrap: nowrap;
   overflow: hidden;
   min-height: 42px;
+  margin-top: auto;
 }
 .ld-mc-foot-item { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
 .ld-mc-foot-label { font-size: 10px; font-weight: 700; letter-spacing: 0.05em; color: var(--muted); }
 .ld-mc-foot-val {
-  font-size: 13px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  font-size: 13px; font-weight: 700;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 .ld-mc-operador { flex-direction: row; align-items: center; gap: 6px; margin-left: auto; }
 

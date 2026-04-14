@@ -1,15 +1,21 @@
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
+import {
+  BarChart, Bar, XAxis, YAxis, Cell, Tooltip,
+  ResponsiveContainer, ReferenceLine,
+} from "recharts";
 import "./linhadetalhe.css";
 
 const DEFAULT_API = `http://${window.location.hostname}:8000`;
 const API_BASE = import.meta.env.VITE_API_BASE || DEFAULT_API;
 const WS_BASE  = API_BASE.replace(/^http/, "ws");
 
-// ── helpers de status ────────────────────────────────────────────────────────
+// ── helpers ──────────────────────────────────────────────────────────────────
+
 const STATUS_MAP = {
   produzindo:   { label: "PRODUZINDO",  color: "#16a34a", bg: "#dcfce7", dot: "#16a34a" },
   alerta:       { label: "ALERTA",      color: "#d97706", bg: "#fef3c7", dot: "#d97706" },
+  aguardando:   { label: "AGUARDANDO",  color: "#d97706", bg: "#fef3c7", dot: "#d97706" },
   parada:       { label: "PARADA",      color: "#dc2626", bg: "#fee2e2", dot: "#dc2626" },
   "manutenção": { label: "MANUTENÇÃO",  color: "#6b7280", bg: "#f3f4f6", dot: "#6b7280" },
   limpeza:      { label: "LIMPEZA",     color: "#2563eb", bg: "#dbeafe", dot: "#2563eb" },
@@ -26,10 +32,16 @@ function getStatus(raw) {
 
 function oeeColor(val) {
   const n = Number(val);
-  if (isNaN(n) || val === null) return "#d1d5db";
+  if (isNaN(n) || val === null || val === undefined) return "#d1d5db";
   if (n >= 75) return "#16a34a";
   if (n >= 50) return "#d97706";
   return "#dc2626";
+}
+
+function statusGeralColor(s) {
+  if (!s || s === "Operação Normal") return "#22c55e";
+  if (s.startsWith("Atenção")) return "#dc2626";
+  return "#f59e0b";
 }
 
 function fmt(v, suffix = "") {
@@ -37,7 +49,14 @@ function fmt(v, suffix = "") {
   return `${v}${suffix}`;
 }
 
-// ── sub-componentes ──────────────────────────────────────────────────────────
+const STATUS_ORDER = ["produzindo", "limpeza", "alerta", "aguardando", "manutenção", "parada"];
+function statusRank(s) {
+  const k = (s || "").toLowerCase();
+  const i = STATUS_ORDER.findIndex(o => k.includes(o));
+  return i === -1 ? 10 : i;
+}
+
+// ── componentes base ──────────────────────────────────────────────────────────
 
 function KpiCard({ label, children, accent }) {
   return (
@@ -82,6 +101,137 @@ function Avatar({ iniciais, cor, size = 32 }) {
   );
 }
 
+// ── OEE Chart ─────────────────────────────────────────────────────────────────
+
+function OeeChart({ maquinas }) {
+  const data = [...maquinas]
+    .sort((a, b) => (b.oee || 0) - (a.oee || 0))
+    .map(m => ({
+      nome: m.nome.length > 14 ? m.nome.slice(0, 13) + "…" : m.nome,
+      oee:  Number(m.oee) || 0,
+      status: m.status,
+    }));
+
+  const CustomTooltip = ({ active, payload }) => {
+    if (!active || !payload?.length) return null;
+    const d = payload[0].payload;
+    return (
+      <div className="ld-chart-tooltip">
+        <div className="ld-chart-tooltip-name">{d.nome}</div>
+        <div style={{ color: oeeColor(d.oee), fontWeight: 700, fontSize: 15 }}>{d.oee}%</div>
+        <div className="ld-chart-tooltip-status">{d.status}</div>
+      </div>
+    );
+  };
+
+  return (
+    <ResponsiveContainer width="100%" height={Math.max(180, data.length * 34)}>
+      <BarChart layout="vertical" data={data} margin={{ top: 4, right: 40, left: 0, bottom: 4 }}>
+        <XAxis
+          type="number"
+          domain={[0, 100]}
+          tick={{ fontSize: 11, fill: "#9ca3af" }}
+          tickFormatter={v => `${v}%`}
+          axisLine={false}
+          tickLine={false}
+        />
+        <YAxis
+          type="category"
+          dataKey="nome"
+          width={110}
+          tick={{ fontSize: 12, fill: "#374151" }}
+          axisLine={false}
+          tickLine={false}
+        />
+        <Tooltip content={<CustomTooltip />} cursor={{ fill: "#f9fafb" }} />
+        <ReferenceLine x={75} stroke="#16a34a" strokeDasharray="4 3" strokeWidth={1.5} label={{ value: "75%", position: "top", fontSize: 10, fill: "#16a34a" }} />
+        <ReferenceLine x={50} stroke="#d97706" strokeDasharray="4 3" strokeWidth={1.5} label={{ value: "50%", position: "top", fontSize: 10, fill: "#d97706" }} />
+        <Bar dataKey="oee" radius={[0, 6, 6, 0]} maxBarSize={22}>
+          {data.map((entry, i) => (
+            <Cell key={i} fill={oeeColor(entry.oee)} />
+          ))}
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ── Status Distribution ───────────────────────────────────────────────────────
+
+const STATUS_DIST_ITEMS = [
+  { key: "produzindo", label: "Produzindo",  color: "#16a34a", bg: "#dcfce7" },
+  { key: "alerta",     label: "Alerta",      color: "#d97706", bg: "#fef3c7" },
+  { key: "parada",     label: "Parada",      color: "#dc2626", bg: "#fee2e2" },
+  { key: "manutencao", label: "Manutenção",  color: "#6b7280", bg: "#f3f4f6" },
+  { key: "limpeza",    label: "Limpeza",     color: "#2563eb", bg: "#dbeafe" },
+];
+
+function StatusDist({ dist, total }) {
+  return (
+    <div className="ld-status-dist">
+      {STATUS_DIST_ITEMS.filter(item => dist[item.key] > 0 || item.key === "produzindo").map(item => {
+        const count = dist[item.key] || 0;
+        const pct   = total > 0 ? (count / total) * 100 : 0;
+        return (
+          <div key={item.key} className="ld-sd-row">
+            <div className="ld-sd-label-group">
+              <span className="ld-sd-dot" style={{ background: item.color }} />
+              <span className="ld-sd-label">{item.label}</span>
+            </div>
+            <div className="ld-sd-bar-group">
+              <div className="ld-sd-bar-track">
+                <div
+                  className="ld-sd-bar-fill"
+                  style={{ width: `${pct}%`, background: item.color }}
+                />
+              </div>
+              <span className="ld-sd-count" style={{ color: item.color }}>{count}</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── OP Card ───────────────────────────────────────────────────────────────────
+
+const OP_STATUS_LABELS = {
+  em_andamento: { label: "Em andamento", color: "#16a34a", bg: "#dcfce7" },
+  fila:         { label: "Na fila",      color: "#2563eb", bg: "#dbeafe" },
+};
+
+function OpCard({ op }) {
+  const st = OP_STATUS_LABELS[op.status] || { label: op.status, color: "#6b7280", bg: "#f3f4f6" };
+  const pct = Math.min(op.progresso, 100);
+  const barColor = pct >= 100 ? "#16a34a" : pct >= 60 ? "#d97706" : "#2563eb";
+  return (
+    <div className="ld-op-card">
+      <div className="ld-op-header">
+        <div>
+          <div className="ld-op-numero">{op.numero}</div>
+          <div className="ld-op-peca">{op.peca}</div>
+        </div>
+        <span className="ld-op-badge" style={{ color: st.color, background: st.bg }}>{st.label}</span>
+      </div>
+      <div className="ld-op-progress-row">
+        <div className="ld-op-bar-track">
+          <div className="ld-op-bar-fill" style={{ width: `${pct}%`, background: barColor }} />
+        </div>
+        <span className="ld-op-pct" style={{ color: barColor }}>{pct.toFixed(0)}%</span>
+      </div>
+      <div className="ld-op-footer">
+        <span>{op.produzido.toLocaleString("pt-BR")} / {op.quantidade.toLocaleString("pt-BR")} un</span>
+        {op.refugo > 0 && (
+          <span className="ld-op-refugo">{op.refugo} refugo{op.refugo > 1 ? "s" : ""}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── MachineCard ───────────────────────────────────────────────────────────────
+
 function MachineCard({ machine, metrica }) {
   const st = getStatus(machine.status);
   const isProduzindo = machine.status?.toLowerCase().includes("produz");
@@ -120,11 +270,14 @@ function MachineCard({ machine, metrica }) {
           </div>
         )}
 
+        {!machine.op && machine.peca && (
+          <div className="ld-mc-op-block">
+            <div className="ld-mc-peca">{machine.peca}</div>
+          </div>
+        )}
+
         {isParada && machine.motivo_parada && (
-          <div
-            className="ld-mc-motivo"
-            style={{ color: st.color, background: st.bg }}
-          >
+          <div className="ld-mc-motivo" style={{ color: st.color, background: st.bg }}>
             {machine.motivo_parada}
           </div>
         )}
@@ -153,7 +306,6 @@ function MachineCard({ machine, metrica }) {
           )}
         </div>
       ) : (
-        /* máquina parada — mostra info de parada */
         <div className="ld-mc-parada-info">
           {machine.parada_ha && (
             <div className="ld-mc-parada-item">
@@ -167,10 +319,10 @@ function MachineCard({ machine, metrica }) {
               <span className="ld-mc-parada-val">{machine.manutencao}</span>
             </div>
           )}
-          {machine.status_parada && (
+          {machine.engenheiro && (
             <div className="ld-mc-parada-item">
-              <span className="ld-mc-parada-label">STATUS</span>
-              <span className="ld-mc-parada-val">{machine.status_parada}</span>
+              <span className="ld-mc-parada-label">ENGENHEIRO</span>
+              <span className="ld-mc-parada-val">{machine.engenheiro}</span>
             </div>
           )}
         </div>
@@ -205,13 +357,18 @@ function MachineCard({ machine, metrica }) {
   );
 }
 
-// ── página principal ─────────────────────────────────────────────────────────
+// ── Página principal ──────────────────────────────────────────────────────────
+
+const FILTROS_MAQUINA = ["Todas", "Produzindo", "Paradas"];
 
 export default function LinhaDetalhe() {
   const { lineId } = useParams();
-  const [data, setData]       = useState(null);
-  const [error, setError]     = useState(null);
+  const navigate   = useNavigate();
+
+  const [data,    setData]    = useState(null);
+  const [error,   setError]   = useState(null);
   const [metrica, setMetrica] = useState("OEE");
+  const [filtro,  setFiltro]  = useState("Todas");
 
   const wsRef = useRef(null);
 
@@ -251,100 +408,192 @@ export default function LinhaDetalhe() {
   }, [lineId]);
 
   if (error) return <div className="ld-error">Erro: {error}</div>;
-  if (!data) return <div className="ld-loading"><div className="ld-spinner" />Carregando...</div>;
+  if (!data)  return <div className="ld-loading"><div className="ld-spinner" />Carregando...</div>;
 
   const { kpis } = data;
   const oeeC = oeeColor(kpis.oee_global);
+  const sgColor = statusGeralColor(data.status_geral);
+
+  // filtro de máquinas
+  const maquinasFiltradas = [...data.maquinas]
+    .sort((a, b) => statusRank(a.status) - statusRank(b.status))
+    .filter(m => {
+      if (filtro === "Produzindo") return m.status?.toLowerCase().includes("produz");
+      if (filtro === "Paradas")   return !m.status?.toLowerCase().includes("produz");
+      return true;
+    });
+
+  const prodMeta    = kpis.producao_meta || 0;
+  const prodPct     = prodMeta > 0 ? Math.min((kpis.producao_hoje / prodMeta) * 100, 100) : 0;
+  const prodBarColor = prodPct >= 90 ? "#16a34a" : prodPct >= 60 ? "#d97706" : "#dc2626";
+
+  const totalMaq = kpis.maquinas_total || 0;
+  const dist     = kpis.status_dist || {};
 
   return (
     <div className="ld-root">
 
-      {/* ── Cabeçalho da página ──────────────────────────── */}
+      {/* ── Cabeçalho ───────────────────────────────────────── */}
       <div className="ld-page-header">
         <div className="ld-page-header-left">
-          <h1 className="ld-page-title">Monitoramento {data.nome}</h1>
+          <h1 className="ld-page-title">{data.nome}</h1>
           <div className="ld-page-sub">
-            <span className="ld-status-dot" />
+            <span className="ld-status-dot" style={{ background: sgColor }} />
             <span>{data.status_geral}</span>
             <span className="ld-sep">•</span>
-            <span>Última atualização: {data.ultima_atualizacao}</span>
+            <span>Atualizado às {data.ultima_atualizacao}</span>
           </div>
         </div>
         <div className="ld-page-header-right">
-          <button className="ld-btn-secondary" type="button">
-            <span>↓</span> Exportar Dados
+          <button className="ld-btn-secondary" type="button" onClick={() => navigate("/historico")}>
+            Histórico
           </button>
-          <button className="ld-btn-primary" type="button">
-            + Nova Ordem
+          <button className="ld-btn-primary" type="button" onClick={() => navigate("/ordens")}>
+            Ver Ordens
           </button>
         </div>
       </div>
 
-      {/* ── KPI cards ────────────────────────────────────── */}
+      {/* ── KPI cards ────────────────────────────────────────── */}
       <div className="ld-kpi-grid">
+
+        {/* OEE Global */}
         <KpiCard label="OEE Global da Linha" accent={oeeC}>
           <div className="ld-kpi-oee">
             <span className="ld-kpi-oee-val" style={{ color: oeeC }}>{kpis.oee_global}%</span>
-            <span
-              className="ld-kpi-oee-var"
-              style={{ color: kpis.oee_variacao >= 0 ? "#16a34a" : "#dc2626" }}
-            >
-              {kpis.oee_variacao >= 0 ? "+" : ""}{kpis.oee_variacao}%
-            </span>
+            {kpis.oee_variacao != null && (
+              <span
+                className="ld-kpi-oee-var"
+                style={{ color: kpis.oee_variacao >= 0 ? "#16a34a" : "#dc2626" }}
+              >
+                {kpis.oee_variacao >= 0 ? "+" : ""}{kpis.oee_variacao}%
+              </span>
+            )}
           </div>
           <div className="ld-kpi-mini-bar">
             <div style={{ width: `${kpis.oee_global}%`, background: oeeC }} />
           </div>
         </KpiCard>
 
+        {/* Produção */}
         <KpiCard label="Produção Hoje (Un)">
           <div className="ld-kpi-prod">
             <span className="ld-kpi-prod-val">
               {kpis.producao_hoje.toLocaleString("pt-BR")}
             </span>
-            <span className="ld-kpi-prod-meta">
-              / {kpis.producao_meta.toLocaleString("pt-BR")} Meta
-            </span>
+            {prodMeta > 0 && (
+              <span className="ld-kpi-prod-meta">
+                / {prodMeta.toLocaleString("pt-BR")} meta
+              </span>
+            )}
           </div>
-          <div className="ld-kpi-previsao">
-            Previsão de término: <strong>{kpis.previsao_termino}</strong>
-          </div>
+          {prodMeta > 0 && (
+            <>
+              <div className="ld-kpi-mini-bar">
+                <div style={{ width: `${prodPct}%`, background: prodBarColor }} />
+              </div>
+              <div className="ld-kpi-previsao">
+                <span style={{ color: prodBarColor, fontWeight: 700 }}>{prodPct.toFixed(0)}%</span>
+                {" "}da meta
+                {kpis.previsao_termino && (
+                  <> · Previsão: <strong>{kpis.previsao_termino}</strong></>
+                )}
+              </div>
+            </>
+          )}
         </KpiCard>
 
+        {/* Máquinas */}
         <KpiCard label="Máquinas Ativas">
           <div className="ld-kpi-maq">
             <span className="ld-kpi-maq-val">{kpis.maquinas_ativas}</span>
             <span className="ld-kpi-maq-sep">/</span>
-            <span className="ld-kpi-maq-total">{kpis.maquinas_total}</span>
+            <span className="ld-kpi-maq-total">{totalMaq}</span>
           </div>
           <div className="ld-kpi-maq-label">
-            {kpis.maquinas_total - kpis.maquinas_ativas} em parada ou manutenção
+            {totalMaq - kpis.maquinas_ativas > 0
+              ? `${totalMaq - kpis.maquinas_ativas} em parada ou manutenção`
+              : "Todas em operação"}
           </div>
         </KpiCard>
 
-        <KpiCard label="Equipe no Turno">
-          <div className="ld-kpi-equipe">
-            <div className="ld-avatar-stack">
-              {kpis.equipe.map((m, i) => (
-                <Avatar key={i} iniciais={m.iniciais} cor={m.cor} size={34} />
-              ))}
-              {kpis.equipe_extras > 0 && (
-                <div className="ld-avatar ld-avatar-extra" style={{ width: 34, height: 34 }}>
-                  +{kpis.equipe_extras}
-                </div>
-              )}
-            </div>
-          </div>
-          <div className="ld-kpi-supervisor">Supervisor: {kpis.supervisor}</div>
+        {/* Qualidade */}
+        <KpiCard label="Qualidade Global" accent={oeeColor(kpis.qualidade_global)}>
+          {kpis.qualidade_global != null ? (
+            <>
+              <div className="ld-kpi-oee">
+                <span className="ld-kpi-oee-val" style={{ color: oeeColor(kpis.qualidade_global) }}>
+                  {kpis.qualidade_global}%
+                </span>
+              </div>
+              <div className="ld-kpi-mini-bar">
+                <div style={{ width: `${kpis.qualidade_global}%`, background: oeeColor(kpis.qualidade_global) }} />
+              </div>
+              <div className="ld-kpi-previsao">peças aprovadas no turno</div>
+            </>
+          ) : (
+            <div className="ld-kpi-maq-label">Sem produção registrada</div>
+          )}
         </KpiCard>
+
       </div>
 
-      {/* ── Grid de máquinas ─────────────────────────────── */}
+      {/* ── Visão geral: gráfico OEE + distribuição ──────────── */}
+      <div className="ld-overview-row">
+
+        {/* OEE por máquina */}
+        <div className="ld-card ld-chart-card">
+          <div className="ld-card-title">OEE por Máquina</div>
+          <div className="ld-chart-legend">
+            <span style={{ color: "#16a34a" }}>● ≥ 75%</span>
+            <span style={{ color: "#d97706" }}>● ≥ 50%</span>
+            <span style={{ color: "#dc2626" }}>● &lt; 50%</span>
+          </div>
+          <OeeChart maquinas={data.maquinas} />
+        </div>
+
+        {/* Distribuição de status */}
+        <div className="ld-card ld-dist-card">
+          <div className="ld-card-title">Status das Máquinas</div>
+          <div className="ld-dist-total">{totalMaq} máquinas no total</div>
+          <StatusDist dist={dist} total={totalMaq} />
+        </div>
+
+      </div>
+
+      {/* ── OPs Ativas ───────────────────────────────────────── */}
+      {data.ops_ativas && data.ops_ativas.length > 0 && (
+        <div className="ld-ops-section">
+          <div className="ld-section-header">
+            <h2 className="ld-section-title">Ordens de Produção Ativas</h2>
+            <span className="ld-ops-count">{data.ops_ativas.length} OP{data.ops_ativas.length > 1 ? "s" : ""}</span>
+          </div>
+          <div className="ld-ops-grid">
+            {data.ops_ativas.map(op => <OpCard key={op.id} op={op} />)}
+          </div>
+        </div>
+      )}
+
+      {/* ── Grid de máquinas ─────────────────────────────────── */}
       <div className="ld-machines-section">
         <div className="ld-machines-header">
-          <h2 className="ld-machines-title">Status das Máquinas</h2>
+          <div className="ld-machines-header-left">
+            <h2 className="ld-machines-title">Máquinas</h2>
+            <div className="ld-tab-group">
+              {FILTROS_MAQUINA.map(f => (
+                <button
+                  key={f}
+                  type="button"
+                  className={"ld-tab" + (filtro === f ? " active" : "")}
+                  onClick={() => setFiltro(f)}
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="ld-tab-group">
-            {["OEE", "Disponibilidade", "Desempenho"].map((m) => (
+            {["OEE", "Disponibilidade", "Desempenho"].map(m => (
               <button
                 key={m}
                 type="button"
@@ -357,12 +606,17 @@ export default function LinhaDetalhe() {
           </div>
         </div>
 
-        <div className="ld-machine-grid">
-          {data.maquinas.map((m) => (
-            <MachineCard key={m.id} machine={m} metrica={metrica} />
-          ))}
-        </div>
+        {maquinasFiltradas.length === 0 ? (
+          <div className="ld-empty">Nenhuma máquina neste filtro.</div>
+        ) : (
+          <div className="ld-machine-grid">
+            {maquinasFiltradas.map(m => (
+              <MachineCard key={m.id} machine={m} metrica={metrica} />
+            ))}
+          </div>
+        )}
       </div>
+
     </div>
   );
 }
