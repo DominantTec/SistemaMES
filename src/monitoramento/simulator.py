@@ -59,12 +59,12 @@ STATUS_MANUTENCAO    = 52   # Em Manutenção (transitório — aguarda motivo)
 PROB_IR_PARADA           = 0.010
 PROB_IR_MANUTENCAO       = 0.003
 PROB_IR_LIMPEZA          = 0.002
-PROB_VOLTA_DE_PARADA     = 0.18
-PROB_VOLTA_DE_MANUTENCAO = 0.07
-PROB_VOLTA_DE_LIMPEZA    = 0.30
-MIN_CICLOS_PARADA        = 2
-MIN_CICLOS_MANUTENCAO    = 4   # min ciclos em STATUS_MANUTENCAO antes de liberar
-MIN_CICLOS_LIMPEZA       = 2
+PROB_VOLTA_DE_PARADA     = 0.08   # paradas duram em média ~75s após o mínimo
+PROB_VOLTA_DE_MANUTENCAO = 0.05   # manutenções duram em média ~3-5 min
+PROB_VOLTA_DE_LIMPEZA    = 0.15   # limpezas duram em média ~40s após o mínimo
+MIN_CICLOS_PARADA        = 6      # mínimo 30s (6 × 5s)
+MIN_CICLOS_MANUTENCAO    = 12     # mínimo 60s em STATUS_MANUTENCAO antes de liberar
+MIN_CICLOS_LIMPEZA       = 5      # mínimo 25s
 
 # Delay para o operador informar o motivo de parada (fluxo real assíncrono):
 # 49 → 0 (sem motivo) → [delay] → motivo (1-32) → 49
@@ -73,8 +73,8 @@ MAX_CICLOS_MOTIVO_DELAY  = 6   # 6 ciclos ≈ 30 segundos
 
 # Delay para o manutentor chegar (fluxo manutenção):
 # 49 → 51 (Ag. Manutentor) → [delay] → 52 (Em Manutenção) → [delay] → motivo → 49
-MIN_CICLOS_AG_MANUTENCAO    = 2   # ciclos aguardando manutentor chegar
-MAX_CICLOS_AG_MANUTENCAO    = 8
+MIN_CICLOS_AG_MANUTENCAO    = 4   # ciclos aguardando manutentor chegar
+MAX_CICLOS_AG_MANUTENCAO    = 16
 MAX_CICLOS_MANUTENCAO_DELAY = 4   # ciclos após 52 para registrar o motivo
 
 TAXA_REPROVADO = 0.09

@@ -656,6 +656,7 @@ def get_metrics_machine(machine_id: int, data_inicio: Optional[Any] = None, data
                 "performance": 0, "qualidade": 0, "meta": meta_pcp,
                 "produzido": 0, "reprovado": 0, "total_produzido": 0,
                 "operador": "-", "manutentor": "-", "engenheiro": "-",
+                "tempo_produzido_s": 0,
             }
 
         last_register = df_registradores[df_registradores["dt_created_at"] == df_registradores["dt_created_at"].max()]
@@ -737,18 +738,19 @@ def get_metrics_machine(machine_id: int, data_inicio: Optional[Any] = None, data
         oee = disponibilidade * performance * qualidade
 
         return {
-            "status_maquina":  status,
-            "oee":             round(100 * oee,             2),
-            "disponibilidade": round(100 * disponibilidade, 2),
-            "performance":     round(100 * performance,     2),
-            "qualidade":       round(100 * qualidade,       2),
-            "meta":            meta,
-            "produzido":       produzido,
-            "reprovado":       reprovado,
-            "total_produzido": total,
-            "operador":        operador,
-            "manutentor":      manutentor,
-            "engenheiro":      engenheiro,
+            "status_maquina":    status,
+            "oee":               round(100 * oee,             2),
+            "disponibilidade":   round(100 * disponibilidade, 2),
+            "performance":       round(100 * performance,     2),
+            "qualidade":         round(100 * qualidade,       2),
+            "meta":              meta,
+            "produzido":         produzido,
+            "reprovado":         reprovado,
+            "total_produzido":   total,
+            "operador":          operador,
+            "manutentor":        manutentor,
+            "engenheiro":        engenheiro,
+            "tempo_produzido_s": round(tempo_produzido),
         }
     except Exception:
         return {
@@ -756,6 +758,7 @@ def get_metrics_machine(machine_id: int, data_inicio: Optional[Any] = None, data
             "performance": "-", "qualidade": "-", "meta": "-",
             "produzido": "-", "reprovado": "-", "total_produzido": "-",
             "operador": "-", "manutentor": "-", "engenheiro": "-",
+            "tempo_produzido_s": 0,
         }
 
 
@@ -803,6 +806,10 @@ def get_machine_detail(machine_id: int) -> dict:
     ihm     = df_ihm.iloc[0]
     metrics = get_metrics_machine(machine_id)
     peca    = get_selected_piece(machine_id)
+
+    # Janela do turno — usada em toda a função
+    agora_dt = datetime.now()
+    shift_ini, shift_fim = _get_current_shift_window(machine_id, agora_dt)
 
     op_nome  = _resolve_nome(metrics.get("operador"),   machine_id, "tb_depara_operador",  "nu_cod_operador",   "tx_operador")
     man_nome = _resolve_nome(metrics.get("manutentor"), machine_id, "tb_depara_manutentor", "nu_cod_manutentor", "tx_manutentor")
@@ -947,6 +954,114 @@ def get_machine_detail(machine_id: int) -> dict:
     else:
         mtbf_s = 0
 
+    # ── Adicionar duracao_s a cada parada ─────────────────────────────────────
+    for i, p in enumerate(paradas):
+        p["duracao_s"] = round(tempos_parada_s[i]) if i < len(tempos_parada_s) else 0
+
+    # ── Métricas de produção do turno ──────────────────────────────────────────
+    prod_int   = int(metrics.get("produzido",         0) or 0)
+    meta_int   = int(metrics.get("meta",              0) or 0)
+    tempo_prod = int(metrics.get("tempo_produzido_s", 0) or 0)
+    prod_pct   = round(prod_int / meta_int * 100, 1) if meta_int > 0 else 0
+    velocidade = round(prod_int / tempo_prod * 3600) if tempo_prod > 0 else 0
+
+    # ── Há quanto tempo parada ─────────────────────────────────────────────────
+    parada_ha = None
+    if "produz" not in str(metrics.get("status_maquina", "")).lower() and not df_logs.empty:
+        df_st_last = df_logs[df_logs["tx_descricao"] == "status_maquina"].sort_values("dt_created_at")
+        if not df_st_last.empty:
+            last_ts   = pd.Timestamp(df_st_last.iloc[-1]["dt_created_at"])
+            delta     = datetime.now() - last_ts
+            h_p, r_p  = divmod(max(0, int(delta.total_seconds())), 3600)
+            parada_ha = f"{h_p:02d}:{r_p // 60:02d}"
+
+    # ── OP ativa desta linha/máquina ───────────────────────────────────────────
+    op_ativa = None
+    try:
+        df_op = run_query("""
+            SELECT TOP 1 o.nu_numero_op, o.tx_peca, o.nu_quantidade, o.nu_refugo,
+                   COALESCE(rt.nu_prod_rt, o.nu_produzido) AS nu_prod
+            FROM dbo.tb_ordem_producao o
+            JOIN dbo.tb_ihm i ON i.id_linha_producao = o.id_linha_producao
+            LEFT JOIN (
+                SELECT id_ordem,
+                    SUM(CASE WHEN nu_etapa_atual >= nu_etapas_total
+                                  AND nu_etapa_erro IS NULL THEN 1 ELSE 0 END) AS nu_prod_rt
+                FROM dbo.tb_op_peca_producao GROUP BY id_ordem
+            ) rt ON rt.id_ordem = o.id_ordem
+            WHERE i.id_ihm = :id
+              AND o.tx_status NOT IN ('concluida', 'cancelada')
+            ORDER BY o.nu_prioridade DESC, o.dt_criacao
+        """, {"id": machine_id})
+        if not df_op.empty:
+            rop    = df_op.iloc[0]
+            qtd_op = int(rop["nu_quantidade"]) if not pd.isna(rop["nu_quantidade"]) else 0
+            prd_op = int(rop["nu_prod"])       if not pd.isna(rop["nu_prod"])       else 0
+            ref_op = int(rop["nu_refugo"])     if not pd.isna(rop["nu_refugo"])     else 0
+            op_ativa = {
+                "numero":    rop["nu_numero_op"],
+                "peca":      rop["tx_peca"],
+                "quantidade": qtd_op,
+                "produzido":  prd_op,
+                "refugo":     ref_op,
+                "progresso":  round(prd_op / qtd_op * 100, 1) if qtd_op > 0 else 0,
+            }
+    except Exception:
+        pass
+
+    # ── Produção hora a hora e pareto de paradas ───────────────────────────────
+    efetivo = min(shift_fim, agora_dt)
+    producao_horaria: list = []
+    pareto_paradas:   list = []
+    try:
+        producao_horaria = get_producao_hora_maquina(machine_id, shift_ini, efetivo)
+    except Exception:
+        pass
+    try:
+        pareto_paradas = get_pareto_paradas(machine_id, shift_ini, efetivo)
+    except Exception:
+        pass
+
+    # ── Timeline do turno ──────────────────────────────────────────────────────
+    timeline_turno: list = []
+    agora_pct = 100
+    _TL_INFO = {
+        49: ("Produzindo",      "#16a34a"),
+        0:  ("Parada",         "#dc2626"),
+        4:  ("Limpeza",        "#2563eb"),
+        51: ("Ag. Manutentor", "#d97706"),
+        52: ("Manutenção",     "#7c3aed"),
+    }
+    try:
+        shift_dur_s = max(1, (efetivo - shift_ini).total_seconds())
+        agora_pct   = round(min(100, (agora_dt - shift_ini).total_seconds() / shift_dur_s * 100), 2)
+
+        if not df_logs.empty:
+            df_st_tl = df_logs[df_logs["tx_descricao"] == "status_maquina"].copy()
+            df_st_tl["_ts"] = pd.to_datetime(df_st_tl["dt_created_at"])
+            df_st_tl = (
+                df_st_tl[df_st_tl["_ts"] >= pd.Timestamp(shift_ini)]
+                .sort_values("_ts")
+            )
+            rows_tl = list(zip(df_st_tl["_ts"], df_st_tl["nu_valor_bruto"].astype(int)))
+            for i_tl, (dt_tl, cod_tl) in enumerate(rows_tl):
+                dt_fim_tl = rows_tl[i_tl + 1][0] if i_tl + 1 < len(rows_tl) else efetivo
+                ini_s = max(0.0, (dt_tl   - shift_ini).total_seconds())
+                fim_s = min(shift_dur_s, (dt_fim_tl - shift_ini).total_seconds())
+                if fim_s <= ini_s:
+                    continue
+                label_tl, color_tl = _TL_INFO.get(cod_tl, (str(cod_tl), "#9ca3af"))
+                timeline_turno.append({
+                    "status":     cod_tl,
+                    "label":      label_tl,
+                    "color":      color_tl,
+                    "inicio_pct": round(ini_s / shift_dur_s * 100, 2),
+                    "fim_pct":    round(fim_s / shift_dur_s * 100, 2),
+                    "duracao_s":  round(fim_s - ini_s),
+                })
+    except Exception:
+        pass
+
     return {
         "id":              machine_id,
         "nome":            ihm["tx_name"],
@@ -960,6 +1075,19 @@ def get_machine_detail(machine_id: int) -> dict:
         "disponibilidade": metrics["disponibilidade"],
         "performance":     metrics["performance"],
         "qualidade":       metrics["qualidade"],
+        "meta":            meta_int,
+        "produzido":       prod_int,
+        "producao_pct":    prod_pct,
+        "velocidade_pph":  velocidade,
+        "parada_ha":       parada_ha,
+        "num_paradas":     num_paradas,
+        "op_ativa":        op_ativa,
+        "producao_horaria": producao_horaria,
+        "pareto_paradas":   pareto_paradas,
+        "timeline_turno":   timeline_turno,
+        "agora_pct":        agora_pct,
+        "shift_inicio":     shift_ini.strftime("%H:%M"),
+        "shift_fim":        efetivo.strftime("%H:%M"),
         "manutencao": {
             "mtbf": fmt_hm(mtbf_s),
             "mttr": fmt_hm(mttr_s),
