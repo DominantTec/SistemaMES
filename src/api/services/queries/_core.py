@@ -791,10 +791,84 @@ def get_alerts_ihm(id_ihm: int, data_inicio: Optional[Any] = None, data_fim: Opt
 # DETALHE DE MÁQUINA
 # =========================
 
+def get_historico_turnos_machine(machine_id: int, n: int = 7) -> list:
+    """Retorna disponibilidade e nº de paradas dos últimos N turnos finalizados."""
+    try:
+        df_ihm = run_query("SELECT id_linha_producao FROM dbo.tb_ihm WHERE id_ihm = :id", {"id": machine_id})
+        if df_ihm.empty:
+            return []
+        lid = int(df_ihm.iloc[0]["id_linha_producao"])
+
+        df_shifts = run_query("""
+            SELECT TOP :n id_ocorrencia, tx_nome, dt_inicio, dt_fim
+            FROM dbo.tb_turno_ocorrencia
+            WHERE id_linha_producao = :lid AND tx_status = 'finalizado'
+            ORDER BY dt_inicio DESC
+        """, {"n": n, "lid": lid})
+
+        if df_shifts.empty:
+            return []
+
+        oldest = df_shifts["dt_inicio"].min()
+
+        df_logs = run_query("""
+            SELECT lr.dt_created_at, lr.nu_valor_bruto
+            FROM dbo.tb_log_registrador lr
+            JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
+            WHERE lr.id_ihm = :id
+              AND r.tx_descricao = 'status_maquina'
+              AND lr.dt_created_at >= :oldest
+            ORDER BY lr.dt_created_at
+        """, {"id": machine_id, "oldest": oldest})
+
+        result = []
+        for _, shift in df_shifts.iterrows():
+            dt_ini  = pd.Timestamp(shift["dt_inicio"])
+            dt_fim  = pd.Timestamp(shift["dt_fim"])
+            total_s = (dt_fim - dt_ini).total_seconds()
+            if total_s <= 0:
+                continue
+
+            if not df_logs.empty:
+                mask = (
+                    (pd.to_datetime(df_logs["dt_created_at"]) >= dt_ini) &
+                    (pd.to_datetime(df_logs["dt_created_at"]) <= dt_fim)
+                )
+                shift_logs = df_logs[mask].sort_values("dt_created_at")
+                rows_sl    = [(pd.Timestamp(r["dt_created_at"]), int(r["nu_valor_bruto"]))
+                               for _, r in shift_logs.iterrows()]
+            else:
+                rows_sl = []
+
+            prod_s     = 0.0
+            num_paradas = 0
+            for i, (dt, cod) in enumerate(rows_sl):
+                dt_next = rows_sl[i + 1][0] if i + 1 < len(rows_sl) else dt_fim
+                dur = max(0.0, (dt_next - dt).total_seconds())
+                if cod == 49:
+                    prod_s += dur
+                elif i > 0 and rows_sl[i - 1][1] == 49:
+                    num_paradas += 1
+
+            disp = round(prod_s / total_s * 100, 1) if total_s > 0 else 0
+            result.append({
+                "nome":           shift["tx_nome"],
+                "data":           dt_ini.strftime("%d/%m"),
+                "hora":           dt_ini.strftime("%H:%M"),
+                "disponibilidade": disp,
+                "num_paradas":    num_paradas,
+            })
+
+        return list(reversed(result))   # mais antigo primeiro (esquerda do gráfico)
+    except Exception:
+        return []
+
+
 def get_machine_detail(machine_id: int) -> dict:
     """Payload completo da tela de detalhe de uma máquina específica."""
     df_ihm = run_query("""
-        SELECT i.id_ihm, i.tx_name, l.tx_name AS linha_nome
+        SELECT i.id_ihm, i.tx_name, l.tx_name AS linha_nome,
+               COALESCE(i.tx_tipo_maquina, '') AS tipo_maquina
         FROM dbo.tb_ihm i
         JOIN dbo.tb_linha_producao l ON l.id_linha_producao = i.id_linha_producao
         WHERE i.id_ihm = :id
@@ -965,6 +1039,22 @@ def get_machine_detail(machine_id: int) -> dict:
     prod_pct   = round(prod_int / meta_int * 100, 1) if meta_int > 0 else 0
     velocidade = round(prod_int / tempo_prod * 3600) if tempo_prod > 0 else 0
 
+    # ── Refugo do turno ────────────────────────────────────────────────────────
+    refugo_turno = int(metrics.get("reprovado", 0) or 0)
+    refugo_pct   = round(refugo_turno / (prod_int + refugo_turno) * 100, 1) if (prod_int + refugo_turno) > 0 else 0
+
+    # ── Uptime: segundos rodando desde a última parada ─────────────────────────
+    uptime_s = None
+    if "produz" in str(metrics.get("status_maquina", "")).lower() and not df_logs.empty:
+        df_st_up = df_logs[df_logs["tx_descricao"] == "status_maquina"].sort_values("dt_created_at")
+        rows_up  = [(pd.Timestamp(r["dt_created_at"]), int(r["nu_valor_bruto"]))
+                    for _, r in df_st_up.iterrows()]
+        for i in range(len(rows_up) - 1, -1, -1):
+            if rows_up[i][1] == 49:
+                if i == 0 or rows_up[i - 1][1] != 49:
+                    uptime_s = max(0, int((datetime.now() - rows_up[i][0]).total_seconds()))
+                    break
+
     # ── Há quanto tempo parada ─────────────────────────────────────────────────
     parada_ha = None
     if "produz" not in str(metrics.get("status_maquina", "")).lower() and not df_logs.empty:
@@ -1006,6 +1096,13 @@ def get_machine_detail(machine_id: int) -> dict:
                 "refugo":     ref_op,
                 "progresso":  round(prd_op / qtd_op * 100, 1) if qtd_op > 0 else 0,
             }
+    except Exception:
+        pass
+
+    # ── Histórico de turnos (OEE/disponibilidade últimos 7) ───────────────────
+    historico_turnos: list = []
+    try:
+        historico_turnos = get_historico_turnos_machine(machine_id, n=7)
     except Exception:
         pass
 
@@ -1066,6 +1163,7 @@ def get_machine_detail(machine_id: int) -> dict:
         "id":              machine_id,
         "nome":            ihm["tx_name"],
         "linha":           ihm["linha_nome"],
+        "tipo_maquina":    ihm["tipo_maquina"] or None,
         "status":          metrics["status_maquina"],
         "peca_atual":      peca if peca != "PEÇA TEMP" else None,
         "operador":        op_nome,
@@ -1079,19 +1177,24 @@ def get_machine_detail(machine_id: int) -> dict:
         "produzido":       prod_int,
         "producao_pct":    prod_pct,
         "velocidade_pph":  velocidade,
+        "refugo_turno":    refugo_turno,
+        "refugo_pct":      refugo_pct,
+        "uptime_s":        uptime_s,
         "parada_ha":       parada_ha,
         "num_paradas":     num_paradas,
         "op_ativa":        op_ativa,
         "producao_horaria": producao_horaria,
         "pareto_paradas":   pareto_paradas,
         "timeline_turno":   timeline_turno,
+        "historico_turnos": historico_turnos,
         "agora_pct":        agora_pct,
         "shift_inicio":     shift_ini.strftime("%H:%M"),
         "shift_fim":        efetivo.strftime("%H:%M"),
         "manutencao": {
-            "mtbf": fmt_hm(mtbf_s),
-            "mttr": fmt_hm(mttr_s),
-            "mtta": None,
+            "mtbf":   fmt_hm(mtbf_s),
+            "mttr":   fmt_hm(mttr_s),
+            "mtbf_s": round(mtbf_s),
+            "mttr_s": round(mttr_s),
         },
         "registros_parada": paradas,
     }

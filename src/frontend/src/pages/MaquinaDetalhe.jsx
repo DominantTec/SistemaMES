@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import {
   BarChart, Bar, XAxis, YAxis, Cell, Tooltip,
   ResponsiveContainer, ReferenceLine,
+  AreaChart, Area, CartesianGrid,
 } from "recharts";
 import "./MaquinaDetalhe.css";
 
@@ -47,6 +48,15 @@ function fmtDurS(s) {
   return `${s}s`;
 }
 
+function fmtUptime(s) {
+  if (!s && s !== 0) return null;
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m sem parar`;
+  if (m > 0) return `${m}m sem parar`;
+  return `< 1min sem parar`;
+}
+
 function parseHM(str) {
   if (!str || str === "-") return 0;
   const m = str.match(/(\d+)h\s*(\d+)m/);
@@ -55,7 +65,7 @@ function parseHM(str) {
 
 // ── KPI card com barra de progresso ──────────────────────────────────────────
 
-function KpiCard({ label, value, sub, color }) {
+function KpiCard({ label, value, sub, color, suffix = "%" }) {
   const n   = Number(value);
   const c   = color || oeeColor(value);
   const pct = isNaN(n) ? 0 : Math.max(0, Math.min(100, n));
@@ -63,7 +73,7 @@ function KpiCard({ label, value, sub, color }) {
     <div className="md-kpi-card" style={{ borderTop: `3px solid ${c}` }}>
       <div className="md-kpi-label">{label}</div>
       <div className="md-kpi-value" style={{ color: c }}>
-        {value !== null && value !== undefined && value !== "-" ? `${value}%` : "-"}
+        {value !== null && value !== undefined && value !== "-" ? `${value}${suffix}` : "-"}
       </div>
       <div className="md-kpi-bar-track">
         <div className="md-kpi-bar-fill" style={{ width: `${pct}%`, background: c }} />
@@ -104,6 +114,29 @@ function ProdKpiCard({ produzido, meta, pct, velocidade }) {
   );
 }
 
+// ── Card de Refugo ────────────────────────────────────────────────────────────
+
+function RefugoCard({ refugo, pct }) {
+  const p   = Number(pct) || 0;
+  const c   = p === 0 ? "#16a34a" : p < 5 ? "#d97706" : "#dc2626";
+  return (
+    <div className="md-kpi-card" style={{ borderTop: `3px solid ${c}` }}>
+      <div className="md-kpi-label">REFUGO DO TURNO</div>
+      <div className="md-kpi-value" style={{ color: c }}>
+        {(refugo || 0).toLocaleString("pt-BR")}
+        <span className="md-kpi-value-unit"> un</span>
+      </div>
+      <div className="md-kpi-bar-track">
+        <div className="md-kpi-bar-fill" style={{ width: `${Math.min(100, p * 4)}%`, background: c }} />
+      </div>
+      <div className="md-kpi-sub">
+        <span style={{ color: c, fontWeight: 700 }}>{p.toFixed(1)}%</span>
+        {" "}das peças produzidas
+      </div>
+    </div>
+  );
+}
+
 // ── OP compacta (header) ──────────────────────────────────────────────────────
 
 function OpCompacta({ op }) {
@@ -127,6 +160,50 @@ function OpCompacta({ op }) {
           {pct.toFixed(0)}%
         </span>
       </div>
+    </div>
+  );
+}
+
+// ── Info strip ────────────────────────────────────────────────────────────────
+
+function InfoStrip({ tipoMaquina, operador, manutentor, uptimeS, peca }) {
+  const uptimeTxt = fmtUptime(uptimeS);
+  return (
+    <div className="md-info-strip">
+      {tipoMaquina && (
+        <div className="md-info-chip md-info-chip-tipo">
+          <span className="md-info-chip-icon">⚙</span>
+          <span className="md-info-chip-label">Tipo</span>
+          <span className="md-info-chip-val">{tipoMaquina}</span>
+        </div>
+      )}
+      {peca && (
+        <div className="md-info-chip">
+          <span className="md-info-chip-icon">◈</span>
+          <span className="md-info-chip-label">Produto</span>
+          <span className="md-info-chip-val">{peca}</span>
+        </div>
+      )}
+      {operador && (
+        <div className="md-info-chip">
+          <span className="md-info-chip-icon">◎</span>
+          <span className="md-info-chip-label">Operador</span>
+          <span className="md-info-chip-val">{operador}</span>
+        </div>
+      )}
+      {manutentor && (
+        <div className="md-info-chip">
+          <span className="md-info-chip-icon">▲</span>
+          <span className="md-info-chip-label">Manutentor</span>
+          <span className="md-info-chip-val">{manutentor}</span>
+        </div>
+      )}
+      {uptimeTxt && (
+        <div className="md-info-chip md-info-chip-uptime">
+          <span className="md-info-chip-icon">●</span>
+          <span className="md-info-chip-val">{uptimeTxt}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -236,15 +313,84 @@ function ProducaoHorariaChart({ data, metaHora }) {
             <Cell
               key={i}
               fill={
-                metaHora <= 0          ? "#3b82f6"
-                : entry.produzido >= metaHora          ? "#16a34a"
-                : entry.produzido >= metaHora * 0.7    ? "#d97706"
+                metaHora <= 0                              ? "#3b82f6"
+                : entry.produzido >= metaHora              ? "#16a34a"
+                : entry.produzido >= metaHora * 0.7        ? "#d97706"
                 : "#dc2626"
               }
             />
           ))}
         </Bar>
       </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ── Tendência de disponibilidade por turno ────────────────────────────────────
+
+function TendenciaTurnosChart({ historico }) {
+  if (!historico?.length) {
+    return (
+      <div className="md-chart-empty">
+        Dados históricos disponíveis após o encerramento do primeiro turno.
+      </div>
+    );
+  }
+
+  const TendTooltip = ({ active, payload }) => {
+    if (!active || !payload?.length) return null;
+    const d = payload[0].payload;
+    const c = d.disponibilidade >= 75 ? "#16a34a" : d.disponibilidade >= 50 ? "#d97706" : "#dc2626";
+    return (
+      <div className="md-chart-tooltip">
+        <div className="md-ct-hora">{d.nome} · {d.data} {d.hora}</div>
+        <div className="md-ct-val" style={{ color: c }}>{d.disponibilidade}% disponível</div>
+        <div className="md-ct-meta">{d.num_paradas} parada{d.num_paradas !== 1 ? "s" : ""}</div>
+      </div>
+    );
+  };
+
+  return (
+    <ResponsiveContainer width="100%" height={230}>
+      <AreaChart data={historico} margin={{ top: 8, right: 14, left: -20, bottom: 4 }}>
+        <defs>
+          <linearGradient id="gradDisp" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%"  stopColor="#3b82f6" stopOpacity={0.18} />
+            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.01} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+        <XAxis
+          dataKey="data"
+          tick={{ fontSize: 11, fill: "#9ca3af" }}
+          axisLine={false}
+          tickLine={false}
+        />
+        <YAxis
+          domain={[0, 100]}
+          tick={{ fontSize: 11, fill: "#9ca3af" }}
+          axisLine={false}
+          tickLine={false}
+          tickFormatter={v => `${v}%`}
+        />
+        <Tooltip content={<TendTooltip />} />
+        <ReferenceLine
+          y={75}
+          stroke="#16a34a"
+          strokeDasharray="4 3"
+          strokeWidth={1.2}
+          label={{ value: "75%", position: "insideTopRight", fontSize: 10, fill: "#16a34a" }}
+        />
+        <Area
+          type="monotone"
+          dataKey="disponibilidade"
+          stroke="#3b82f6"
+          strokeWidth={2.5}
+          fill="url(#gradDisp)"
+          dot={{ r: 4, fill: "#3b82f6", stroke: "white", strokeWidth: 2 }}
+          activeDot={{ r: 6 }}
+        />
+      </AreaChart>
     </ResponsiveContainer>
   );
 }
@@ -298,13 +444,16 @@ function ParetoChart({ pareto }) {
 
 // ── Índices de manutenção ─────────────────────────────────────────────────────
 
-function MtbfRow({ label, value, suffix = "" }) {
+function MtbfRow({ label, value, suffix = "", hint }) {
   return (
     <div className="md-mtbf-row">
-      <span className="md-mtbf-label">{label}</span>
-      <span className="md-mtbf-value">
-        {value != null && value !== "-" ? `${value}${suffix}` : "-"}
-      </span>
+      <div className="md-mtbf-row-main">
+        <span className="md-mtbf-label">{label}</span>
+        <span className="md-mtbf-value">
+          {value != null && value !== "-" ? `${value}${suffix}` : "-"}
+        </span>
+      </div>
+      {hint && <div className="md-mtbf-hint">{hint}</div>}
     </div>
   );
 }
@@ -365,6 +514,66 @@ function DonutChart({ mtbf, mttr }) {
   );
 }
 
+// ── Seção de Manutenção (cards interpretativos) ───────────────────────────────
+
+function ManutencaoSection({ manutencao, numParadas }) {
+  const mtbfS = manutencao?.mtbf_s || 0;
+  const mttrS = manutencao?.mttr_s || 0;
+
+  const mtbfHint = mtbfS > 0
+    ? `A máquina para em média a cada ${fmtDurS(mtbfS)}`
+    : null;
+  const mttrHint = mttrS > 0
+    ? `Cada parada dura em média ${fmtDurS(mttrS)}`
+    : null;
+
+  const dispManut = mtbfS + mttrS > 0
+    ? Math.round(mtbfS / (mtbfS + mttrS) * 100)
+    : null;
+
+  return (
+    <div className="md-manut-section">
+      <MtbfRow
+        label="MTBF — Tempo entre falhas"
+        value={manutencao?.mtbf}
+        hint={mtbfHint}
+      />
+      <MtbfRow
+        label="MTTR — Tempo médio de reparo"
+        value={manutencao?.mttr}
+        hint={mttrHint}
+      />
+      <MtbfRow
+        label="Paradas registradas"
+        value={numParadas}
+        suffix=" eventos"
+      />
+
+      {dispManut !== null && (
+        <div className="md-manut-disp-bar">
+          <div className="md-manut-disp-label">
+            <span>Disponibilidade (MTBF/MTTR)</span>
+            <span style={{ color: dispManut >= 75 ? "#16a34a" : dispManut >= 50 ? "#d97706" : "#dc2626", fontWeight: 700 }}>
+              {dispManut}%
+            </span>
+          </div>
+          <div className="md-manut-disp-track">
+            <div
+              className="md-manut-disp-fill"
+              style={{
+                width: `${dispManut}%`,
+                background: dispManut >= 75 ? "#16a34a" : dispManut >= 50 ? "#d97706" : "#dc2626",
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      <DonutChart mtbf={manutencao?.mtbf} mttr={manutencao?.mttr} />
+    </div>
+  );
+}
+
 // ── Página principal ──────────────────────────────────────────────────────────
 
 export default function MaquinaDetalhe() {
@@ -418,6 +627,8 @@ export default function MaquinaDetalhe() {
   const nParadas    = data.registros_parada?.filter(p => p.codigo < 54).length ?? 0;
   const nManutencao = data.registros_parada?.filter(p => p.codigo >= 54).length ?? 0;
 
+  const isRunning = st.label === "EM OPERAÇÃO";
+
   return (
     <div className="md-root">
 
@@ -436,13 +647,12 @@ export default function MaquinaDetalhe() {
           <div className="md-header-title-row">
             <h1 className="md-machine-name">{data.nome}</h1>
             <span className="md-status-badge" style={{ color: st.color, background: st.bg }}>
+              <span className={`md-status-dot${isRunning ? " md-status-dot-pulse" : ""}`}
+                    style={{ background: st.color }} />
               {st.label}
             </span>
             <span className="md-linha-tag">{data.linha}</span>
           </div>
-          {data.peca_atual && (
-            <div className="md-peca">Produto atual: <strong>{data.peca_atual}</strong></div>
-          )}
           {data.parada_ha && (
             <div className="md-parada-ha" style={{ color: st.color }}>
               Parada há {data.parada_ha}
@@ -452,17 +662,17 @@ export default function MaquinaDetalhe() {
 
         <div className="md-header-right">
           {data.op_ativa && <OpCompacta op={data.op_ativa} />}
-          {data.operador && (
-            <div className="md-operator">
-              <div className="md-op-avatar">{data.operador_avatar || "?"}</div>
-              <div className="md-op-info">
-                <div className="md-op-name">{data.operador}</div>
-                <div className="md-op-role">Operador</div>
-              </div>
-            </div>
-          )}
         </div>
       </div>
+
+      {/* ── Info strip ─────────────────────────────────────────────── */}
+      <InfoStrip
+        tipoMaquina={data.tipo_maquina}
+        peca={data.peca_atual}
+        operador={data.operador}
+        manutentor={data.manutentor}
+        uptimeS={isRunning ? data.uptime_s : null}
+      />
 
       {/* ── KPI strip ──────────────────────────────────────────────── */}
       <div className="md-kpis">
@@ -495,6 +705,10 @@ export default function MaquinaDetalhe() {
           pct={data.producao_pct}
           velocidade={data.velocidade_pph}
         />
+        <RefugoCard
+          refugo={data.refugo_turno}
+          pct={data.refugo_pct}
+        />
       </div>
 
       {/* ── Timeline do turno ──────────────────────────────────────── */}
@@ -515,19 +729,22 @@ export default function MaquinaDetalhe() {
         </div>
       )}
 
-      {/* ── Produção por hora + Manutenção ─────────────────────────── */}
+      {/* ── Produção por hora + Tendência histórica ─────────────────── */}
       <div className="md-row">
         <div className="md-card">
-          <div className="md-card-title">Produção por Hora</div>
+          <div className="md-card-title">
+            Produção por Hora
+            <span className="md-card-title-sub">turno atual</span>
+          </div>
           <ProducaoHorariaChart data={data.producao_horaria} metaHora={metaHora} />
         </div>
 
         <div className="md-card">
-          <div className="md-card-title">Índices de Manutenção</div>
-          <MtbfRow label="MTBF (entre falhas)"    value={data.manutencao?.mtbf} />
-          <MtbfRow label="MTTR (tempo de reparo)" value={data.manutencao?.mttr} />
-          <MtbfRow label="Paradas no turno"        value={data.num_paradas} suffix=" eventos" />
-          <DonutChart mtbf={data.manutencao?.mtbf} mttr={data.manutencao?.mttr} />
+          <div className="md-card-title">
+            Disponibilidade por Turno
+            <span className="md-card-title-sub">últimos {data.historico_turnos?.length || 0} turnos</span>
+          </div>
+          <TendenciaTurnosChart historico={data.historico_turnos} />
         </div>
       </div>
 
@@ -554,14 +771,14 @@ export default function MaquinaDetalhe() {
               </tbody>
             </table>
           ) : (
-            <div className="md-no-stops">Nenhuma parada registrada.</div>
+            <div className="md-no-stops">Nenhuma parada registrada neste turno.</div>
           )}
 
           {nManutencao > 0 && (
             <>
               <div className="md-card-title md-card-title-inner">
                 Manutenções
-                <span className="md-card-count">{nManutencao}</span>
+                <span className="md-card-count md-card-count-man">{nManutencao}</span>
               </div>
               <table className="md-stops-table">
                 <thead>
@@ -590,6 +807,18 @@ export default function MaquinaDetalhe() {
           </div>
           <ParetoChart pareto={data.pareto_paradas} />
         </div>
+      </div>
+
+      {/* ── Índices de manutenção ──────────────────────────────────── */}
+      <div className="md-card">
+        <div className="md-card-title">
+          Análise de Confiabilidade
+          <span className="md-card-title-sub">MTBF · MTTR · Disponibilidade</span>
+        </div>
+        <ManutencaoSection
+          manutencao={data.manutencao}
+          numParadas={data.num_paradas}
+        />
       </div>
 
     </div>

@@ -6,6 +6,7 @@ import MaquinaDetalhe from "./pages/MaquinaDetalhe";
 import Configuracoes from "./pages/Configuracoes";
 import Painel from "./pages/Painel";
 import PainelMES from "./pages/PainelMES";
+import PainelTV from "./pages/PainelTV";
 import Historico from "./pages/Historico";
 import OrdensProducao from "./pages/OrdensProducao";
 
@@ -14,6 +15,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         {/* Painéis TV — sem sidebar, tela cheia */}
+        <Route path="/painel-tv"  element={<PainelTV />} />
         <Route path="/painel"     element={<Painel />} />
         <Route path="/painel-mes" element={<PainelMES />} />
 

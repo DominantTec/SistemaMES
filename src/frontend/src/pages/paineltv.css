@@ -1,0 +1,484 @@
+/* ============================================================
+   PainelTV.css — Tela Unificada Chão de Fábrica (TV)
+   Dark mode moderno + métricas MES completas
+   ============================================================ */
+
+/* ── Base ────────────────────────────────────────────────── */
+.tv-root {
+  min-height: 100vh;
+  background: #0d1117;
+  color: #e6edf3;
+  display: flex;
+  flex-direction: column;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+/* ── Loading / Error ─────────────────────────────────────── */
+.tv-loading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 60px;
+  color: #6b7280;
+  font-size: 18px;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+.tv-spinner {
+  width: 24px;
+  height: 24px;
+  border: 3px solid #30363d;
+  border-top-color: #58a6ff;
+  border-radius: 50%;
+  animation: tv-spin 0.7s linear infinite;
+}
+
+@keyframes tv-spin { to { transform: rotate(360deg); } }
+
+.tv-error {
+  padding: 40px;
+  color: #ef4444;
+  font-size: 16px;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Topbar ──────────────────────────────────────────────── */
+.tv-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 32px;
+  background: #161b22;
+  border-bottom: 2px solid #21262d;
+  flex-shrink: 0;
+  gap: 24px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.tv-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  min-width: 0;
+}
+
+.tv-factory-name {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #e6edf3;
+  white-space: nowrap;
+}
+
+/* KPIs */
+.tv-kpis {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.tv-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.tv-kpi-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6b7280;
+}
+
+.tv-kpi-val {
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: #e6edf3;
+  line-height: 1.1;
+}
+
+.tv-kpi-val--warn { color: #f59e0b; }
+
+.tv-kpi-total {
+  font-size: 14px;
+  font-weight: 400;
+  color: #6b7280;
+}
+
+.tv-kpi-sep {
+  width: 1px;
+  height: 34px;
+  background: #30363d;
+  flex-shrink: 0;
+}
+
+/* ── Clock ───────────────────────────────────────────────── */
+.tv-clock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+
+.tv-clock-time {
+  font-size: 34px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  color: #e6edf3;
+  line-height: 1;
+}
+
+.tv-clock-date {
+  font-size: 12px;
+  color: #6b7280;
+  text-transform: capitalize;
+  margin-top: 2px;
+}
+
+/* ── Main content ────────────────────────────────────────── */
+.tv-content {
+  flex: 1;
+  padding: 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+/* ── Section (linha) ─────────────────────────────────────── */
+.tv-section {
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.tv-section-header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 14px 20px;
+  background: #0d1117;
+  border-bottom: 1px solid #21262d;
+}
+
+.tv-section-name {
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #58a6ff;
+  white-space: nowrap;
+}
+
+.tv-section-stats {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tv-stat {
+  font-size: 13px;
+  color: #8b949e;
+  font-variant-numeric: tabular-nums;
+}
+
+.tv-stat strong {
+  font-weight: 700;
+}
+
+.tv-stat-sep {
+  width: 1px;
+  height: 14px;
+  background: #30363d;
+  flex-shrink: 0;
+}
+
+/* ── Tabela de máquinas ──────────────────────────────────── */
+.tv-table-wrap {
+  overflow-x: auto;
+}
+
+.tv-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.tv-th {
+  background: #1c2128;
+  color: #8b949e;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 10px 14px;
+  text-align: center;
+  white-space: nowrap;
+  border-bottom: 1px solid #30363d;
+  border-right: 1px solid #21262d;
+}
+
+.tv-th:last-child { border-right: none; }
+.tv-th--name { text-align: left; }
+
+/* Rows */
+.tv-row {
+  border-bottom: 1px solid #21262d;
+  transition: background 0.12s;
+}
+
+.tv-row:last-child { border-bottom: none; }
+
+.tv-row:hover { background: #1c2128; }
+
+.tv-row--stopped {
+  background: rgba(239, 68, 68, 0.06);
+}
+.tv-row--stopped:hover { background: rgba(239, 68, 68, 0.1); }
+
+.tv-row--alert {
+  background: rgba(245, 158, 11, 0.06);
+}
+.tv-row--alert:hover { background: rgba(245, 158, 11, 0.1); }
+
+/* Cells */
+.tv-td {
+  padding: 11px 14px;
+  vertical-align: middle;
+  border-right: 1px solid #21262d;
+  font-variant-numeric: tabular-nums;
+}
+
+.tv-td:last-child { border-right: none; }
+
+.tv-td--name {
+  font-weight: 700;
+  font-size: 14px;
+  color: #e6edf3;
+  white-space: nowrap;
+}
+
+.tv-td--metric {
+  text-align: center;
+  font-weight: 700;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+/* Metric cell coloring */
+.tv-cell--green  { color: #22c55e; background: rgba(34,  197, 94,  0.08); }
+.tv-cell--yellow { color: #f59e0b; background: rgba(245, 158, 11,  0.08); }
+.tv-cell--red    { color: #ef4444; background: rgba(239, 68,  68,  0.08); }
+.tv-cell--neutral { color: #4b5563; }
+
+/* Produção cell */
+.tv-td--prod {
+  min-width: 140px;
+}
+
+.tv-prod-row {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  margin-bottom: 4px;
+}
+
+.tv-prod-val {
+  font-size: 15px;
+  font-weight: 800;
+  color: #e6edf3;
+}
+
+.tv-prod-sep {
+  font-size: 13px;
+  color: #4b5563;
+}
+
+.tv-prod-meta {
+  font-size: 13px;
+  font-weight: 400;
+  color: #6b7280;
+}
+
+.tv-prod-track {
+  height: 5px;
+  background: #21262d;
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 3px;
+}
+
+.tv-prod-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.5s ease;
+}
+
+.tv-prod-pct {
+  font-size: 10px;
+  color: #6b7280;
+}
+
+/* Delta Pç/Hora */
+.tv-delta {
+  font-weight: 700;
+  font-size: 14px;
+}
+.tv-delta--green   { color: #22c55e; }
+.tv-delta--red     { color: #ef4444; }
+.tv-delta--neutral { color: #4b5563; }
+
+/* Status badge */
+.tv-td--status { text-align: center; }
+
+.tv-status-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.tv-empty {
+  text-align: center;
+  color: #4b5563;
+  padding: 28px;
+  font-size: 13px;
+}
+
+/* ── Painel de turnos ────────────────────────────────────── */
+.tv-turns {
+  border-top: 1px solid #21262d;
+  background: #0d1117;
+  padding: 14px 20px;
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.tv-turns-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #4b5563;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  align-self: center;
+  flex-shrink: 0;
+}
+
+.tv-turns-grid {
+  display: flex;
+  gap: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.tv-turn-col {
+  flex: 1;
+  min-width: 0;
+  border-right: 1px solid #21262d;
+  padding: 0 20px;
+}
+
+.tv-turn-col:first-child { padding-left: 0; }
+.tv-turn-col:last-child  { border-right: none; padding-right: 0; }
+
+.tv-turn-col--dim { opacity: 0.4; }
+
+.tv-turn-head {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #8b949e;
+  margin-bottom: 10px;
+  white-space: nowrap;
+}
+
+.tv-turn-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tv-turn-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 24px;
+}
+
+.tv-turn-item-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #6b7280;
+  min-width: 90px;
+  flex-shrink: 0;
+}
+
+.tv-turn-item-val {
+  font-size: 16px;
+  font-weight: 800;
+  color: #e6edf3;
+  font-variant-numeric: tabular-nums;
+}
+
+.tv-turn-item-val--dim {
+  color: #4b5563;
+  font-weight: 400;
+}
+
+/* Barra de progresso do turno */
+.tv-turn-bar-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.tv-turn-track {
+  position: relative;
+  width: 100%;
+  max-width: 260px;
+  height: 24px;
+  background: #21262d;
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+}
+
+.tv-turn-fill {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  border-radius: 6px;
+  transition: width 0.5s ease;
+  opacity: 0.85;
+}
+
+.tv-turn-fill-label {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  text-align: center;
+  font-weight: 800;
+  font-size: 13px;
+  color: #e6edf3;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
