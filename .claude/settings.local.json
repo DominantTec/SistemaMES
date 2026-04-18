@@ -4,7 +4,14 @@
       "Bash(npm install:*)",
       "Bash(node:*)",
       "Bash(npm run:*)",
-      "Bash(python -c ':*)"
+      "Bash(python -c ':*)",
+      "Bash(python -c ' *)",
+      "Bash(pip install *)",
+      "Bash(python main.py test_signed.pdf test_final.pdf --save-grid)",
+      "Bash(ls -la test_final.*)",
+      "Bash(python main.py test_signed.pdf test_sep.pdf --separate)",
+      "Bash(ls test_sep_*.pdf)",
+      "Bash(cmd /c \"rmdir /s /q C:\\\\Projetos\\\\PCP\\\\validar_qr\")"
     ]
   }
 }
