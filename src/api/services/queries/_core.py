@@ -3307,7 +3307,7 @@ def update_ordem_status(ordem_id: int, new_status: str) -> dict:
     # ── → finalizado ─────────────────────────────────────────────────────────
     elif new_status == "finalizado":
         producao = (
-            _get_producao_refugo_op(linha_id, dt_inicio, peca_id)
+            _get_producao_refugo_op(linha_id, dt_inicio, peca_id, op_id=ordem_id)
             if dt_inicio is not None
             else {"produzido": 0, "refugo": 0}
         )
@@ -3605,23 +3605,39 @@ def _get_terminal_ihms(peca_id: int) -> list:
     return [int(r["id_ihm"]) for _, r in df.iterrows() if int(r["nu_ordem"]) == max_ordem]
 
 
-def _get_producao_refugo_op(linha_id: int, dt_inicio: datetime, peca_id: int = None) -> dict:
-    """Retorna {produzido, refugo} contando apenas as IHMs terminais do roteiro da peça.
+def _get_producao_refugo_op(linha_id: int, dt_inicio: datetime, peca_id: int = None, op_id: int = None) -> dict:
+    """Retorna {produzido, refugo} para uma OP.
 
-    Somente a última etapa do roteiro representa peças acabadas — a mesma peça
-    passa por múltiplas máquinas, então somar todas as etapas multiplicaria a contagem.
-    Quando peca_id não é fornecido (sem roteiro configurado), usa todas as máquinas
-    da linha como fallback.
+    Quando op_id é fornecido e a OP possui rastreamento por peça em
+    tb_op_peca_producao, usa essa tabela diretamente — fonte de verdade
+    por OP que evita cross-contaminação entre OPs paralelas.
 
-    Usa uma única query com GROUP BY para cobrir todas as IHMs e ambas as descrições,
-    eliminando o loop N+1 anterior (2 × N_máquinas queries → 1 query).
+    Fallback (sem rastreamento por peça): delta de contador de máquina
+    desde dt_inicio, filtrado pelas IHMs terminais do roteiro.
     """
+    # Fonte primária: contagem por peça amarrada à OP
+    if op_id is not None:
+        df_rt = run_query("""
+            SELECT
+                SUM(CASE WHEN nu_etapa_atual > nu_etapas_total AND nu_etapa_erro IS NULL
+                         THEN 1 ELSE 0 END) AS conformes,
+                SUM(CASE WHEN nu_etapa_erro IS NOT NULL THEN 1 ELSE 0 END) AS refugo,
+                COUNT(*) AS total
+            FROM dbo.tb_op_peca_producao
+            WHERE id_ordem = :op_id
+        """, {"op_id": op_id})
+        if not df_rt.empty and not pd.isna(df_rt.iloc[0]["total"]) and int(df_rt.iloc[0]["total"]) > 0:
+            return {
+                "produzido": int(df_rt.iloc[0]["conformes"]) if not pd.isna(df_rt.iloc[0]["conformes"]) else 0,
+                "refugo":    int(df_rt.iloc[0]["refugo"])    if not pd.isna(df_rt.iloc[0]["refugo"])    else 0,
+            }
+
+    # Fallback: delta de contador de máquina (sem rastreamento por peça)
     terminal_ihms: list = []
     if peca_id:
         terminal_ihms = _get_terminal_ihms(peca_id)
 
     if not terminal_ihms:
-        # Fallback: sem roteiro configurado — usa todas as máquinas da linha
         df_maquinas = run_query(
             "SELECT id_ihm FROM dbo.tb_ihm WHERE id_linha_producao = :lid",
             {"lid": linha_id}
@@ -3630,7 +3646,6 @@ def _get_producao_refugo_op(linha_id: int, dt_inicio: datetime, peca_id: int = N
             return {"produzido": 0, "refugo": 0}
         terminal_ihms = [int(r["id_ihm"]) for _, r in df_maquinas.iterrows()]
 
-    # Uma única query para todos os IHMs e ambas as descrições
     ids_placeholder = ",".join(str(i) for i in terminal_ihms)
     df = run_query(f"""
         SELECT
@@ -3958,7 +3973,7 @@ def recalcular_turno_ordens_ativas() -> None:
             try:
                 dt_ini   = op["dt_inicio"]
                 peca_id  = int(op["id_peca"]) if op.get("id_peca") is not None and not pd.isna(op["id_peca"]) else None
-                producao = _get_producao_refugo_op(int(op["id_linha_producao"]), dt_ini, peca_id) if dt_ini is not None else {"produzido": 0, "refugo": 0}
+                producao = _get_producao_refugo_op(int(op["id_linha_producao"]), dt_ini, peca_id, op_id=int(op["id_ordem"])) if dt_ini is not None else {"produzido": 0, "refugo": 0}
                 _finalizar_op_automatico(int(op["id_ordem"]), producao["produzido"], producao["refugo"])
             except Exception:
                 pass
@@ -3988,7 +4003,7 @@ def recalcular_turno_ordens_ativas() -> None:
                 # Conta apenas a última etapa do roteiro.
                 # Aprovadas + reprovadas somam ao total processado: se uma peça
                 # foi reprovada, ela já foi consumida da OP — não precisa refazer.
-                producao = _get_producao_refugo_op(int(op["id_linha_producao"]), dt_ini, peca_id)
+                producao = _get_producao_refugo_op(int(op["id_linha_producao"]), dt_ini, peca_id, op_id=int(op["id_ordem"]))
                 total_processado = producao["produzido"] + producao["refugo"]
                 if total_processado >= meta:
                     _finalizar_op_automatico(int(op["id_ordem"]), producao["produzido"], producao["refugo"])
@@ -4022,7 +4037,7 @@ def recalcular_turno_ordens_ativas() -> None:
                 if age_s < 120:
                     continue
                 peca_id = int(op["id_peca"]) if op.get("id_peca") is not None and not pd.isna(op["id_peca"]) else None
-                producao = _get_producao_refugo_op(int(op["id_linha_producao"]), dt_ini, peca_id)
+                producao = _get_producao_refugo_op(int(op["id_linha_producao"]), dt_ini, peca_id, op_id=int(op["id_ordem"]))
                 _finalizar_op_automatico(int(op["id_ordem"]), producao["produzido"], producao["refugo"])
             except Exception:
                 pass

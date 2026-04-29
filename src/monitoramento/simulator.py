@@ -56,15 +56,15 @@ STATUS_LIMPEZA       = 4
 STATUS_AG_MANUTENCAO = 51   # Aguardando Manutentor (permanente)
 STATUS_MANUTENCAO    = 52   # Em Manutenção (transitório — aguarda motivo)
 
-PROB_IR_PARADA           = 0.012
-PROB_IR_MANUTENCAO       = 0.005
-PROB_IR_LIMPEZA          = 0.003
-PROB_VOLTA_DE_PARADA     = 0.025  # paradas duram em média ~3-5 min após o mínimo
-PROB_VOLTA_DE_MANUTENCAO = 0.018  # manutenções duram em média ~8-12 min
-PROB_VOLTA_DE_LIMPEZA    = 0.08   # limpezas duram em média ~2 min após o mínimo
-MIN_CICLOS_PARADA        = 18     # mínimo 90s (18 × 5s)
-MIN_CICLOS_MANUTENCAO    = 30     # mínimo 150s em STATUS_MANUTENCAO antes de liberar
-MIN_CICLOS_LIMPEZA       = 8      # mínimo 40s
+PROB_IR_PARADA           = 0.005
+PROB_IR_MANUTENCAO       = 0.002
+PROB_IR_LIMPEZA          = 0.001
+PROB_VOLTA_DE_PARADA     = 0.08   # paradas duram em média ~30s após o mínimo
+PROB_VOLTA_DE_MANUTENCAO = 0.05   # manutenções duram em média ~1-2 min
+PROB_VOLTA_DE_LIMPEZA    = 0.25   # limpezas duram em média ~15s após o mínimo
+MIN_CICLOS_PARADA        = 6      # mínimo 30s (6 × 5s)
+MIN_CICLOS_MANUTENCAO    = 10     # mínimo 50s em STATUS_MANUTENCAO antes de liberar
+MIN_CICLOS_LIMPEZA       = 3      # mínimo 15s
 
 # Delay para o operador informar o motivo de parada (fluxo real assíncrono):
 # 49 → 0 (sem motivo) → [delay] → motivo (1-32) → 49
