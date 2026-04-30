@@ -4415,3 +4415,493 @@ def setup_ghost_data() -> None:
 
     except Exception:
         pass
+
+
+# ─── Sistema de Alertas ────────────────────────────────────────────────────────
+
+_alertas_schema_ensured = False
+_last_alert_detection:  float = 0.0
+_ALERT_DETECTION_INTERVAL = 10.0
+
+_DEFAULTS_ALERTA = [
+    {"tx_tipo": "maquina_parada",        "tx_nome": "Máquina parada",          "nu_limiar": 15,  "tx_severidade": "critico", "tx_descricao": "Alerta quando uma máquina ficar parada por mais de N minutos."},
+    {"tx_tipo": "manutencao_prolongada", "tx_nome": "Manutenção prolongada",   "nu_limiar": 60,  "tx_severidade": "critico", "tx_descricao": "Alerta quando uma máquina estiver em manutenção por mais de N minutos."},
+    {"tx_tipo": "oee_baixo",             "tx_nome": "OEE abaixo do limiar",    "nu_limiar": 60,  "tx_severidade": "aviso",   "tx_descricao": "Alerta quando o OEE de uma máquina em produção cair abaixo de N%."},
+    {"tx_tipo": "refugo_alto",           "tx_nome": "Taxa de refugo elevada",  "nu_limiar": 15,  "tx_severidade": "aviso",   "tx_descricao": "Alerta quando a taxa de refugo ultrapassar N% (mínimo 10 peças)."},
+    {"tx_tipo": "op_atrasada",           "tx_nome": "OP com atraso",           "nu_limiar": 60,  "tx_severidade": "aviso",   "tx_descricao": "Alerta quando uma OP estiver em produção por mais de N min com menos de 50% concluída."},
+]
+
+
+def _ensure_alertas_schema():
+    global _alertas_schema_ensured
+    if _alertas_schema_ensured:
+        return
+    run_query_update("""
+        IF NOT EXISTS (SELECT * FROM sys.objects
+                       WHERE object_id = OBJECT_ID(N'dbo.tb_alerta_config') AND type = 'U')
+        BEGIN
+            CREATE TABLE dbo.tb_alerta_config (
+                id_config         INT IDENTITY(1,1) PRIMARY KEY,
+                tx_tipo           VARCHAR(50)    NOT NULL,
+                tx_nome           NVARCHAR(120)  NOT NULL,
+                tx_descricao      NVARCHAR(500)  NULL,
+                nu_limiar         DECIMAL(10,2)  NOT NULL DEFAULT 15,
+                tx_severidade     VARCHAR(20)    NOT NULL DEFAULT 'aviso',
+                id_linha_producao INT            NULL,
+                fl_ativo          BIT            NOT NULL DEFAULT 1,
+                dt_criacao        DATETIME       DEFAULT GETDATE()
+            )
+        END
+    """)
+    run_query_update("""
+        IF NOT EXISTS (SELECT * FROM sys.objects
+                       WHERE object_id = OBJECT_ID(N'dbo.tb_alerta') AND type = 'U')
+        BEGIN
+            CREATE TABLE dbo.tb_alerta (
+                id_alerta            INT IDENTITY(1,1) PRIMARY KEY,
+                id_config            INT             NULL,
+                tx_tipo              VARCHAR(50)     NOT NULL,
+                tx_severidade        VARCHAR(20)     NOT NULL DEFAULT 'aviso',
+                tx_titulo            NVARCHAR(255)   NOT NULL,
+                tx_descricao         NVARCHAR(1000)  NULL,
+                id_linha_producao    INT             NULL,
+                id_ihm               INT             NULL,
+                id_ordem             INT             NULL,
+                nu_valor             DECIMAL(10,2)   NULL,
+                nu_limiar            DECIMAL(10,2)   NULL,
+                tx_status            VARCHAR(20)     NOT NULL DEFAULT 'ativo',
+                tx_reconhecido_por   NVARCHAR(120)   NULL,
+                dt_reconhecido       DATETIME        NULL,
+                tx_resolucao         NVARCHAR(500)   NULL,
+                dt_criacao           DATETIME        DEFAULT GETDATE(),
+                dt_resolucao         DATETIME        NULL
+            )
+        END
+    """)
+    df_count = run_query("SELECT COUNT(*) AS n FROM dbo.tb_alerta_config", {})
+    if not df_count.empty and int(df_count.iloc[0]["n"]) == 0:
+        for d in _DEFAULTS_ALERTA:
+            run_query_update("""
+                INSERT INTO dbo.tb_alerta_config
+                    (tx_tipo, tx_nome, tx_descricao, nu_limiar, tx_severidade, fl_ativo)
+                VALUES (:tipo, :nome, :desc, :limiar, :sev, 1)
+            """, {"tipo": d["tx_tipo"], "nome": d["tx_nome"], "desc": d["tx_descricao"],
+                  "limiar": d["nu_limiar"], "sev": d["tx_severidade"]})
+    _alertas_schema_ensured = True
+
+
+def _criar_alerta_interno(tipo, severidade, titulo, descricao,
+                          id_ihm=None, id_linha=None, id_ordem=None,
+                          nu_valor=None, nu_limiar=None, id_config=None):
+    try:
+        run_query_update("""
+            INSERT INTO dbo.tb_alerta
+                (id_config, tx_tipo, tx_severidade, tx_titulo, tx_descricao,
+                 id_linha_producao, id_ihm, id_ordem, nu_valor, nu_limiar, tx_status)
+            VALUES
+                (:cfg, :tipo, :sev, :titulo, :desc,
+                 :id_linha, :id_ihm, :id_ordem, :valor, :limiar, 'ativo')
+        """, {"cfg": id_config, "tipo": tipo, "sev": severidade,
+              "titulo": titulo, "desc": descricao,
+              "id_linha": id_linha, "id_ihm": id_ihm, "id_ordem": id_ordem,
+              "valor": nu_valor, "limiar": nu_limiar})
+    except Exception:
+        pass
+
+
+def _resolver_alerta_interno(id_alerta: int,
+                             resolucao: str = "Condição normalizada automaticamente."):
+    try:
+        run_query_update("""
+            UPDATE dbo.tb_alerta
+            SET tx_status    = 'resolvido',
+                tx_resolucao = :res,
+                dt_resolucao = GETDATE()
+            WHERE id_alerta  = :id
+              AND tx_status IN ('ativo', 'reconhecido')
+        """, {"res": resolucao, "id": id_alerta})
+    except Exception:
+        pass
+
+
+def _handle_alert(condition_met, tipo, severidade, titulo, descricao,
+                  id_ihm, id_linha, id_ordem, nu_valor, nu_limiar, id_config, alert_keys):
+    key = (tipo, id_ihm, id_ordem)
+    if condition_met:
+        if key not in alert_keys:
+            _criar_alerta_interno(tipo=tipo, severidade=severidade,
+                                  titulo=titulo, descricao=descricao,
+                                  id_ihm=id_ihm, id_linha=id_linha, id_ordem=id_ordem,
+                                  nu_valor=nu_valor, nu_limiar=nu_limiar, id_config=id_config)
+    else:
+        if key in alert_keys:
+            _resolver_alerta_interno(alert_keys[key])
+
+
+def _check_op_atrasada(cfg, alert_keys):
+    limiar = float(cfg["nu_limiar"])
+    sev    = cfg["tx_severidade"]
+    id_cfg = int(cfg["id_config"])
+
+    df = run_query("""
+        SELECT
+            o.id_ordem, o.nu_numero_op, o.tx_peca, o.nu_quantidade,
+            o.id_linha_producao, l.tx_name AS nome_linha,
+            DATEDIFF(MINUTE, o.dt_inicio, GETDATE()) AS minutos_em_producao,
+            COALESCE(rt.n_concluido, 0) AS n_concluido
+        FROM dbo.tb_ordem_producao o
+        JOIN dbo.tb_linha_producao l ON l.id_linha_producao = o.id_linha_producao
+        LEFT JOIN (
+            SELECT id_ordem,
+                SUM(CASE WHEN nu_etapa_atual > nu_etapas_total
+                          AND nu_etapa_erro IS NULL THEN 1 ELSE 0 END) AS n_concluido
+            FROM dbo.tb_op_peca_producao
+            GROUP BY id_ordem
+        ) rt ON rt.id_ordem = o.id_ordem
+        WHERE o.tx_status = 'em_producao'
+          AND o.dt_inicio IS NOT NULL
+    """, {})
+
+    ids_em_producao = set(int(r["id_ordem"]) for _, r in df.iterrows()) if not df.empty else set()
+    for (tipo, id_ihm, id_ordem), id_alerta in list(alert_keys.items()):
+        if tipo != "op_atrasada" or id_ordem is None:
+            continue
+        if id_ordem not in ids_em_producao:
+            _resolver_alerta_interno(id_alerta, "OP finalizada ou cancelada.")
+
+    if df.empty:
+        return
+
+    for _, row in df.iterrows():
+        id_ordem  = int(row["id_ordem"])
+        qtd       = int(row["nu_quantidade"])
+        concluido = int(row["n_concluido"])
+        id_linha  = int(row["id_linha_producao"])
+        minutos   = float(row["minutos_em_producao"]) if not pd.isna(row["minutos_em_producao"]) else 0
+        pct       = round(concluido / qtd * 100, 1) if qtd > 0 else 0.0
+        cond      = (minutos >= limiar and pct < 50.0)
+        titulo    = f"OP atrasada: {row['nu_numero_op']}"
+        descricao = (f"OP {row['nu_numero_op']} ({row['tx_peca']}) em produção há {minutos:.0f} min "
+                     f"com {pct:.0f}% concluída ({concluido}/{qtd} peças).")
+        _handle_alert(condition_met=cond, tipo="op_atrasada", severidade=sev,
+                      titulo=titulo, descricao=descricao,
+                      id_ihm=None, id_linha=id_linha, id_ordem=id_ordem,
+                      nu_valor=pct, nu_limiar=50.0, id_config=id_cfg,
+                      alert_keys=alert_keys)
+
+
+def _detectar_e_criar_alertas():
+    _ensure_alertas_schema()
+
+    df_cfgs = run_query("""
+        SELECT id_config, tx_tipo, nu_limiar, tx_severidade, tx_nome, id_linha_producao
+        FROM dbo.tb_alerta_config WHERE fl_ativo = 1
+    """, {})
+    if df_cfgs.empty:
+        return
+    configs = df_cfgs.to_dict(orient="records")
+
+    df_ativos = run_query("""
+        SELECT id_alerta, tx_tipo, id_ihm, id_ordem
+        FROM dbo.tb_alerta WHERE tx_status IN ('ativo', 'reconhecido')
+    """, {})
+    alert_keys: dict = {}
+    for _, row in df_ativos.iterrows():
+        ihm  = int(row["id_ihm"])   if row["id_ihm"]   is not None and not pd.isna(row["id_ihm"])   else None
+        ord_ = int(row["id_ordem"]) if row["id_ordem"] is not None and not pd.isna(row["id_ordem"]) else None
+        alert_keys[(row["tx_tipo"], ihm, ord_)] = int(row["id_alerta"])
+
+    df_m = run_query("""
+        WITH ms AS (
+            SELECT
+                m.id_ihm, m.tx_name AS nome, m.id_linha_producao,
+                l.tx_name AS nome_linha,
+                s.status_val,
+                p.produzido,
+                r.reprovado,
+                COALESCE(m.nu_meta_turno, 0) AS meta
+            FROM dbo.tb_ihm m
+            JOIN dbo.tb_linha_producao l
+              ON l.id_linha_producao = m.id_linha_producao
+            OUTER APPLY (
+                SELECT TOP 1 CAST(lr.nu_valor_bruto AS INT) AS status_val
+                FROM dbo.tb_log_registrador lr
+                JOIN dbo.tb_registrador reg ON reg.id_registrador = lr.id_registrador
+                WHERE lr.id_ihm = m.id_ihm AND reg.tx_descricao = 'status'
+                ORDER BY lr.dt_created_at DESC
+            ) s
+            OUTER APPLY (
+                SELECT TOP 1 CAST(lr.nu_valor_bruto AS INT) AS produzido
+                FROM dbo.tb_log_registrador lr
+                JOIN dbo.tb_registrador reg ON reg.id_registrador = lr.id_registrador
+                WHERE lr.id_ihm = m.id_ihm AND reg.tx_descricao = 'produzido'
+                ORDER BY lr.dt_created_at DESC
+            ) p
+            OUTER APPLY (
+                SELECT TOP 1 CAST(lr.nu_valor_bruto AS INT) AS reprovado
+                FROM dbo.tb_log_registrador lr
+                JOIN dbo.tb_registrador reg ON reg.id_registrador = lr.id_registrador
+                WHERE lr.id_ihm = m.id_ihm AND reg.tx_descricao = 'reprovado'
+                ORDER BY lr.dt_created_at DESC
+            ) r
+            WHERE s.status_val IS NOT NULL
+        )
+        SELECT ms.*, dur.minutos_no_status
+        FROM ms
+        OUTER APPLY (
+            SELECT TOP 1
+                DATEDIFF(MINUTE, lr.dt_created_at, GETDATE()) AS minutos_no_status
+            FROM dbo.tb_log_registrador lr
+            JOIN dbo.tb_registrador reg ON reg.id_registrador = lr.id_registrador
+            WHERE lr.id_ihm          = ms.id_ihm
+              AND reg.tx_descricao   = 'status'
+              AND CAST(lr.nu_valor_bruto AS INT) <> ms.status_val
+            ORDER BY lr.dt_created_at DESC
+        ) dur
+    """, {})
+
+    oee_map: dict = {}
+    try:
+        ov = get_overview_data()
+        for linha in ov.get("linhas", []):
+            for m in linha.get("maquinas", []):
+                oee_map[m["id"]] = m.get("oee") or 0
+    except Exception:
+        pass
+
+    for _, m_row in df_m.iterrows():
+        id_ihm     = int(m_row["id_ihm"])
+        id_linha   = int(m_row["id_linha_producao"])
+        nome       = m_row["nome"]
+        nome_linha = m_row["nome_linha"]
+        status     = int(m_row["status_val"])
+        produzido  = int(m_row["produzido"])  if m_row["produzido"]  is not None and not pd.isna(m_row["produzido"])  else 0
+        reprovado  = int(m_row["reprovado"])  if m_row["reprovado"]  is not None and not pd.isna(m_row["reprovado"])  else 0
+        minutos    = float(m_row["minutos_no_status"]) if m_row["minutos_no_status"] is not None and not pd.isna(m_row["minutos_no_status"]) else 999
+        oee        = oee_map.get(id_ihm, 0) or 0
+        total_pcs  = produzido + reprovado
+
+        for cfg in configs:
+            if cfg["id_linha_producao"] is not None and not pd.isna(cfg["id_linha_producao"]):
+                if int(cfg["id_linha_producao"]) != id_linha:
+                    continue
+            tipo   = cfg["tx_tipo"]
+            limiar = float(cfg["nu_limiar"])
+            sev    = cfg["tx_severidade"]
+            id_cfg = int(cfg["id_config"])
+
+            if tipo == "maquina_parada":
+                cond      = (status == 0 and minutos >= limiar)
+                titulo    = f"Máquina parada: {nome}"
+                descricao = f"{nome} ({nome_linha}) está parada há {minutos:.0f} min (limiar: {limiar:.0f} min)."
+                valor     = minutos
+            elif tipo == "manutencao_prolongada":
+                cond      = (status in (51, 52) and minutos >= limiar)
+                titulo    = f"Manutenção prolongada: {nome}"
+                descricao = f"{nome} ({nome_linha}) em manutenção há {minutos:.0f} min (limiar: {limiar:.0f} min)."
+                valor     = minutos
+            elif tipo == "oee_baixo":
+                cond      = (status == 49 and oee > 0 and oee < limiar)
+                titulo    = f"OEE baixo: {nome}"
+                descricao = f"{nome} ({nome_linha}) com OEE de {oee:.1f}% abaixo do limiar de {limiar:.0f}%."
+                valor     = oee
+            elif tipo == "refugo_alto":
+                taxa      = round(reprovado / total_pcs * 100, 1) if total_pcs >= 10 else 0
+                cond      = (total_pcs >= 10 and taxa > limiar)
+                titulo    = f"Refugo alto: {nome}"
+                descricao = f"{nome} ({nome_linha}) com {taxa:.1f}% de refugo ({reprovado}/{total_pcs} peças). Limiar: {limiar:.0f}%."
+                valor     = taxa
+            else:
+                continue
+
+            _handle_alert(condition_met=cond, tipo=tipo, severidade=sev,
+                          titulo=titulo, descricao=descricao,
+                          id_ihm=id_ihm, id_linha=id_linha, id_ordem=None,
+                          nu_valor=valor, nu_limiar=limiar, id_config=id_cfg,
+                          alert_keys=alert_keys)
+
+    for cfg in configs:
+        if cfg["tx_tipo"] == "op_atrasada":
+            _check_op_atrasada(cfg, alert_keys)
+
+
+def detectar_alertas_throttled():
+    global _last_alert_detection
+    now = _time.monotonic()
+    if now - _last_alert_detection < _ALERT_DETECTION_INTERVAL:
+        return
+    _last_alert_detection = now
+    try:
+        _detectar_e_criar_alertas()
+    except Exception:
+        pass
+
+
+def get_alertas(status: str = None, severidade: str = None, linha_id: int = None,
+                tipo: str = None, limite: int = 200) -> list:
+    _ensure_alertas_schema()
+    where  = ["1=1"]
+    params: dict = {"lim": limite}
+    if status:
+        where.append("a.tx_status = :status");     params["status"]  = status
+    if severidade:
+        where.append("a.tx_severidade = :sev");    params["sev"]     = severidade
+    if linha_id:
+        where.append("a.id_linha_producao = :lid"); params["lid"]    = linha_id
+    if tipo:
+        where.append("a.tx_tipo = :tipo");          params["tipo"]   = tipo
+
+    df = run_query(f"""
+        SELECT TOP (:lim)
+            a.id_alerta, a.tx_tipo, a.tx_severidade, a.tx_titulo, a.tx_descricao,
+            a.id_linha_producao, l.tx_name  AS nome_linha,
+            a.id_ihm,            m.tx_name  AS nome_maquina,
+            a.id_ordem,          o.nu_numero_op,
+            a.nu_valor, a.nu_limiar,
+            a.tx_status, a.tx_reconhecido_por, a.dt_reconhecido,
+            a.tx_resolucao, a.dt_criacao, a.dt_resolucao
+        FROM dbo.tb_alerta a
+        LEFT JOIN dbo.tb_linha_producao  l ON l.id_linha_producao = a.id_linha_producao
+        LEFT JOIN dbo.tb_ihm             m ON m.id_ihm             = a.id_ihm
+        LEFT JOIN dbo.tb_ordem_producao  o ON o.id_ordem           = a.id_ordem
+        WHERE {' AND '.join(where)}
+        ORDER BY
+            CASE a.tx_status WHEN 'ativo' THEN 0 WHEN 'reconhecido' THEN 1 ELSE 2 END,
+            CASE a.tx_severidade WHEN 'critico' THEN 0 WHEN 'aviso' THEN 1 ELSE 2 END,
+            a.dt_criacao DESC
+    """, params)
+
+    result = []
+    for _, r in df.iterrows():
+        def _int(v):   return int(v)        if v is not None and not pd.isna(v) else None
+        def _float(v): return float(v)      if v is not None and not pd.isna(v) else None
+        def _dt(v):    return v.isoformat() if v is not None                    else None
+        result.append({
+            "id":              int(r["id_alerta"]),
+            "tipo":            r["tx_tipo"],
+            "severidade":      r["tx_severidade"],
+            "titulo":          r["tx_titulo"],
+            "descricao":       r["tx_descricao"],
+            "id_linha":        _int(r["id_linha_producao"]),
+            "nome_linha":      r["nome_linha"],
+            "id_ihm":          _int(r["id_ihm"]),
+            "nome_maquina":    r["nome_maquina"],
+            "id_ordem":        _int(r["id_ordem"]),
+            "numero_op":       r["nu_numero_op"],
+            "nu_valor":        _float(r["nu_valor"]),
+            "nu_limiar":       _float(r["nu_limiar"]),
+            "status":          r["tx_status"],
+            "reconhecido_por": r["tx_reconhecido_por"],
+            "dt_reconhecido":  _dt(r["dt_reconhecido"]),
+            "resolucao":       r["tx_resolucao"],
+            "dt_criacao":      _dt(r["dt_criacao"]),
+            "dt_resolucao":    _dt(r["dt_resolucao"]),
+        })
+    return result
+
+
+def get_alertas_stats() -> dict:
+    _ensure_alertas_schema()
+    df = run_query("""
+        SELECT
+            SUM(CASE WHEN tx_status IN ('ativo','reconhecido')                             THEN 1 ELSE 0 END) AS total_ativos,
+            SUM(CASE WHEN tx_status = 'ativo'                                              THEN 1 ELSE 0 END) AS nao_reconhecidos,
+            SUM(CASE WHEN tx_status = 'reconhecido'                                        THEN 1 ELSE 0 END) AS reconhecidos,
+            SUM(CASE WHEN tx_status IN ('ativo','reconhecido') AND tx_severidade='critico' THEN 1 ELSE 0 END) AS criticos,
+            SUM(CASE WHEN CAST(dt_criacao AS DATE) = CAST(GETDATE() AS DATE)               THEN 1 ELSE 0 END) AS hoje,
+            SUM(CASE WHEN dt_criacao >= DATEADD(DAY,-7,GETDATE())                          THEN 1 ELSE 0 END) AS semana
+        FROM dbo.tb_alerta
+    """, {})
+    if df.empty:
+        return {"total_ativos": 0, "nao_reconhecidos": 0, "reconhecidos": 0,
+                "criticos": 0, "hoje": 0, "semana": 0}
+    r = df.iloc[0]
+    def _i(v): return int(v) if v is not None and not pd.isna(v) else 0
+    return {"total_ativos": _i(r["total_ativos"]), "nao_reconhecidos": _i(r["nao_reconhecidos"]),
+            "reconhecidos":  _i(r["reconhecidos"]),  "criticos": _i(r["criticos"]),
+            "hoje":          _i(r["hoje"]),           "semana":   _i(r["semana"])}
+
+
+def reconhecer_alerta(id_alerta: int, reconhecido_por: str = "Operador") -> None:
+    _ensure_alertas_schema()
+    run_query_update("""
+        UPDATE dbo.tb_alerta
+        SET tx_status = 'reconhecido', tx_reconhecido_por = :por, dt_reconhecido = GETDATE()
+        WHERE id_alerta = :id AND tx_status = 'ativo'
+    """, {"por": reconhecido_por, "id": id_alerta})
+
+
+def resolver_alerta(id_alerta: int, resolucao: str = None) -> None:
+    _ensure_alertas_schema()
+    run_query_update("""
+        UPDATE dbo.tb_alerta
+        SET tx_status    = 'resolvido',
+            tx_resolucao = :res,
+            dt_resolucao = GETDATE()
+        WHERE id_alerta = :id AND tx_status IN ('ativo', 'reconhecido')
+    """, {"res": resolucao, "id": id_alerta})
+
+
+def get_alertas_config() -> list:
+    _ensure_alertas_schema()
+    df = run_query("""
+        SELECT c.id_config, c.tx_tipo, c.tx_nome, c.tx_descricao, c.nu_limiar,
+               c.tx_severidade, c.id_linha_producao, l.tx_name AS nome_linha, c.fl_ativo
+        FROM dbo.tb_alerta_config c
+        LEFT JOIN dbo.tb_linha_producao l ON l.id_linha_producao = c.id_linha_producao
+        ORDER BY c.id_config
+    """, {})
+    result = []
+    for _, r in df.iterrows():
+        result.append({
+            "id":         int(r["id_config"]),
+            "tipo":       r["tx_tipo"],
+            "nome":       r["tx_nome"],
+            "descricao":  r["tx_descricao"],
+            "limiar":     float(r["nu_limiar"]),
+            "severidade": r["tx_severidade"],
+            "id_linha":   int(r["id_linha_producao"]) if r["id_linha_producao"] is not None and not pd.isna(r["id_linha_producao"]) else None,
+            "nome_linha": r["nome_linha"],
+            "ativo":      bool(r["fl_ativo"]),
+        })
+    return result
+
+
+def save_alerta_config(data: dict) -> int:
+    _ensure_alertas_schema()
+    id_cfg = data.get("id")
+    p = {
+        "tipo":     data["tipo"],
+        "nome":     data["nome"],
+        "desc":     data.get("descricao", ""),
+        "limiar":   data["limiar"],
+        "sev":      data["severidade"],
+        "id_linha": data.get("id_linha"),
+        "ativo":    1 if data.get("ativo", True) else 0,
+    }
+    if id_cfg:
+        run_query_update("""
+            UPDATE dbo.tb_alerta_config
+            SET tx_tipo=:tipo, tx_nome=:nome, tx_descricao=:desc,
+                nu_limiar=:limiar, tx_severidade=:sev,
+                id_linha_producao=:id_linha, fl_ativo=:ativo
+            WHERE id_config=:id
+        """, {**p, "id": id_cfg})
+        return int(id_cfg)
+    return int(run_query_insert("""
+        INSERT INTO dbo.tb_alerta_config
+            (tx_tipo, tx_nome, tx_descricao, nu_limiar, tx_severidade, id_linha_producao, fl_ativo)
+        OUTPUT INSERTED.id_config
+        VALUES (:tipo, :nome, :desc, :limiar, :sev, :id_linha, :ativo)
+    """, p))
+
+
+def delete_alerta_config(id_config: int) -> None:
+    _ensure_alertas_schema()
+    run_query_update("DELETE FROM dbo.tb_alerta_config WHERE id_config=:id", {"id": id_config})
+
+
+def toggle_alerta_config(id_config: int, ativo: bool) -> None:
+    _ensure_alertas_schema()
+    run_query_update("UPDATE dbo.tb_alerta_config SET fl_ativo=:a WHERE id_config=:id",
+                     {"a": 1 if ativo else 0, "id": id_config})

@@ -63,4 +63,14 @@ from api.services.queries._core import (  # noqa: F401
     get_historico_maquina_detalhe,
     # ── Setup ─────────────────────────────────────────────────────────────
     setup_ghost_data,
+    # ── Alertas ───────────────────────────────────────────────────────────
+    get_alertas,
+    get_alertas_stats,
+    reconhecer_alerta,
+    resolver_alerta,
+    get_alertas_config,
+    save_alerta_config,
+    delete_alerta_config,
+    toggle_alerta_config,
+    detectar_alertas_throttled,
 )

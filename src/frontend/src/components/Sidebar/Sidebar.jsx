@@ -6,8 +6,9 @@ const DEFAULT_API = `http://${window.location.hostname}:8000`;
 const API_BASE = import.meta.env.VITE_API_BASE || DEFAULT_API;
 
 export default function Sidebar() {
-  const [linhas, setLinhas] = useState([]);
-  const [turno, setTurno]   = useState(null);
+  const [linhas,         setLinhas]         = useState([]);
+  const [turno,          setTurno]          = useState(null);
+  const [alertasBadge,   setAlertasBadge]   = useState(0);
 
   useEffect(() => {
     fetch(`${API_BASE}/api/lines`)
@@ -25,6 +26,18 @@ export default function Sidebar() {
     }
     fetchTurno();
     const id = setInterval(fetchTurno, 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    function fetchAlertStats() {
+      fetch(`${API_BASE}/api/alertas/stats`)
+        .then((r) => r.json())
+        .then((d) => setAlertasBadge(d.nao_reconhecidos ?? 0))
+        .catch(() => {});
+    }
+    fetchAlertStats();
+    const id = setInterval(fetchAlertStats, 15_000);
     return () => clearInterval(id);
   }, []);
 
@@ -67,6 +80,17 @@ export default function Sidebar() {
         >
           <span className="sb-ico">📊</span>
           <span>Histórico</span>
+        </NavLink>
+
+        <NavLink
+          to="/alertas"
+          className={({ isActive }) => "sb-item" + (isActive ? " active" : "")}
+        >
+          <span className="sb-ico">🔔</span>
+          <span>Alertas</span>
+          {alertasBadge > 0 && (
+            <span className="sb-badge">{alertasBadge > 99 ? "99+" : alertasBadge}</span>
+          )}
         </NavLink>
 
         <a

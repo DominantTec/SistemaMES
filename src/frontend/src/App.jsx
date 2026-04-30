@@ -9,6 +9,7 @@ import PainelMES from "./pages/PainelMES";
 import PainelTV from "./pages/PainelTV";
 import Historico from "./pages/Historico";
 import OrdensProducao from "./pages/OrdensProducao";
+import Alertas from "./pages/Alertas";
 
 export default function App() {
   return (
@@ -29,6 +30,7 @@ export default function App() {
               <Route path="/configuracoes" element={<Configuracoes />} />
               <Route path="/historico" element={<Historico />} />
               <Route path="/ordens" element={<OrdensProducao />} />
+              <Route path="/alertas" element={<Alertas />} />
             </Routes>
           </AppLayout>
         } />

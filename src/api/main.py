@@ -13,6 +13,7 @@ from api.routers.overview import router as overview_router
 from api.routers.config import router as config_router
 from api.routers.historico import router as historico_router
 from api.routers.ordens import router as ordens_router
+from api.routers.alertas import router as alertas_router
 from api.services.queries import ensure_ordens_table, recalcular_turno_ordens_ativas, setup_ghost_data
 
 
@@ -78,3 +79,4 @@ app.include_router(overview_router)
 app.include_router(config_router)
 app.include_router(historico_router)
 app.include_router(ordens_router)
+app.include_router(alertas_router)
