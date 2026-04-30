@@ -10,6 +10,7 @@ import PainelTV from "./pages/PainelTV";
 import Historico from "./pages/Historico";
 import OrdensProducao from "./pages/OrdensProducao";
 import Alertas from "./pages/Alertas";
+import Manutencao from "./pages/Manutencao";
 
 export default function App() {
   return (
@@ -31,6 +32,7 @@ export default function App() {
               <Route path="/historico" element={<Historico />} />
               <Route path="/ordens" element={<OrdensProducao />} />
               <Route path="/alertas" element={<Alertas />} />
+              <Route path="/manutencao" element={<Manutencao />} />
             </Routes>
           </AppLayout>
         } />

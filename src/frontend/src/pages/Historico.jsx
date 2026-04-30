@@ -2071,14 +2071,154 @@ function RelatorioTab({ fabricaData, funil, inicio, fim, onBuscar, loading }) {
   );
 }
 
+// ─── Aba Manutenção ──────────────────────────────────────────────────────────
+
+function ManutencaoTab({ selLinhaId, inicio, fim }) {
+  const [osList,  setOsList]  = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [fetched, setFetched] = useState(false);
+
+  useEffect(() => {
+    if (!selLinhaId) return;
+    setLoading(true);
+    fetch(`${API_BASE}/api/manutencao?linha_id=${selLinhaId}&limite=500`)
+      .then(r => r.json())
+      .then(d => { setOsList(Array.isArray(d) ? d : []); setLoading(false); setFetched(true); })
+      .catch(() => { setLoading(false); setFetched(true); });
+  }, [selLinhaId]);
+
+  if (!selLinhaId) {
+    return <EmptyState icon="🔧" text="Selecione uma linha de referência para ver as OS de manutenção." />;
+  }
+  if (loading) return <div className="hi-loading"><Spinner /> Carregando OS...</div>;
+
+  // Filter by turno period if dates available
+  const filtered = (inicio && fim)
+    ? osList.filter(o => {
+        if (!o.dt_abertura) return false;
+        return o.dt_abertura >= inicio && o.dt_abertura <= fim;
+      })
+    : osList;
+
+  if (fetched && filtered.length === 0) {
+    return <EmptyState icon="🔧" text="Nenhuma OS de manutenção encontrada para o período selecionado." />;
+  }
+
+  const concluidas = filtered.filter(o => o.status === "concluida");
+  const abertas    = filtered.filter(o => o.status === "aberta" || o.status === "em_andamento");
+  const canceladas = filtered.filter(o => o.status === "cancelada");
+
+  const avgMttrReparo = concluidas.length > 0
+    ? Math.round(concluidas.reduce((s, o) => s + (o.tempo_reparo_min ?? 0), 0) / concluidas.length) : 0;
+  const avgMttrTotal  = concluidas.length > 0
+    ? Math.round(concluidas.reduce((s, o) => s + (o.tempo_total_min ?? 0), 0) / concluidas.length) : 0;
+  const avgEspera     = concluidas.filter(o => o.tempo_espera_min != null).length > 0
+    ? Math.round(concluidas.filter(o => o.tempo_espera_min != null)
+        .reduce((s, o) => s + o.tempo_espera_min, 0) /
+        concluidas.filter(o => o.tempo_espera_min != null).length) : 0;
+
+  // OS per machine bar data
+  const byMachine = {};
+  filtered.forEach(o => {
+    const k = o.nome_ihm || `IHM ${o.id_ihm}`;
+    byMachine[k] = (byMachine[k] || 0) + 1;
+  });
+  const chartData = Object.entries(byMachine)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([nome, count]) => ({ nome: nome.length > 18 ? nome.slice(0, 17) + "…" : nome, count }));
+
+  function fmtMin(min) {
+    if (!min) return "—";
+    if (min < 60) return `${min}m`;
+    return `${Math.floor(min / 60)}h ${min % 60}m`;
+  }
+  function fmtDt(iso) {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  }
+  const OS_LABELS = { aberta: "Aberta", em_andamento: "Em Andamento", concluida: "Concluída", cancelada: "Cancelada" };
+  const OS_COLORS = { aberta: "#ef4444", em_andamento: "#f59e0b", concluida: "#22c55e", cancelada: "#9ca3af" };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+
+      {/* Stats row */}
+      <div className="hi-kpi-row" style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+        <KPICard label="Total OS" value={filtered.length} color="#2563eb" icon="🔧" />
+        <KPICard label="Concluídas" value={concluidas.length} color="#22c55e" icon="✓" />
+        <KPICard label="Em aberto" value={abertas.length} color={abertas.length > 0 ? "#ef4444" : "#6b7280"} icon="⚠" />
+        <KPICard label="MTTR (reparo)" value={fmtMin(avgMttrReparo)} icon="⏱" />
+        <KPICard label="MTTR (total)" value={fmtMin(avgMttrTotal)} icon="⌛" />
+        <KPICard label="Espera média" value={fmtMin(avgEspera)} icon="⏳" />
+      </div>
+
+      {/* OS por máquina */}
+      {chartData.length > 0 && (
+        <div className="hi-section-card">
+          <div className="hi-section-title">OS por Máquina</div>
+          <ResponsiveContainer width="100%" height={Math.max(160, chartData.length * 36)}>
+            <BarChart layout="vertical" data={chartData} margin={{ top: 4, right: 40, left: 0, bottom: 4 }}>
+              <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+              <YAxis type="category" dataKey="nome" width={130} tick={{ fontSize: 12, fill: "#374151" }} axisLine={false} tickLine={false} />
+              <Tooltip formatter={v => [`${v} OS`]} cursor={{ fill: "#f9fafb" }} />
+              <Bar dataKey="count" fill="#7c3aed" radius={[0, 6, 6, 0]} maxBarSize={22} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* OS list */}
+      <div className="hi-section-card">
+        <div className="hi-section-title">Lista de OS ({filtered.length})</div>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
+                {["OS","Máquina","Status","Abertura","Conclusão","Manutentor","Espera","Reparo","Problema / Solução"].map(h => (
+                  <th key={h} style={{ textAlign: "left", padding: "6px 10px", fontSize: 11, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(o => (
+                <tr key={o.id_os} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                  <td style={{ padding: "8px 10px", color: "#6b7280", fontWeight: 600 }}>#{o.id_os}</td>
+                  <td style={{ padding: "8px 10px", fontWeight: 600 }}>{o.nome_ihm}</td>
+                  <td style={{ padding: "8px 10px" }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, borderRadius: 6, padding: "2px 8px", background: OS_COLORS[o.status] + "22", color: OS_COLORS[o.status] }}>
+                      {OS_LABELS[o.status] ?? o.status}
+                    </span>
+                  </td>
+                  <td style={{ padding: "8px 10px", color: "#6b7280", whiteSpace: "nowrap" }}>{fmtDt(o.dt_abertura)}</td>
+                  <td style={{ padding: "8px 10px", color: "#6b7280", whiteSpace: "nowrap" }}>{fmtDt(o.dt_conclusao)}</td>
+                  <td style={{ padding: "8px 10px" }}>{o.manutentor || "—"}</td>
+                  <td style={{ padding: "8px 10px", color: "#d97706", fontWeight: 600 }}>{fmtMin(o.tempo_espera_min)}</td>
+                  <td style={{ padding: "8px 10px", color: "#2563eb", fontWeight: 600 }}>{fmtMin(o.tempo_reparo_min)}</td>
+                  <td style={{ padding: "8px 10px", maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {o.solucao || o.problema || o.motivo_abertura || "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  );
+}
+
 // ─── Tabs ────────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { key: "turno",     label: "🔄 Detalhes do Turno", sub: "Principal"  },
-  { key: "fabrica",   label: "🏭 Visão Geral",        sub: "Fábrica"    },
-  { key: "linha",     label: "🔧 Por Linha",          sub: "Análise"    },
-  { key: "maquina",   label: "⚙️ Por Máquina",       sub: "Drill-down" },
-  { key: "relatorio", label: "📋 Relatórios",         sub: "Exportar"   },
+  { key: "turno",      label: "🔄 Detalhes do Turno", sub: "Principal"  },
+  { key: "fabrica",    label: "🏭 Visão Geral",        sub: "Fábrica"    },
+  { key: "linha",      label: "📈 Por Linha",          sub: "Análise"    },
+  { key: "maquina",    label: "⚙️ Por Máquina",       sub: "Drill-down" },
+  { key: "manutencao", label: "🔧 Manutenção",         sub: "OS"         },
+  { key: "relatorio",  label: "📋 Relatórios",         sub: "Exportar"   },
 ];
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -2252,21 +2392,24 @@ export default function Historico() {
       </div>
 
       {/* ── Tab Content ──────────────────────────────────────────────────── */}
-      {loading && activeTab !== "turno" ? (
+      {loading && activeTab !== "turno" && activeTab !== "manutencao" ? (
         <div className="hi-loading"><Spinner /> Carregando dados da fábrica...</div>
       ) : (
         <>
-          {activeTab === "turno"     && (
+          {activeTab === "turno"      && (
             <TurnoTab selectedTurno={selectedTurno} selectedLinhaId={selLinhaId} />
           )}
-          {activeTab === "fabrica"   && <FabricaTab data={fabricaData} funil={funil} />}
-          {activeTab === "linha"     && (
+          {activeTab === "fabrica"    && <FabricaTab data={fabricaData} funil={funil} />}
+          {activeTab === "linha"      && (
             <LinhaTab linhas={fabricaData?.linhas} inicio={inicio} fim={fim} defaultLinhaId={selLinhaId} />
           )}
-          {activeTab === "maquina"   && (
+          {activeTab === "maquina"    && (
             <MaquinaTab linhas={fabricaData?.linhas} inicio={inicio} fim={fim} />
           )}
-          {activeTab === "relatorio" && (
+          {activeTab === "manutencao" && (
+            <ManutencaoTab selLinhaId={selLinhaId} inicio={inicio} fim={fim} />
+          )}
+          {activeTab === "relatorio"  && (
             <RelatorioTab fabricaData={fabricaData} funil={funil} inicio={inicio} fim={fim}
               turno={selectedTurno} onBuscar={buscar} loading={loading} />
           )}

@@ -4905,3 +4905,343 @@ def toggle_alerta_config(id_config: int, ativo: bool) -> None:
     _ensure_alertas_schema()
     run_query_update("UPDATE dbo.tb_alerta_config SET fl_ativo=:a WHERE id_config=:id",
                      {"a": 1 if ativo else 0, "id": id_config})
+
+
+# ─── Manutenção / Ordens de Serviço ─────────────────────────────────────────
+
+_os_schema_ensured: bool  = False
+_last_os_detection: float = 0.0
+_OS_DETECTION_INTERVAL    = 15.0          # segundos entre detecções
+
+
+def _ensure_os_schema() -> None:
+    global _os_schema_ensured
+    if _os_schema_ensured:
+        return
+    try:
+        run_query_update("""
+            IF NOT EXISTS (
+                SELECT 1 FROM sys.tables
+                WHERE name='tb_ordem_servico' AND schema_id=SCHEMA_ID('dbo')
+            )
+            CREATE TABLE dbo.tb_ordem_servico (
+                id_os                   INT IDENTITY(1,1) PRIMARY KEY,
+                id_ihm                  INT NOT NULL,
+                tx_nome_ihm             VARCHAR(200),
+                id_linha_producao       INT,
+                tx_nome_linha           VARCHAR(200),
+                tx_status               VARCHAR(20)  NOT NULL DEFAULT 'aberta',
+                tx_tipo                 VARCHAR(20)  NOT NULL DEFAULT 'automatica',
+                tx_abertura_motivo      VARCHAR(500),
+                tx_problema             VARCHAR(1000),
+                tx_solucao              VARCHAR(1000),
+                tx_manutentor           VARCHAR(200),
+                tx_cancelamento         VARCHAR(500),
+                dt_abertura             DATETIME     NOT NULL DEFAULT GETDATE(),
+                dt_inicio_atendimento   DATETIME,
+                dt_conclusao            DATETIME,
+                nu_tempo_espera_min     INT,
+                nu_tempo_reparo_min     INT,
+                nu_tempo_total_min      INT
+            )
+        """, {})
+        _os_schema_ensured = True
+    except Exception:
+        pass
+
+
+def _detectar_os_manutencao() -> None:
+    """Auto-cria e atualiza OS com base nas transições de status das máquinas."""
+    _ensure_os_schema()
+    try:
+        df_machines = run_query("""
+            WITH ms AS (
+                SELECT m.id_ihm, m.tx_name AS nome_ihm,
+                       m.id_linha_producao, l.tx_name AS nome_linha,
+                       s.status_val
+                FROM dbo.tb_ihm m
+                JOIN dbo.tb_linha_producao l ON l.id_linha_producao = m.id_linha_producao
+                OUTER APPLY (
+                    SELECT TOP 1 CAST(lr.nu_valor_bruto AS INT) AS status_val
+                    FROM dbo.tb_log_registrador lr
+                    JOIN dbo.tb_registrador reg ON reg.id_registrador = lr.id_registrador
+                    WHERE lr.id_ihm = m.id_ihm AND reg.tx_descricao = 'status'
+                    ORDER BY lr.dt_created_at DESC
+                ) s
+            )
+            SELECT id_ihm, nome_ihm, id_linha_producao, nome_linha, status_val
+            FROM ms WHERE status_val IS NOT NULL
+        """, {})
+
+        if df_machines.empty:
+            return
+
+        df_active = run_query("""
+            SELECT id_os, id_ihm, tx_status, dt_abertura
+            FROM dbo.tb_ordem_servico
+            WHERE tx_status IN ('aberta', 'em_andamento')
+        """, {})
+
+        active_os: dict = {}
+        if not df_active.empty:
+            for _, row in df_active.iterrows():
+                iid = int(row["id_ihm"])
+                active_os[iid] = {
+                    "id_os":    int(row["id_os"]),
+                    "status":   str(row["tx_status"]),
+                    "abertura": row["dt_abertura"],
+                }
+
+        for _, m in df_machines.iterrows():
+            ihm_id   = int(m["id_ihm"])
+            sv       = m["status_val"]
+            status   = int(sv) if sv is not None and not pd.isna(sv) else -1
+            in_manut = status in (51, 52)
+
+            if in_manut:
+                if ihm_id not in active_os:
+                    motivo = "Ag. Manutentor" if status == 51 else "Em Manutenção"
+                    run_query_insert("""
+                        INSERT INTO dbo.tb_ordem_servico
+                            (id_ihm, tx_nome_ihm, id_linha_producao, tx_nome_linha,
+                             tx_status, tx_tipo, tx_abertura_motivo)
+                        OUTPUT INSERTED.id_os
+                        VALUES (:ihm,:nome,:linha,:nome_linha,'aberta','automatica',:motivo)
+                    """, {
+                        "ihm":       ihm_id,
+                        "nome":      str(m["nome_ihm"]),
+                        "linha":     int(m["id_linha_producao"]),
+                        "nome_linha": str(m["nome_linha"]),
+                        "motivo":    motivo,
+                    })
+                elif status == 52 and active_os[ihm_id]["status"] == "aberta":
+                    ab      = active_os[ihm_id]["abertura"]
+                    espera  = None
+                    if ab is not None:
+                        try:
+                            espera = int((datetime.now() - ab).total_seconds() / 60)
+                        except Exception:
+                            pass
+                    run_query_update("""
+                        UPDATE dbo.tb_ordem_servico
+                        SET tx_status='em_andamento',
+                            dt_inicio_atendimento=GETDATE(),
+                            nu_tempo_espera_min=:espera
+                        WHERE id_os=:id
+                    """, {"id": active_os[ihm_id]["id_os"], "espera": espera})
+            else:
+                if ihm_id in active_os:
+                    os_rec    = active_os[ihm_id]
+                    id_os     = os_rec["id_os"]
+                    ab        = os_rec["abertura"]
+                    total_min = None
+                    if ab is not None:
+                        try:
+                            total_min = int((datetime.now() - ab).total_seconds() / 60)
+                        except Exception:
+                            pass
+                    run_query_update("""
+                        UPDATE dbo.tb_ordem_servico
+                        SET tx_status='concluida',
+                            dt_conclusao=GETDATE(),
+                            nu_tempo_total_min=:total
+                        WHERE id_os=:id
+                    """, {"id": id_os, "total": total_min})
+    except Exception:
+        pass
+
+
+def detectar_os_manutencao_throttled() -> None:
+    global _last_os_detection
+    now = _time.monotonic()
+    if (now - _last_os_detection) < _OS_DETECTION_INTERVAL:
+        return
+    _last_os_detection = now
+    _detectar_os_manutencao()
+
+
+def get_os_manutencao(
+    status:     Optional[str] = None,
+    linha_id:   Optional[int] = None,
+    maquina_id: Optional[int] = None,
+    limite:     int = 200,
+) -> list:
+    _ensure_os_schema()
+    filters = ["1=1"]
+    params: dict = {"lim": limite}
+    if status:
+        filters.append("tx_status = :status"); params["status"] = status
+    if linha_id:
+        filters.append("id_linha_producao = :linha_id"); params["linha_id"] = linha_id
+    if maquina_id:
+        filters.append("id_ihm = :maquina_id"); params["maquina_id"] = maquina_id
+
+    where = " AND ".join(filters)
+    df = run_query(f"""
+        SELECT TOP (:lim)
+            id_os, id_ihm, tx_nome_ihm, id_linha_producao, tx_nome_linha,
+            tx_status, tx_tipo, tx_abertura_motivo, tx_problema, tx_solucao,
+            tx_manutentor, tx_cancelamento,
+            dt_abertura, dt_inicio_atendimento, dt_conclusao,
+            nu_tempo_espera_min, nu_tempo_reparo_min, nu_tempo_total_min
+        FROM dbo.tb_ordem_servico
+        WHERE {where}
+        ORDER BY
+            CASE tx_status WHEN 'em_andamento' THEN 0 WHEN 'aberta' THEN 1 ELSE 2 END,
+            dt_abertura DESC
+    """, params)
+
+    def _dt(v):
+        if v is None or (hasattr(v, 'isoformat') and False):
+            return None
+        try:
+            if pd.isna(v):
+                return None
+        except Exception:
+            pass
+        try:
+            return v.isoformat() if hasattr(v, 'isoformat') else str(v)[:19]
+        except Exception:
+            return None
+
+    def _int(v):
+        return int(v) if v is not None and not pd.isna(v) else None
+
+    result = []
+    for _, r in df.iterrows():
+        result.append({
+            "id_os":                 int(r["id_os"]),
+            "id_ihm":                int(r["id_ihm"]),
+            "nome_ihm":              str(r["tx_nome_ihm"])         if r["tx_nome_ihm"]         else "",
+            "id_linha":              _int(r["id_linha_producao"]),
+            "nome_linha":            str(r["tx_nome_linha"])       if r["tx_nome_linha"]       else "",
+            "status":                str(r["tx_status"]),
+            "tipo":                  str(r["tx_tipo"]),
+            "motivo_abertura":       str(r["tx_abertura_motivo"])  if r["tx_abertura_motivo"]  else "",
+            "problema":              str(r["tx_problema"])         if r["tx_problema"]         else "",
+            "solucao":               str(r["tx_solucao"])          if r["tx_solucao"]          else "",
+            "manutentor":            str(r["tx_manutentor"])       if r["tx_manutentor"]       else "",
+            "cancelamento":          str(r["tx_cancelamento"])     if r["tx_cancelamento"]     else "",
+            "dt_abertura":           _dt(r["dt_abertura"]),
+            "dt_inicio_atendimento": _dt(r["dt_inicio_atendimento"]),
+            "dt_conclusao":          _dt(r["dt_conclusao"]),
+            "tempo_espera_min":      _int(r["nu_tempo_espera_min"]),
+            "tempo_reparo_min":      _int(r["nu_tempo_reparo_min"]),
+            "tempo_total_min":       _int(r["nu_tempo_total_min"]),
+        })
+    return result
+
+
+def create_os_manual(data: dict) -> int:
+    _ensure_os_schema()
+    return int(run_query_insert("""
+        INSERT INTO dbo.tb_ordem_servico
+            (id_ihm, tx_nome_ihm, id_linha_producao, tx_nome_linha,
+             tx_status, tx_tipo, tx_abertura_motivo, tx_manutentor)
+        OUTPUT INSERTED.id_os
+        VALUES (:ihm,:nome,:linha,:nome_linha,'aberta','manual',:motivo,:manutentor)
+    """, {
+        "ihm":        data["id_ihm"],
+        "nome":       data.get("nome_ihm", ""),
+        "linha":      data.get("id_linha"),
+        "nome_linha": data.get("nome_linha", ""),
+        "motivo":     data.get("motivo_abertura", "Chamado manual"),
+        "manutentor": data.get("manutentor", ""),
+    }))
+
+
+def iniciar_atendimento_os(id_os: int, manutentor: str = "") -> None:
+    _ensure_os_schema()
+    run_query_update("""
+        UPDATE dbo.tb_ordem_servico
+        SET tx_status='em_andamento',
+            dt_inicio_atendimento=GETDATE(),
+            tx_manutentor=CASE WHEN :man<>'' THEN :man ELSE tx_manutentor END,
+            nu_tempo_espera_min=DATEDIFF(MINUTE, dt_abertura, GETDATE())
+        WHERE id_os=:id AND tx_status='aberta'
+    """, {"id": id_os, "man": manutentor or ""})
+
+
+def concluir_os(id_os: int, problema: str = "", solucao: str = "", manutentor: str = "") -> None:
+    _ensure_os_schema()
+    run_query_update("""
+        UPDATE dbo.tb_ordem_servico
+        SET tx_status='concluida',
+            dt_conclusao=GETDATE(),
+            tx_problema=CASE WHEN :prob<>'' THEN :prob ELSE tx_problema END,
+            tx_solucao=CASE WHEN :sol<>'' THEN :sol ELSE tx_solucao END,
+            tx_manutentor=CASE WHEN :man<>'' THEN :man ELSE tx_manutentor END,
+            nu_tempo_reparo_min=CASE
+                WHEN dt_inicio_atendimento IS NOT NULL
+                THEN DATEDIFF(MINUTE, dt_inicio_atendimento, GETDATE())
+                ELSE NULL END,
+            nu_tempo_total_min=DATEDIFF(MINUTE, dt_abertura, GETDATE())
+        WHERE id_os=:id AND tx_status IN ('aberta','em_andamento')
+    """, {"id": id_os, "prob": problema or "", "sol": solucao or "", "man": manutentor or ""})
+
+
+def cancelar_os(id_os: int, motivo: str = "") -> None:
+    _ensure_os_schema()
+    run_query_update("""
+        UPDATE dbo.tb_ordem_servico
+        SET tx_status='cancelada',
+            dt_conclusao=GETDATE(),
+            tx_cancelamento=:motivo,
+            nu_tempo_total_min=DATEDIFF(MINUTE, dt_abertura, GETDATE())
+        WHERE id_os=:id AND tx_status IN ('aberta','em_andamento')
+    """, {"id": id_os, "motivo": motivo or ""})
+
+
+def get_manutencao_stats() -> dict:
+    _ensure_os_schema()
+    df = run_query("""
+        SELECT
+            SUM(CASE WHEN tx_status IN ('aberta','em_andamento') THEN 1 ELSE 0 END) AS abertas,
+            SUM(CASE WHEN tx_status = 'em_andamento'             THEN 1 ELSE 0 END) AS em_andamento,
+            SUM(CASE WHEN CAST(dt_abertura AS DATE) = CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END) AS hoje,
+            SUM(CASE WHEN dt_abertura >= DATEADD(DAY,-7,GETDATE())  THEN 1 ELSE 0 END) AS semana,
+            SUM(CASE WHEN dt_abertura >= DATEADD(DAY,-30,GETDATE()) THEN 1 ELSE 0 END) AS mes,
+            AVG(CASE WHEN tx_status='concluida'
+                          AND nu_tempo_reparo_min IS NOT NULL
+                          AND dt_abertura >= DATEADD(DAY,-30,GETDATE())
+                     THEN CAST(nu_tempo_reparo_min AS FLOAT) ELSE NULL END) AS mttr_reparo,
+            AVG(CASE WHEN tx_status='concluida'
+                          AND nu_tempo_total_min IS NOT NULL
+                          AND dt_abertura >= DATEADD(DAY,-30,GETDATE())
+                     THEN CAST(nu_tempo_total_min AS FLOAT) ELSE NULL END) AS mttr_total,
+            AVG(CASE WHEN tx_status='concluida'
+                          AND nu_tempo_espera_min IS NOT NULL
+                          AND dt_abertura >= DATEADD(DAY,-30,GETDATE())
+                     THEN CAST(nu_tempo_espera_min AS FLOAT) ELSE NULL END) AS tempo_espera_medio
+        FROM dbo.tb_ordem_servico
+    """, {})
+
+    def _i(v): return int(v)   if v is not None and not pd.isna(v) else 0
+    def _f(v): return round(float(v), 1) if v is not None and not pd.isna(v) else 0.0
+
+    r = df.iloc[0] if not df.empty else {}
+    return {
+        "abertas":             _i(r.get("abertas",        0)),
+        "em_andamento":        _i(r.get("em_andamento",   0)),
+        "hoje":                _i(r.get("hoje",           0)),
+        "semana":              _i(r.get("semana",         0)),
+        "mes":                 _i(r.get("mes",            0)),
+        "mttr_reparo":         _f(r.get("mttr_reparo")),
+        "mttr_total":          _f(r.get("mttr_total")),
+        "tempo_espera_medio":  _f(r.get("tempo_espera_medio")),
+    }
+
+
+def get_manutentores_ihm(id_ihm: int) -> list:
+    df = run_query("""
+        SELECT nu_cod_manutentor, tx_manutentor
+        FROM dbo.tb_depara_manutentor
+        WHERE id_ihm = :ihm
+        ORDER BY tx_manutentor
+    """, {"ihm": id_ihm})
+    if df.empty:
+        return []
+    return [
+        {"codigo": int(r["nu_cod_manutentor"]), "nome": str(r["tx_manutentor"])}
+        for _, r in df.iterrows()
+    ]

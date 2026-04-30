@@ -11,7 +11,8 @@
       "Bash(ls -la test_final.*)",
       "Bash(python main.py test_signed.pdf test_sep.pdf --separate)",
       "Bash(ls test_sep_*.pdf)",
-      "Bash(cmd /c \"rmdir /s /q C:\\\\Projetos\\\\PCP\\\\validar_qr\")"
+      "Bash(cmd /c \"rmdir /s /q C:\\\\Projetos\\\\PCP\\\\validar_qr\")",
+      "Bash(python *)"
     ]
   }
 }

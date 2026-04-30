@@ -6,6 +6,7 @@ import {
   AreaChart, Area, CartesianGrid,
 } from "recharts";
 import "./MaquinaDetalhe.css";
+import "./Manutencao.css";
 
 const DEFAULT_API = `http://${window.location.hostname}:8000`;
 const API_BASE = import.meta.env.VITE_API_BASE || DEFAULT_API;
@@ -574,6 +575,98 @@ function ManutencaoSection({ manutencao, numParadas }) {
   );
 }
 
+// ── Helpers OS ────────────────────────────────────────────────────────────────
+
+function fmtMin(min) {
+  if (min == null) return "—";
+  if (min < 60) return `${min}m`;
+  return `${Math.floor(min / 60)}h ${min % 60}m`;
+}
+function fmtDtCurto(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+const OS_STATUS_LABELS = { aberta: "Aberta", em_andamento: "Em Andamento", concluida: "Concluída", cancelada: "Cancelada" };
+
+// ── Seção de OS da máquina ────────────────────────────────────────────────────
+
+function OSHistoricoMaquina({ machineId }) {
+  const [osList,  setOsList]  = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/manutencao?maquina_id=${machineId}&limite=15`)
+      .then(r => r.json())
+      .then(d => { setOsList(Array.isArray(d) ? d : []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [machineId]);
+
+  if (loading || osList.length === 0) return null;
+
+  const abertas    = osList.filter(o => o.status === "aberta" || o.status === "em_andamento");
+  const concluidas = osList.filter(o => o.status === "concluida");
+  const avgMttr    = concluidas.length > 0
+    ? Math.round(concluidas.reduce((s, o) => s + (o.tempo_reparo_min ?? o.tempo_total_min ?? 0), 0) / concluidas.length)
+    : null;
+
+  return (
+    <div className="md-card">
+      <div className="md-card-title">
+        Ordens de Serviço
+        <span className="md-card-title-sub">últimas {osList.length}</span>
+        {abertas.length > 0 && (
+          <span className="md-card-count md-card-count-man">{abertas.length} ativa{abertas.length > 1 ? "s" : ""}</span>
+        )}
+      </div>
+
+      {/* mini stats */}
+      <div style={{ display: "flex", gap: 20, marginBottom: 14, flexWrap: "wrap" }}>
+        {avgMttr !== null && (
+          <div>
+            <div style={{ fontSize: 11, color: "var(--muted,#6b7280)", fontWeight: 600, textTransform: "uppercase" }}>MTTR médio</div>
+            <div style={{ fontSize: 20, fontWeight: 700 }}>{fmtMin(avgMttr)}</div>
+          </div>
+        )}
+        <div>
+          <div style={{ fontSize: 11, color: "var(--muted,#6b7280)", fontWeight: 600, textTransform: "uppercase" }}>Concluídas</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: "#22c55e" }}>{concluidas.length}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, color: "var(--muted,#6b7280)", fontWeight: 600, textTransform: "uppercase" }}>Em aberto</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: abertas.length > 0 ? "#ef4444" : "#9ca3af" }}>{abertas.length}</div>
+        </div>
+      </div>
+
+      <table className="md-stops-table">
+        <thead>
+          <tr><th>OS</th><th>Status</th><th>Abertura</th><th>Manutentor</th><th>Duração</th><th>Problema / Motivo</th></tr>
+        </thead>
+        <tbody>
+          {osList.map(o => (
+            <tr key={o.id_os}>
+              <td className="md-stop-time">#{o.id_os}</td>
+              <td>
+                <span className={`man-status-badge ${o.status}`}>
+                  {OS_STATUS_LABELS[o.status] ?? o.status}
+                </span>
+              </td>
+              <td className="md-stop-time">{fmtDtCurto(o.dt_abertura)}</td>
+              <td>{o.manutentor || "—"}</td>
+              <td>
+                <span className="md-stop-dur">{fmtMin(o.tempo_total_min)}</span>
+              </td>
+              <td style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {o.problema || o.motivo_abertura || "—"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ── Página principal ──────────────────────────────────────────────────────────
 
 export default function MaquinaDetalhe() {
@@ -820,6 +913,9 @@ export default function MaquinaDetalhe() {
           numParadas={data.num_paradas}
         />
       </div>
+
+      {/* ── Ordens de Serviço desta máquina ───────────────────────── */}
+      <OSHistoricoMaquina machineId={machineId} />
 
     </div>
   );

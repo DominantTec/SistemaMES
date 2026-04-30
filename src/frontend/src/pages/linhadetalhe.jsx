@@ -5,6 +5,7 @@ import {
   ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import "./linhadetalhe.css";
+import "./Manutencao.css";
 
 const DEFAULT_API = `http://${window.location.hostname}:8000`;
 const API_BASE = import.meta.env.VITE_API_BASE || DEFAULT_API;
@@ -343,6 +344,110 @@ function MachineCard({ machine }) {
   );
 }
 
+// ── Seção de OS da linha ──────────────────────────────────────────────────────
+
+function fmtMin(min) {
+  if (min == null) return "—";
+  if (min < 60) return `${min}m`;
+  return `${Math.floor(min / 60)}h ${min % 60}m`;
+}
+function fmtDtCurto(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+const OS_STATUS_LABELS = { aberta: "Aberta", em_andamento: "Em Andamento", concluida: "Concluída", cancelada: "Cancelada" };
+
+function OSLinhaSection({ lineId }) {
+  const [osList,  setOsList]  = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/manutencao?linha_id=${lineId}&limite=30`)
+      .then(r => r.json())
+      .then(d => { setOsList(Array.isArray(d) ? d : []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [lineId]);
+
+  if (loading || osList.length === 0) return null;
+
+  const abertas    = osList.filter(o => o.status === "aberta" || o.status === "em_andamento");
+  const concluidas = osList.filter(o => o.status === "concluida");
+  const recentes   = osList.slice(0, expanded ? 20 : 5);
+  const avgMttr    = concluidas.length > 0
+    ? Math.round(concluidas.reduce((s, o) => s + (o.tempo_reparo_min ?? o.tempo_total_min ?? 0), 0) / concluidas.length)
+    : null;
+
+  return (
+    <div className="ld-ops-section">
+      <div className="ld-section-header">
+        <h2 className="ld-section-title">🔧 Manutenção / OS</h2>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          {avgMttr !== null && (
+            <span style={{ fontSize: 13, color: "var(--muted,#6b7280)" }}>MTTR: <strong>{fmtMin(avgMttr)}</strong></span>
+          )}
+          {abertas.length > 0 && (
+            <span className="man-status-badge aberta">{abertas.length} aberta{abertas.length > 1 ? "s" : ""}</span>
+          )}
+          <span className="ld-ops-count">{osList.length} OS</span>
+        </div>
+      </div>
+
+      {/* Active OS cards */}
+      {abertas.length > 0 && (
+        <div className="man-active-grid" style={{ marginBottom: 16 }}>
+          {abertas.map(o => (
+            <div key={o.id_os} className={`man-os-card status-${o.status}`}>
+              <div className="man-os-card-header">
+                <div>
+                  <div className="man-os-id">OS #{o.id_os}</div>
+                  <div className="man-os-machine">{o.nome_ihm}</div>
+                </div>
+                <span className={`man-status-badge ${o.status}`}>{OS_STATUS_LABELS[o.status]}</span>
+              </div>
+              {o.motivo_abertura && <div className="man-os-motivo">{o.motivo_abertura}</div>}
+              <div className="man-os-times">
+                <span>Aberta: {fmtDtCurto(o.dt_abertura)}</span>
+                {o.manutentor && <span>Manutentor: {o.manutentor}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* History table */}
+      <table className="ld-os-table">
+        <thead>
+          <tr><th>OS</th><th>Máquina</th><th>Status</th><th>Abertura</th><th>Manutentor</th><th>Duração</th></tr>
+        </thead>
+        <tbody>
+          {recentes.map(o => (
+            <tr key={o.id_os}>
+              <td style={{ fontSize: 12, color: "#6b7280" }}>#{o.id_os}</td>
+              <td style={{ fontWeight: 600, fontSize: 13 }}>{o.nome_ihm}</td>
+              <td><span className={`man-status-badge ${o.status}`}>{OS_STATUS_LABELS[o.status]}</span></td>
+              <td style={{ fontSize: 12, color: "#6b7280" }}>{fmtDtCurto(o.dt_abertura)}</td>
+              <td style={{ fontSize: 13 }}>{o.manutentor || "—"}</td>
+              <td style={{ fontSize: 13 }}>{fmtMin(o.tempo_total_min)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {osList.length > 5 && (
+        <button
+          type="button"
+          onClick={() => setExpanded(e => !e)}
+          style={{ marginTop: 8, fontSize: 13, color: "var(--brand,#2563eb)", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+        >
+          {expanded ? "Ver menos" : `Ver mais ${osList.length - 5} OS`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ── Página principal ──────────────────────────────────────────────────────────
 
 const FILTROS_MAQUINA = ["Todas", "Produzindo", "Paradas"];
@@ -558,6 +663,9 @@ export default function LinhaDetalhe() {
           </div>
         </div>
       )}
+
+      {/* ── OS da linha ──────────────────────────────────────── */}
+      <OSLinhaSection lineId={lineId} />
 
       {/* ── Grid de máquinas ─────────────────────────────────── */}
       <div className="ld-machines-section">

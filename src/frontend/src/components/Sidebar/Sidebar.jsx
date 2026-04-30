@@ -93,6 +93,14 @@ export default function Sidebar() {
           )}
         </NavLink>
 
+        <NavLink
+          to="/manutencao"
+          className={({ isActive }) => "sb-item" + (isActive ? " active" : "")}
+        >
+          <span className="sb-ico">🔧</span>
+          <span>Manutenção / OS</span>
+        </NavLink>
+
         <a
           href="/painel-tv"
           target="_blank"

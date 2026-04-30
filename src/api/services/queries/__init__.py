@@ -73,4 +73,13 @@ from api.services.queries._core import (  # noqa: F401
     delete_alerta_config,
     toggle_alerta_config,
     detectar_alertas_throttled,
+    # ── Manutenção / OS ───────────────────────────────────────────────────
+    get_os_manutencao,
+    create_os_manual,
+    iniciar_atendimento_os,
+    concluir_os,
+    cancelar_os,
+    get_manutencao_stats,
+    get_manutentores_ihm,
+    detectar_os_manutencao_throttled,
 )

@@ -466,3 +466,25 @@
   background: var(--active);
   border-radius: 10px;
 }
+
+/* ── OS table ────────────────────────────────────────────────────────────── */
+.ld-os-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.ld-os-table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  padding: 6px 10px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.ld-os-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #f3f4f6;
+}
+.ld-os-table tr:last-child td { border-bottom: none; }
