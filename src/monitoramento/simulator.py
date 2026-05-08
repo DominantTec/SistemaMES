@@ -16,10 +16,17 @@ Execute:
     python simulator.py
 """
 
+import os
 import time
 import random
 from logger import logger
 from database import get_connection_db
+
+# ─── Feature flags ────────────────────────────────────────────────────────────
+
+_raw_modules = os.getenv("MODULES", "base,op,os,alertas")
+_enabled_modules = frozenset(m.strip() for m in _raw_modules.split(",") if m.strip())
+HAS_OP = "op" in _enabled_modules
 
 # ─── Configuração da linha ─────────────────────────────────────────────────────
 
@@ -275,18 +282,20 @@ class MachineState:
     def tick(self, conn_db, active_ops: list, n_etapas: int):
         """Avança um ciclo de simulação.
         active_ops: lista de (op_id, quantidade) de todas as OPs em_producao, ordenadas por dt_inicio.
+        Quando HAS_OP=False, active_ops é sempre [] e a produção ocorre livremente.
         """
-        # Sem OP ativa ou etapa além da rota: fica parada
-        if not active_ops or (n_etapas > 0 and self.stage_num > n_etapas):
-            self._forcar_parada()
-            return
+        if HAS_OP:
+            # Sem OP ativa ou etapa além da rota: fica parada
+            if not active_ops or (n_etapas > 0 and self.stage_num > n_etapas):
+                self._forcar_parada()
+                return
 
-        # Usa a OP mais antiga como referência para detectar mudança de ciclo
-        primary_op_id = active_ops[0][0]
-        if primary_op_id != self._op_id_atual:
-            logger.info(f"IHM {self.id_ihm}: OPs ativas atualizadas ({[o[0] for o in active_ops]}), etapa {self.stage_num}.")
-            self._acum = 0.0
-            self._op_id_atual = primary_op_id
+            # Usa a OP mais antiga como referência para detectar mudança de ciclo
+            primary_op_id = active_ops[0][0]
+            if primary_op_id != self._op_id_atual:
+                logger.info(f"IHM {self.id_ihm}: OPs ativas atualizadas ({[o[0] for o in active_ops]}), etapa {self.stage_num}.")
+                self._acum = 0.0
+                self._op_id_atual = primary_op_id
 
         op_ids = [op[0] for op in active_ops]
 
@@ -310,7 +319,24 @@ class MachineState:
         elif r < PROB_IR_PARADA + PROB_IR_MANUTENCAO + PROB_IR_LIMPEZA:
             self._transicao_limpeza()
         else:
-            self._produzir(conn_db, op_ids)
+            if HAS_OP:
+                self._produzir(conn_db, op_ids)
+            else:
+                self._produzir_livre()
+
+    def _produzir_livre(self):
+        """Produção independente — sem rastreamento de peças por OP."""
+        pct_ciclo = self.pecas_por_hora * CYCLE_SECONDS / 3600.0
+        self._acum += pct_ciclo * random.uniform(0.8, 1.2)
+        n = int(self._acum)
+        if n <= 0:
+            return
+        self._acum -= n
+        rejected = sum(1 for _ in range(n) if random.random() < TAXA_REPROVADO)
+        approved = n - rejected
+        self.produzido       += approved
+        self.reprovado       += rejected
+        self.total_produzido += n
 
     def _produzir(self, conn_db, op_ids: list):
         pct_ciclo = self.pecas_por_hora * CYCLE_SECONDS / 3600.0
@@ -564,28 +590,31 @@ def main():
             conn_db = get_connection_db()
 
             machines = [load_machine(id_ihm, conn_db) for id_ihm in GHOST_IHM_IDS]
-            logger.info(f"Simulador iniciado — {len(machines)} operadores, ciclo {CYCLE_SECONDS}s.")
+            modo = "com OPs (rastreamento de peças)" if HAS_OP else "livre (sem OPs)"
+            logger.info(f"Simulador iniciado — {len(machines)} operadores, ciclo {CYCLE_SECONDS}s, modo {modo}.")
 
             while True:
                 logger.info("=" * 60)
 
-                # Obtém TODAS as OPs ativas e inicializa rastreamento de peças
-                try:
-                    active_ops = _get_active_ops(conn_db)
-                except Exception as e:
-                    logger.warning(f"Erro ao obter OPs ativas: {e}")
-                    active_ops = []
-
+                active_ops = []
                 n_etapas = N_ETAPAS
-                for op_id_i, qtd_i in active_ops:
-                    try:
-                        _init_pieces_if_needed(conn_db, op_id_i, qtd_i)
-                        n_etapas = max(n_etapas, _get_n_etapas_op(conn_db, op_id_i))
-                    except Exception as e:
-                        logger.warning(f"Erro ao inicializar peças OP {op_id_i}: {e}")
 
-                if active_ops:
-                    logger.info(f"OPs ativas: {[o[0] for o in active_ops]}")
+                if HAS_OP:
+                    # Obtém TODAS as OPs ativas e inicializa rastreamento de peças
+                    try:
+                        active_ops = _get_active_ops(conn_db)
+                    except Exception as e:
+                        logger.warning(f"Erro ao obter OPs ativas: {e}")
+
+                    for op_id_i, qtd_i in active_ops:
+                        try:
+                            _init_pieces_if_needed(conn_db, op_id_i, qtd_i)
+                            n_etapas = max(n_etapas, _get_n_etapas_op(conn_db, op_id_i))
+                        except Exception as e:
+                            logger.warning(f"Erro ao inicializar peças OP {op_id_i}: {e}")
+
+                    if active_ops:
+                        logger.info(f"OPs ativas: {[o[0] for o in active_ops]}")
 
                 # Tick em ordem INVERSA de etapa — evita que uma peça avançada num
                 # estágio seja imediatamente processada pelo próximo no mesmo ciclo.
