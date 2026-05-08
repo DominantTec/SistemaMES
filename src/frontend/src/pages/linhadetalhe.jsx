@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useModule } from "../context/ModulesContext";
 import {
   BarChart, Bar, XAxis, YAxis, Cell, Tooltip,
   ResponsiveContainer, ReferenceLine,
@@ -359,18 +360,20 @@ function fmtDtCurto(iso) {
 const OS_STATUS_LABELS = { aberta: "Aberta", em_andamento: "Em Andamento", concluida: "Concluída", cancelada: "Cancelada" };
 
 function OSLinhaSection({ lineId }) {
+  const osEnabled = useModule("os");
   const [osList,  setOsList]  = useState([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
+    if (!osEnabled) { setLoading(false); return; }
     fetch(`${API_BASE}/api/manutencao?linha_id=${lineId}&limite=30`)
       .then(r => r.json())
       .then(d => { setOsList(Array.isArray(d) ? d : []); setLoading(false); })
       .catch(() => setLoading(false));
-  }, [lineId]);
+  }, [lineId, osEnabled]);
 
-  if (loading || osList.length === 0) return null;
+  if (!osEnabled || loading || osList.length === 0) return null;
 
   const abertas    = osList.filter(o => o.status === "aberta" || o.status === "em_andamento");
   const concluidas = osList.filter(o => o.status === "concluida");

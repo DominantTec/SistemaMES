@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useModule } from "../context/ModulesContext";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
   CartesianGrid, ComposedChart, Line, ReferenceLine, Cell,
@@ -2224,6 +2225,8 @@ const TABS = [
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function Historico() {
+  const hasOp = useModule("op");
+
   // ── Seleção de turno (filtro primário) ──
   const [allLinhas,     setAllLinhas]     = useState([]);
   const [selLinhaId,    setSelLinhaId]    = useState("");
@@ -2287,8 +2290,10 @@ export default function Historico() {
     Promise.all([
       fetch(`${API_BASE}/api/historico?data_inicio=${encode(di)}&data_fim=${encode(df)}`)
         .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
-      fetch(`${API_BASE}/api/historico/ordens?data_inicio=${encode(di)}&data_fim=${encode(df)}`)
-        .then((r) => r.ok ? r.json() : null),
+      hasOp
+        ? fetch(`${API_BASE}/api/historico/ordens?data_inicio=${encode(di)}&data_fim=${encode(df)}`)
+            .then((r) => r.ok ? r.json() : null)
+        : Promise.resolve(null),
     ])
       .then(([fab, fun]) => { setFabricaData(fab); setFunil(fun); setLoading(false); })
       .catch((e) => { setError(String(e)); setLoading(false); });

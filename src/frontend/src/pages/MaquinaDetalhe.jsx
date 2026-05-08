@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { useModule } from "../context/ModulesContext";
 import {
   BarChart, Bar, XAxis, YAxis, Cell, Tooltip,
   ResponsiveContainer, ReferenceLine,
@@ -592,17 +593,19 @@ const OS_STATUS_LABELS = { aberta: "Aberta", em_andamento: "Em Andamento", concl
 // ── Seção de OS da máquina ────────────────────────────────────────────────────
 
 function OSHistoricoMaquina({ machineId }) {
+  const osEnabled = useModule("os");
   const [osList,  setOsList]  = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!osEnabled) { setLoading(false); return; }
     fetch(`${API_BASE}/api/manutencao?maquina_id=${machineId}&limite=15`)
       .then(r => r.json())
       .then(d => { setOsList(Array.isArray(d) ? d : []); setLoading(false); })
       .catch(() => setLoading(false));
-  }, [machineId]);
+  }, [machineId, osEnabled]);
 
-  if (loading || osList.length === 0) return null;
+  if (!osEnabled || loading || osList.length === 0) return null;
 
   const abertas    = osList.filter(o => o.status === "aberta" || o.status === "em_andamento");
   const concluidas = osList.filter(o => o.status === "concluida");

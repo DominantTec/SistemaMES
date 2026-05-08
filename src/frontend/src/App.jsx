@@ -1,4 +1,6 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { ModulesProvider } from "./context/ModulesContext";
+import { useModule } from "./context/ModulesContext";
 import AppLayout from "./layouts/AppLayout";
 import Overview from "./pages/Overview";
 import LinhaDetalhe from "./pages/linhadetalhe";
@@ -12,31 +14,43 @@ import OrdensProducao from "./pages/OrdensProducao";
 import Alertas from "./pages/Alertas";
 import Manutencao from "./pages/Manutencao";
 
+function AppRoutes() {
+  const hasOp      = useModule("op");
+  const hasAlertas = useModule("alertas");
+  const hasOs      = useModule("os");
+
+  return (
+    <Routes>
+      {/* Painéis TV — sem sidebar, tela cheia */}
+      <Route path="/painel-tv"  element={<PainelTV />} />
+      <Route path="/painel"     element={<Painel />} />
+      <Route path="/painel-mes" element={<PainelMES />} />
+
+      {/* Rotas normais com sidebar */}
+      <Route path="/*" element={
+        <AppLayout>
+          <Routes>
+            <Route path="/"                    element={<Overview />} />
+            <Route path="/linha/:lineId"        element={<LinhaDetalhe />} />
+            <Route path="/maquina/:machineId"   element={<MaquinaDetalhe />} />
+            <Route path="/configuracoes"        element={<Configuracoes />} />
+            <Route path="/historico"            element={<Historico />} />
+            {hasOp      && <Route path="/ordens"     element={<OrdensProducao />} />}
+            {hasAlertas && <Route path="/alertas"    element={<Alertas />} />}
+            {hasOs      && <Route path="/manutencao" element={<Manutencao />} />}
+          </Routes>
+        </AppLayout>
+      } />
+    </Routes>
+  );
+}
+
 export default function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        {/* Painéis TV — sem sidebar, tela cheia */}
-        <Route path="/painel-tv"  element={<PainelTV />} />
-        <Route path="/painel"     element={<Painel />} />
-        <Route path="/painel-mes" element={<PainelMES />} />
-
-        {/* Rotas normais com sidebar */}
-        <Route path="/*" element={
-          <AppLayout>
-            <Routes>
-              <Route path="/" element={<Overview />} />
-              <Route path="/linha/:lineId" element={<LinhaDetalhe />} />
-              <Route path="/maquina/:machineId" element={<MaquinaDetalhe />} />
-              <Route path="/configuracoes" element={<Configuracoes />} />
-              <Route path="/historico" element={<Historico />} />
-              <Route path="/ordens" element={<OrdensProducao />} />
-              <Route path="/alertas" element={<Alertas />} />
-              <Route path="/manutencao" element={<Manutencao />} />
-            </Routes>
-          </AppLayout>
-        } />
-      </Routes>
-    </BrowserRouter>
+    <ModulesProvider>
+      <BrowserRouter>
+        <AppRoutes />
+      </BrowserRouter>
+    </ModulesProvider>
   );
 }

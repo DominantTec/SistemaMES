@@ -16,6 +16,7 @@ from api.routers.ordens import router as ordens_router
 from api.routers.alertas import router as alertas_router
 from api.routers.manutencao import router as manutencao_router
 from api.services.queries import ensure_ordens_table, recalcular_turno_ordens_ativas, setup_ghost_data
+from api.services.settings import enabled_modules, is_enabled
 
 
 class SafeJSONResponse(JSONResponse):
@@ -63,7 +64,8 @@ async def startup():
         setup_ghost_data()
     except Exception:
         pass
-    asyncio.create_task(_background_recalc())
+    if is_enabled("op"):
+        asyncio.create_task(_background_recalc())
 
 app.add_middleware(
     CORSMiddleware,
@@ -73,12 +75,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.get("/api/modules")
+async def get_modules():
+    return list(enabled_modules)
+
+
+# Base — sempre ativos
 app.include_router(health_router)
 app.include_router(lines_router)
 app.include_router(machines_router)
 app.include_router(overview_router)
 app.include_router(config_router)
 app.include_router(historico_router)
-app.include_router(ordens_router)
-app.include_router(alertas_router)
-app.include_router(manutencao_router)
+
+# Módulos opcionais
+if is_enabled("op"):
+    app.include_router(ordens_router)
+if is_enabled("alertas"):
+    app.include_router(alertas_router)
+if is_enabled("os"):
+    app.include_router(manutencao_router)

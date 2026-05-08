@@ -1,0 +1,216 @@
+================================================================================
+  PCP / MES — GUIA COMPLETO DE DEPLOY EM PRODUÇÃO
+  Gerado em: 2026-05-08
+================================================================================
+
+
+================================================================================
+ 1. CHECKLIST COMPLETO PARA COLOCAR EM PRODUÇÃO
+================================================================================
+
+PRÉ-REQUISITOS NO SERVIDOR
+---------------------------
+- Docker Engine + Docker Compose v2
+- Criar a rede Docker antes de subir os containers:
+    docker network create docker-host-bridge
+- Portas abertas no firewall:
+    3000  → Frontend (Nginx)
+    8000  → API (FastAPI) — opcional se só acesso pelo frontend
+    14330 → SQL Server — somente acesso interno, NUNCA expor publicamente
+
+
+ARQUIVO .env (criar em src/.env a partir do src/.env.example)
+--------------------------------------------------------------
+DB_HOST=mssql
+DB_PORT=1433
+DB_DRIVER={FreeTDS}
+DB_USER=sa
+DB_PASSWORD=<senha-forte>   # Mínimo 8 chars, maiúscula, minúscula, número, símbolo
+DB_NAME=MES_Core
+IHMS=1,2                    # IDs dos IHMs cadastrados no banco
+SIMULADOR_ENABLED=false     # IMPORTANTE: desligar em produção
+
+
+AJUSTES OBRIGATÓRIOS NO docker-compose.yml ANTES DO DEPLOY
+------------------------------------------------------------
+O compose atual está configurado para desenvolvimento. Para produção:
+
+1. API com --reload e volume montado → modo DEV. Remover:
+   - Flag --reload do comando uvicorn
+   - Volume "- ./:/app" (hot reload)
+   Usar a imagem buildada normalmente.
+
+2. SIMULADOR_ENABLED=true → gera dados fantasma. Alterar para false.
+
+
+LICENÇA SQL SERVER
+------------------
+A imagem mcr.microsoft.com/mssql/server:2022-latest requer ACCEPT_EULA=Y.
+Escolher a edição correta para produção:
+
+  Edição      | Custo            | Limite              | Indicada para
+  ------------|------------------|---------------------|----------------------------
+  Express     | GRÁTIS           | 10GB BD, 4 cores    | Maioria das fábricas (OK)
+  Developer   | GRÁTIS           | Sem limites         | Somente dev/teste (NÃO usar)
+  Standard    | ~R$18.000 perpet | 24 cores, 128GB RAM | Fábrica média/grande
+  Enterprise  | Muito caro       | Ilimitado           | —
+
+  RECOMENDAÇÃO: Começar com Express.
+  Para um MES de fábrica, o banco raramente passa de 3–4 GB/ano.
+  Migrar depois é simples se precisar.
+
+
+CONECTIVIDADE COM OS IHMs (MODBUS TCP)
+---------------------------------------
+O serviço monitoramento usa network: host no docker-compose.
+Ele precisa enxergar os IHMs na rede local da fábrica.
+
+  - Servidor LOCAL: funciona naturalmente na mesma LAN.
+  - Servidor em NUVEM: precisa de VPN (ex: WireGuard ou OpenVPN) entre o
+    servidor e a rede da fábrica, OU os IHMs precisariam ter IP público
+    com regras de firewall — complexo e menos seguro.
+
+  Este ponto praticamente define a melhor arquitetura (ver seção 3).
+
+
+SSL / HTTPS
+-----------
+Para produção o acesso deve ser HTTPS. Opções:
+
+  - Acesso interno apenas (rede da fábrica fechada):
+      Certificado autoassinado ou sem HTTPS é aceitável.
+
+  - Com acesso externo:
+      Let's Encrypt gratuito via Certbot + Nginx.
+      A imagem Nginx do frontend já está pronta para receber config de SSL.
+
+
+BACKUP
+------
+O volume mssql-data precisa de backup regular. Estratégia mínima:
+
+  # Cron diário — backup do banco para pasta externa
+  docker exec pcp-mssql /opt/mssql-tools/bin/sqlcmd \
+    -S localhost -U sa -P "$PASS" \
+    -Q "BACKUP DATABASE MES_Core TO DISK='/var/opt/mssql/backup/mes_$(date +%Y%m%d).bak'"
+
+  Mapear a pasta /var/opt/mssql/backup para um volume externo ou
+  copiar os .bak para storage externo (NAS, S3, etc.).
+
+
+================================================================================
+ 2. ESPECIFICAÇÕES DE SERVIDOR
+================================================================================
+
+O gargalo do sistema é o SQL Server — ele é guloso de RAM.
+
+PERFIL PEQUENO — até 20 IHMs, ~20 usuários simultâneos
+--------------------------------------------------------
+  Componente | Mínimo       | Recomendado
+  -----------|--------------|----------------------------
+  CPU        | 2 cores      | 4 cores
+  RAM        | 8 GB         | 16 GB
+  Disco      | 128 GB SSD   | 256 GB NVMe SSD
+  Rede       | 100 Mbps     | 100 Mbps
+  SO         | Ubuntu 22.04 | Ubuntu 22.04 LTS
+
+PERFIL MÉDIO — até 50 IHMs, ~50 usuários simultâneos
+------------------------------------------------------
+  Componente | Mínimo       | Recomendado
+  -----------|--------------|----------------------------
+  CPU        | 4 cores      | 8 cores
+  RAM        | 16 GB        | 32 GB
+  Disco      | 256 GB SSD   | 512 GB NVMe SSD
+  Rede       | 100 Mbps     | 1 Gbps
+  SO         | Ubuntu 22.04 | Ubuntu 22.04 LTS
+
+
+================================================================================
+ 3. COMPARATIVO DE PREÇOS: LOCAL vs NUVEM
+================================================================================
+
+POR QUE O AZURE FICOU CARO?
+----------------------------
+Provavelmente foi configurada uma VM com SQL Server licenciado embutido
+(imagens "SQL Server on Azure VM"), que inclui a licença no custo.
+A alternativa correta: VM Linux + SQL Server Express em Docker.
+Isso custa apenas o valor da VM.
+
+
+TABELA COMPARATIVA — Perfil pequeno (4 cores, 16 GB RAM)
+---------------------------------------------------------
+Câmbio referência: USD ~R$5,70 / EUR ~R$6,40 (Mai/2026)
+
+  Opção                           | Custo Mensal  | Custo 3 Anos    | Observações
+  --------------------------------|---------------|-----------------|-------------------------------
+  Mini PC local (ex: Beelink)     | ~R$50–80 luz  | ~R$3.800–5.500  | + UPS ~R$800 recomendado
+  Server usado local (Dell R720)  | ~R$50–80 luz  | ~R$5.000–8.000  | Mais robusto, mais ruído/calor
+  Azure VM B4ms (Linux, sem SQL)  | ~R$700–900    | ~R$25.000–32.000| Reserva 1 ano reduz ~35%
+  AWS t3.xlarge                   | ~R$600–800    | ~R$21.000–29.000| Similar ao Azure
+  Hetzner CPX31 (4 vCPU, 8 GB)   | ~R$130        | ~R$4.700        | 8 GB apertado para SQL Server
+  Hetzner CPX41 (4 vCPU, 16 GB)  | ~R$230        | ~R$8.300        | Datacenter Europa (boa opção)
+  DigitalOcean 4 vCPU / 16 GB    | ~R$480        | ~R$17.300       | Datacenter em São Paulo
+  Contabo VPS M (6 vCPU, 16 GB)  | ~R$45         | ~R$1.600        | Muito barato, suporte limitado
+
+
+RECOMENDAÇÕES
+-------------
+
+  1ª OPÇÃO — Mini PC local (melhor custo-benefício para fábrica)
+  ---------------------------------------------------------------
+  - Mais barato no longo prazo, sem mensalidade
+  - Modbus TCP funciona sem VPN — zero latência, zero configuração extra
+  - Funciona offline se a internet cair (a fábrica continua operando)
+  - Hardware sugerido:
+      Minisforum UM580 (Ryzen 5 5560U, 16 GB RAM, 512 GB NVMe)
+      ~R$2.500 AliExpress / ~R$3.500 nacional
+      + No-break APC 1000VA: ~R$800
+  - Custo total: ~R$4.300 uma vez, depois ~R$60/mês de energia
+
+  2ª OPÇÃO — Hetzner Cloud (acesso remoto sem hardware)
+  ------------------------------------------------------
+  - ~R$230/mês para 4 vCPU, 16 GB RAM
+  - Precisaria de VPN (WireGuard) entre o servidor e a rede da fábrica
+    para os IHMs alcançarem o serviço de monitoramento
+  - Datacenter em Nuremberg/Helsínque — latência ~200 ms do Brasil
+    (aceitável para painel web, não ideal para polling Modbus contínuo)
+
+  POR QUE NÃO Azure/AWS direto:
+  ------------------------------
+  O custo 3x–5x mais alto do que Hetzner para a mesma spec dificilmente
+  se justifica para um MES de fábrica sem requisito de compliance específico
+  de nuvem corporativo.
+
+
+RESUMO EXECUTIVO PARA O CLIENTE
+---------------------------------
+
+  Cenário              | Hardware     | Custo Setup    | Mensal    | Ideal quando...
+  ---------------------|--------------|----------------|-----------|--------------------------------
+  Local (recomendado)  | Mini PC novo | R$4.000–5.000  | R$60–80   | IHMs na mesma LAN, menor custo
+  Nuvem econômica      | VM Hetzner   | R$0            | ~R$230    | Acesso remoto, sem manutenção HW
+  Nuvem Azure/AWS      | VM cloud     | R$0            | R$700–900 | Compliance corporativo
+
+
+================================================================================
+ 4. STACK RESUMIDA DO SISTEMA
+================================================================================
+
+  Camada            | Tecnologia
+  ------------------|----------------------------------------------
+  Frontend          | React 19 + Vite 7 + Recharts + React Router 7
+  Servidor web      | Nginx (Alpine) — serve SPA + proxy para API
+  API               | FastAPI (Python 3.12) + Uvicorn
+  Coletor de dados  | Python + pymodbus 3.8 (Modbus TCP)
+  Banco de dados    | SQL Server 2022
+  Driver BD         | FreeTDS / pyodbc / SQLAlchemy
+  Tempo real        | WebSocket (polling 2s) em /api/ordens/ws
+  Orquestração      | Docker Compose (4 serviços)
+
+  Serviços Docker:
+    mssql         → SQL Server 2022 (porta 14330)
+    monitoramento → Coletor Modbus TCP (network: host)
+    api           → FastAPI (porta 8000)
+    frontend      → Nginx + React buildado (porta 3000)
+
+================================================================================

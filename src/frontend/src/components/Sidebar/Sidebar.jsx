@@ -1,14 +1,19 @@
 import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
+import { useModule } from "../../context/ModulesContext";
 import "./Sidebar.css";
 
 const DEFAULT_API = `http://${window.location.hostname}:8000`;
 const API_BASE = import.meta.env.VITE_API_BASE || DEFAULT_API;
 
 export default function Sidebar() {
-  const [linhas,         setLinhas]         = useState([]);
-  const [turno,          setTurno]          = useState(null);
-  const [alertasBadge,   setAlertasBadge]   = useState(0);
+  const hasOp      = useModule("op");
+  const hasAlertas = useModule("alertas");
+  const hasOs      = useModule("os");
+
+  const [linhas,       setLinhas]       = useState([]);
+  const [turno,        setTurno]        = useState(null);
+  const [alertasBadge, setAlertasBadge] = useState(0);
 
   useEffect(() => {
     fetch(`${API_BASE}/api/lines`)
@@ -30,6 +35,7 @@ export default function Sidebar() {
   }, []);
 
   useEffect(() => {
+    if (!hasAlertas) return;
     function fetchAlertStats() {
       fetch(`${API_BASE}/api/alertas/stats`)
         .then((r) => r.json())
@@ -39,15 +45,15 @@ export default function Sidebar() {
     fetchAlertStats();
     const id = setInterval(fetchAlertStats, 15_000);
     return () => clearInterval(id);
-  }, []);
+  }, [hasAlertas]);
 
-  const emTurno        = turno && turno.nome !== "-";
+  const emTurno          = turno && turno.nome !== "-";
   const aguardandoInicio = turno && turno.status === "aguardando_inicio";
-  const progresso      = turno ? turno.progresso_pct : 0;
-  const barColor       = aguardandoInicio ? "#f59e0b"
-                       : progresso < 40   ? "#22c55e"
-                       : progresso < 75   ? "#f59e0b"
-                       : "#ef4444";
+  const progresso        = turno ? turno.progresso_pct : 0;
+  const barColor         = aguardandoInicio ? "#f59e0b"
+                         : progresso < 40   ? "#22c55e"
+                         : progresso < 75   ? "#f59e0b"
+                         : "#ef4444";
 
   return (
     <aside className="sidebar">
@@ -66,13 +72,15 @@ export default function Sidebar() {
           <span>Visão Geral</span>
         </NavLink>
 
-        <NavLink
-          to="/ordens"
-          className={({ isActive }) => "sb-item" + (isActive ? " active" : "")}
-        >
-          <span className="sb-ico">≡</span>
-          <span>Ordens de Produção</span>
-        </NavLink>
+        {hasOp && (
+          <NavLink
+            to="/ordens"
+            className={({ isActive }) => "sb-item" + (isActive ? " active" : "")}
+          >
+            <span className="sb-ico">≡</span>
+            <span>Ordens de Produção</span>
+          </NavLink>
+        )}
 
         <NavLink
           to="/historico"
@@ -82,24 +90,28 @@ export default function Sidebar() {
           <span>Histórico</span>
         </NavLink>
 
-        <NavLink
-          to="/alertas"
-          className={({ isActive }) => "sb-item" + (isActive ? " active" : "")}
-        >
-          <span className="sb-ico">🔔</span>
-          <span>Alertas</span>
-          {alertasBadge > 0 && (
-            <span className="sb-badge">{alertasBadge > 99 ? "99+" : alertasBadge}</span>
-          )}
-        </NavLink>
+        {hasAlertas && (
+          <NavLink
+            to="/alertas"
+            className={({ isActive }) => "sb-item" + (isActive ? " active" : "")}
+          >
+            <span className="sb-ico">🔔</span>
+            <span>Alertas</span>
+            {alertasBadge > 0 && (
+              <span className="sb-badge">{alertasBadge > 99 ? "99+" : alertasBadge}</span>
+            )}
+          </NavLink>
+        )}
 
-        <NavLink
-          to="/manutencao"
-          className={({ isActive }) => "sb-item" + (isActive ? " active" : "")}
-        >
-          <span className="sb-ico">🔧</span>
-          <span>Manutenção / OS</span>
-        </NavLink>
+        {hasOs && (
+          <NavLink
+            to="/manutencao"
+            className={({ isActive }) => "sb-item" + (isActive ? " active" : "")}
+          >
+            <span className="sb-ico">🔧</span>
+            <span>Manutenção / OS</span>
+          </NavLink>
+        )}
 
         <a
           href="/painel-tv"
