@@ -14,6 +14,7 @@ from api.services.queries import (
     get_historico_turnos, get_proximos_turnos,
     abrir_turno_manual, fechar_turno_manual,
     link_modelo_to_linhas,
+    set_meta_manual_ihm,
 )
 
 router = APIRouter(prefix="/api/config", tags=["config"])
@@ -173,9 +174,24 @@ def get_line_machines(line_id: int):
     """Lista as máquinas de uma linha."""
     df = get_machines_by_line_df(line_id)
     return [
-        {"id": int(r["id_ihm"]), "nome": r["tx_name"], "tipo_maquina": r["tx_tipo_maquina"]}
+        {
+            "id": int(r["id_ihm"]),
+            "nome": r["tx_name"],
+            "tipo_maquina": r["tx_tipo_maquina"],
+            "meta_manual": int(r.get("nu_meta_manual", 0) or 0),
+        }
         for _, r in df.iterrows()
     ]
+
+
+class MetaManualUpdate(BaseModel):
+    meta: int
+
+
+@router.put("/machines/{machine_id}/meta-manual")
+def save_meta_manual(machine_id: int, body: MetaManualUpdate):
+    """Salva meta manual de uma máquina (módulo base — sem OPs)."""
+    return set_meta_manual_ihm(machine_id, body.meta)
 
 
 @router.get("/lines/{line_id}/pecas")

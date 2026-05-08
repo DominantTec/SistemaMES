@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useModule } from "../context/ModulesContext";
 import "./Configuracoes.css";
 
 const DEFAULT_API = `http://${window.location.hostname}:8000`;
@@ -400,6 +401,8 @@ function GestaoTurnos() {
 
 /* ── Seção: Peças e Roteiros ─────────────────────────────── */
 function GestaoPecas() {
+  const hasOp = useModule("op");
+
   const [linhas, setLinhas]             = useState([]);
   const [selectedLinha, setSelectedLinha] = useState(null);
   const [pecas, setPecas]               = useState([]);
@@ -414,6 +417,8 @@ function GestaoPecas() {
   const [loading, setLoading]           = useState(false);
   // mapa id_ihm -> tipo_maquina local (para edição inline)
   const [tiposMaquinas, setTiposMaquinas] = useState({});
+  // mapa id_ihm -> meta_manual local (visível apenas no módulo base)
+  const [metasManuais, setMetasManuais] = useState({});
 
   useEffect(() => {
     fetch(`${API_BASE}/api/config/lines`)
@@ -435,8 +440,13 @@ function GestaoPecas() {
         setMaquinas(m);
         // inicializa o mapa de tipos com o que veio do servidor
         const map = {};
-        m.forEach(maq => { map[maq.id] = maq.tipo_maquina ?? ""; });
+        const metaMap = {};
+        m.forEach(maq => {
+          map[maq.id] = maq.tipo_maquina ?? "";
+          metaMap[maq.id] = maq.meta_manual ?? 0;
+        });
         setTiposMaquinas(map);
+        setMetasManuais(metaMap);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -456,6 +466,20 @@ function GestaoPecas() {
       });
       // Atualiza também a lista de máquinas para refletir na seção de disponíveis
       setMaquinas(prev => prev.map(m => m.id === id_ihm ? { ...m, tipo_maquina: valor } : m));
+    } catch { /* silencia */ }
+  }
+
+  function handleMetaManualChange(id_ihm, valor) {
+    setMetasManuais(prev => ({ ...prev, [id_ihm]: Number(valor) || 0 }));
+  }
+
+  async function handleMetaManualBlur(id_ihm, valor) {
+    try {
+      await fetch(`${API_BASE}/api/config/machines/${id_ihm}/meta-manual`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ meta: Number(valor) || 0 }),
+      });
     } catch { /* silencia */ }
   }
 
@@ -662,6 +686,19 @@ function GestaoPecas() {
                     />
                     <span className="cfg-rota-prod-unit">pç/h</span>
                   </div>
+                  {!hasOp && (
+                    <div className="cfg-rota-prod" title="Meta por turno (definida manualmente no módulo base)">
+                      <input
+                        className="cfg-rota-prod-input"
+                        type="number"
+                        min={0}
+                        value={metasManuais[m.id_ihm] ?? 0}
+                        onChange={e => handleMetaManualChange(m.id_ihm, e.target.value)}
+                        onBlur={e => handleMetaManualBlur(m.id_ihm, e.target.value)}
+                      />
+                      <span className="cfg-rota-prod-unit">meta/turno</span>
+                    </div>
+                  )}
                   <div className="cfg-rota-actions">
                     <button type="button" className="cfg-rota-btn" onClick={() => moveUp(idx)} disabled={idx === 0}>↑</button>
                     <button type="button" className="cfg-rota-btn" onClick={() => moveDown(idx)} disabled={idx === rota.length - 1}>↓</button>

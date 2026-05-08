@@ -15,7 +15,12 @@
       "Bash(python *)",
       "PowerShell(Get-ChildItem -Path \"C:\\\\Projetos\\\\PCP\" -Force | Select-Object Name, @{Name=\"Type\"; Expression={if \\($_.PSIsContainer\\) {\"Directory\"} else {\"File\"}}} | Format-Table -AutoSize)",
       "PowerShell(Get-ChildItem -Path \"C:\\\\Projetos\\\\PCP\\\\src\\\\frontend\" -Depth 1 | Select-Object Name, @{Name=\"Type\"; Expression={if \\($_.PSIsContainer\\) {\"Directory\"} else {\"File\"}}} | Format-Table -AutoSize)",
-      "PowerShell(\\(Get-ChildItem -Path \"C:\\\\Projetos\\\\PCP\" -Recurse -File | Measure-Object\\).Count)"
+      "PowerShell(\\(Get-ChildItem -Path \"C:\\\\Projetos\\\\PCP\" -Recurse -File | Measure-Object\\).Count)",
+      "Bash(docker build *)",
+      "Bash(docker-compose ps *)",
+      "Bash(curl *)",
+      "Bash(docker-compose build *)",
+      "Bash(docker-compose up *)"
     ]
   }
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useModule } from "../context/ModulesContext";
+
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
   CartesianGrid, ComposedChart, Line, ReferenceLine, Cell,
@@ -642,6 +643,7 @@ function OrdensTable({ ordens }) {
 }
 
 function LinhaTab({ linhas, inicio, fim, defaultLinhaId }) {
+  const hasOp = useModule("op");
   const [selectedId, setSelectedId]     = useState(() => defaultLinhaId ? String(defaultLinhaId) : "");
   const [turnoOpts, setTurnoOpts]       = useState([]);
   const [selectedTurno, setSelectedTurno] = useState("");
@@ -764,12 +766,14 @@ function LinhaTab({ linhas, inicio, fim, defaultLinhaId }) {
               </div>
               <TurnosTable turnos={data.turnos} />
             </div>
-            <div className="hi-section">
-              <div className="hi-section-header">
-                <span className="hi-section-title">Ordens de Produção</span>
+            {hasOp && (
+              <div className="hi-section">
+                <div className="hi-section-header">
+                  <span className="hi-section-title">Ordens de Produção</span>
+                </div>
+                <OrdensTable ordens={data.ordens} />
               </div>
-              <OrdensTable ordens={data.ordens} />
-            </div>
+            )}
           </div>
         </>
       )}
@@ -903,6 +907,7 @@ function MaquinaTab({ linhas, inicio, fim }) {
 // ─── Tab 0: Por Turno (driven by header selection) ──────────────────────────
 
 function TurnoTab({ selectedTurno, selectedLinhaId }) {
+  const hasOp = useModule("op");
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState(null);
@@ -928,7 +933,7 @@ function TurnoTab({ selectedTurno, selectedLinhaId }) {
       linhas: [{ ...data, nome: data.nome || "Linha", maquinas: data.maquinas || [],
         realizado: data.total_produzido, meta_total: selectedTurno.meta || 0 }],
     };
-    exportarPDF(fab, null, di, df, selectedTurno);
+    exportarPDF(fab, null, di, df, selectedTurno, hasOp);
   }
 
   async function gerarExcel() {
@@ -940,7 +945,7 @@ function TurnoTab({ selectedTurno, selectedLinhaId }) {
       linhas: [{ ...data, nome: data.nome || "Linha", maquinas: data.maquinas || [],
         realizado: data.total_produzido, meta_total: selectedTurno.meta || 0 }],
     };
-    await exportarExcel(fab, null, di, df, selectedTurno);
+    await exportarExcel(fab, null, di, df, selectedTurno, hasOp);
   }
 
   if (!selectedTurno || !selectedLinhaId) {
@@ -1013,7 +1018,7 @@ function TurnoTab({ selectedTurno, selectedLinhaId }) {
           </div>
 
           {/* Ordens */}
-          {data.ordens?.length > 0 && (
+          {hasOp && data.ordens?.length > 0 && (
             <div className="hi-section">
               <div className="hi-section-header">
                 <span className="hi-section-title">Ordens de Produção no Turno</span>
@@ -1047,11 +1052,12 @@ function TurnoTab({ selectedTurno, selectedLinhaId }) {
 }
 
 function TurnoExcelBtn({ data, turno }) {
+  const hasOp = useModule("op");
   const [exp, setExp] = useState(false);
   const [err, setErr] = useState(null);
   async function go() {
     setExp(true); setErr(null);
-    try { await gerarExcelTurno(data, turno); }
+    try { await gerarExcelTurno(data, turno, hasOp); }
     catch (e) { console.error('Erro ao gerar Excel do Turno:', e); setErr(e?.message || String(e)); }
     finally { setExp(false); }
   }
@@ -1065,7 +1071,7 @@ function TurnoExcelBtn({ data, turno }) {
   );
 }
 
-async function gerarExcelTurno(data, turno) {
+async function gerarExcelTurno(data, turno, hasOp = true) {
   const di  = turno.dt_real_inicio || turno.dt_inicio;
   const df  = turno.dt_real_fim   || turno.dt_fim || new Date().toISOString();
   const fab = {
@@ -1073,7 +1079,7 @@ async function gerarExcelTurno(data, turno) {
     linhas: [{ ...data, nome: data.nome || "Linha", maquinas: data.maquinas || [],
       realizado: data.total_produzido, meta_total: turno.meta || 0 }],
   };
-  await exportarExcel(fab, null, di, df, turno);
+  await exportarExcel(fab, null, di, df, turno, hasOp);
 }
 
 
@@ -1131,7 +1137,7 @@ function _categorizarMotivo(motivo) {
   return   { cat: 'Operacional',  color: '#8b5cf6', argb: 'FF8B5CF6', bg: '#faf5ff', bgArgb: 'FFFAF5FF' };
 }
 
-function exportarPDF(fabricaData, funil, inicio, fim, turno) {
+function exportarPDF(fabricaData, funil, inicio, fim, turno, hasOp = true) {
   const fmt  = (v, d = 1) => v == null ? '—' : Number(v).toFixed(d);
   const pct  = (v) => v == null ? '—' : Number(v).toFixed(1) + '%';
   const fmtDt = (s) => { try { return new Date(s).toLocaleString('pt-BR'); } catch { return s || '—'; } };
@@ -1340,6 +1346,7 @@ function exportarPDF(fabricaData, funil, inicio, fim, turno) {
       <div style="font-size:28px;font-weight:800;color:#1d4ed8">${linhas.length}</div>
       <div style="font-size:10px;color:#1d4ed8;font-weight:600;margin-top:4px">Linhas Ativas</div>
     </div>
+    ${hasOp ? `
     <div style="flex:1;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:12px;text-align:center">
       <div style="font-size:28px;font-weight:800;color:#c2410c">${funilEfetivo?.total_ordens || allOrdens.length || 0}</div>
       <div style="font-size:10px;color:#c2410c;font-weight:600;margin-top:4px">Total de Ordens</div>
@@ -1351,7 +1358,7 @@ function exportarPDF(fabricaData, funil, inicio, fim, turno) {
     <div style="flex:1;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px;text-align:center">
       <div style="font-size:28px;font-weight:800;color:#dc2626">${funilEfetivo?.atrasadas || 0}</div>
       <div style="font-size:10px;color:#dc2626;font-weight:600;margin-top:4px">Ordens Atrasadas</div>
-    </div>
+    </div>` : ''}
     <div style="flex:1;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px;text-align:center">
       <div style="font-size:28px;font-weight:800;color:#7c3aed">${temParadas ? fmtMin(totalParadaMin) : '—'}</div>
       <div style="font-size:10px;color:#7c3aed;font-weight:600;margin-top:4px">Tempo Total Parado</div>
@@ -1373,7 +1380,7 @@ function exportarPDF(fabricaData, funil, inicio, fim, turno) {
   </div>
 
   <div style="display:flex;gap:20px;margin-bottom:20px">
-    <div style="flex:1">
+    ${hasOp ? `<div style="flex:1">
       <h2>Ordens de Produção</h2>
       <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
         ${funilEfetivo ? [
@@ -1389,7 +1396,7 @@ function exportarPDF(fabricaData, funil, inicio, fim, turno) {
         <thead><tr><th>Nº OP</th><th>Peça</th><th>Qtd</th><th>Produzido</th><th>Refugo</th><th>Status</th><th>Progresso</th></tr></thead>
         <tbody>${ordensRows}</tbody>
       </table>
-    </div>
+    </div>` : ''}
     <div style="flex:1">
       <h2>OEE Médio por Componente</h2>
       ${linhas.length > 0 ? (() => {
@@ -1480,7 +1487,7 @@ function exportarPDF(fabricaData, funil, inicio, fim, turno) {
   win.onload = () => { win.focus(); win.print(); };
 }
 
-async function exportarExcel(fabricaData, funil, inicio, fim, turno) {
+async function exportarExcel(fabricaData, funil, inicio, fim, turno, hasOp = true) {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'PCP MES';
   wb.created = new Date();
@@ -1562,11 +1569,13 @@ async function exportarExcel(fabricaData, funil, inicio, fim, turno) {
   const kpiData = [
     ['OEE Global', (fabricaData?.oee_global != null ? Number(fabricaData.oee_global).toFixed(1) + '%' : '—')],
     ['Linhas Ativas', linhas.length],
-    ['Total de Ordens', funilXls?.total_ordens ?? allOrdensXls.length],
-    ['Ordens Concluídas', funilXls?.concluidas ?? allOrdensXls.filter(o => o.status === 'finalizado').length],
-    ['Ordens em Produção', funilXls?.iniciadas ?? allOrdensXls.filter(o => o.status === 'em_producao').length],
-    ['Ordens Na Fila', funilXls?.nao_iniciadas ?? allOrdensXls.filter(o => o.status === 'fila').length],
-    ['Ordens Atrasadas', funilXls?.atrasadas || 0],
+    ...(hasOp ? [
+      ['Total de Ordens', funilXls?.total_ordens ?? allOrdensXls.length],
+      ['Ordens Concluídas', funilXls?.concluidas ?? allOrdensXls.filter(o => o.status === 'finalizado').length],
+      ['Ordens em Produção', funilXls?.iniciadas ?? allOrdensXls.filter(o => o.status === 'em_producao').length],
+      ['Ordens Na Fila', funilXls?.nao_iniciadas ?? allOrdensXls.filter(o => o.status === 'fila').length],
+      ['Ordens Atrasadas', funilXls?.atrasadas || 0],
+    ] : []),
     ['Tempo Total Parado', totalParadaMinEx > 0 ? fmtMin(totalParadaMinEx) : '—'],
     ['Tipos de Parada Registrados', Object.keys(paradaAggEx).length],
   ];
@@ -1660,7 +1669,8 @@ async function exportarExcel(fabricaData, funil, inicio, fim, turno) {
     r.getCell(1).font = { italic: true, color: { argb: 'FF9CA3AF' } };
   }
 
-  // ── Sheet 4: Ordens de Produção (lista real) ─────────────────────────────
+  // ── Sheet 4: Ordens de Produção (lista real) — apenas se módulo OP ativo ──
+  if (hasOp) {
   const s4 = wb.addWorksheet('Ordens de Produção', { properties: { tabColor: { argb: 'FFF59E0B' } } });
   s4.columns = [
     { width: 16 }, { width: 28 }, { width: 14 }, { width: 14 }, { width: 12 }, { width: 10 }, { width: 18 }, { width: 20 },
@@ -1724,6 +1734,8 @@ async function exportarExcel(fabricaData, funil, inicio, fim, turno) {
     r.getCell(1).font = { italic: true, color: { argb: 'FF9CA3AF' } };
     r.getCell(1).alignment = { horizontal: 'center' };
   }
+
+  } // end if (hasOp) — Sheet 4
 
   // ── Sheet 5: Motivos de Parada ────────────────────────────────────────────
   const s5 = wb.addWorksheet('Motivos de Parada', { properties: { tabColor: { argb: 'FF7C3AED' } } });
@@ -1880,11 +1892,12 @@ async function exportarExcel(fabricaData, funil, inicio, fim, turno) {
 // ─── Quick Excel button (async wrapper) ──────────────────────────────────────
 
 function QuickExcelBtn({ fabricaData, funil, inicio, fim }) {
+  const hasOp = useModule("op");
   const [exp, setExp] = useState(false);
   const [err, setErr] = useState(null);
   async function go() {
     setExp(true); setErr(null);
-    try { await exportarExcel(fabricaData, funil, inicio, fim); }
+    try { await exportarExcel(fabricaData, funil, inicio, fim, undefined, hasOp); }
     catch (e) { console.error('Erro ao gerar Excel:', e); setErr(e?.message || String(e)); }
     finally { setExp(false); }
   }
@@ -1902,12 +1915,13 @@ function QuickExcelBtn({ fabricaData, funil, inicio, fim }) {
 // ─── Aba Relatório ───────────────────────────────────────────────────────────
 
 function RelatorioTab({ fabricaData, funil, inicio, fim, onBuscar, loading }) {
+  const hasOp = useModule("op");
   const [exporting, setExporting] = useState(false);
 
   async function handleExcel() {
     if (!fabricaData) return;
     setExporting(true);
-    try { await exportarExcel(fabricaData, funil, inicio, fim); }
+    try { await exportarExcel(fabricaData, funil, inicio, fim, undefined, hasOp); }
     catch (e) { console.error('Erro ao gerar Excel:', e); alert('Erro ao gerar Excel:\n' + (e?.message || String(e))); }
     finally { setExporting(false); }
   }
@@ -1951,7 +1965,7 @@ function RelatorioTab({ fabricaData, funil, inicio, fim, onBuscar, loading }) {
         </div>
         <div className="hi-relatorio-export-btns">
           <button className="hi-export-card hi-export-card--pdf"
-            onClick={() => exportarPDF(fabricaData, funil, inicio, fim)}>
+            onClick={() => exportarPDF(fabricaData, funil, inicio, fim, undefined, hasOp)}>
             <div className="hi-export-card-icon">📄</div>
             <div className="hi-export-card-body">
               <div className="hi-export-card-title">Relatório PDF</div>
@@ -1963,7 +1977,7 @@ function RelatorioTab({ fabricaData, funil, inicio, fim, onBuscar, loading }) {
             <div className="hi-export-card-icon">{exporting ? "⏳" : "📊"}</div>
             <div className="hi-export-card-body">
               <div className="hi-export-card-title">{exporting ? "Gerando planilha..." : "Planilha Excel"}</div>
-              <div className="hi-export-card-sub">{funil ? "4" : "3"} abas · Células formatadas · Download direto</div>
+              <div className="hi-export-card-sub">{hasOp && funil ? "4" : "3"} abas · Células formatadas · Download direto</div>
             </div>
           </button>
         </div>
@@ -2226,6 +2240,11 @@ const TABS = [
 
 export default function Historico() {
   const hasOp = useModule("op");
+  const hasOs = useModule("os");
+
+  const visibleTabs = TABS.filter(t =>
+    !(t.key === "manutencao" && !hasOs)
+  );
 
   // ── Seleção de turno (filtro primário) ──
   const [allLinhas,     setAllLinhas]     = useState([]);
@@ -2315,7 +2334,7 @@ export default function Historico() {
           {fabricaData && (
             <div className="hi-quick-export">
               <button className="hi-buscar-btn hi-export-btn hi-export-btn--pdf"
-                onClick={() => exportarPDF(fabricaData, funil, inicio, fim, selectedTurno)}
+                onClick={() => exportarPDF(fabricaData, funil, inicio, fim, selectedTurno, hasOp)}
                 title="Gerar PDF profissional">📄 PDF</button>
               <QuickExcelBtn fabricaData={fabricaData} funil={funil} inicio={inicio} fim={fim} turno={selectedTurno} />
             </div>
@@ -2386,7 +2405,7 @@ export default function Historico() {
 
       {/* ── Tabs ─────────────────────────────────────────────────────────── */}
       <div className="hi-tabs">
-        {TABS.map((t) => (
+        {visibleTabs.map((t) => (
           <button key={t.key}
             className={`hi-tab${activeTab === t.key ? " hi-tab--active" : ""}`}
             onClick={() => setActiveTab(t.key)}>
@@ -2411,7 +2430,7 @@ export default function Historico() {
           {activeTab === "maquina"    && (
             <MaquinaTab linhas={fabricaData?.linhas} inicio={inicio} fim={fim} />
           )}
-          {activeTab === "manutencao" && (
+          {hasOs && activeTab === "manutencao" && (
             <ManutencaoTab selLinhaId={selLinhaId} inicio={inicio} fim={fim} />
           )}
           {activeTab === "relatorio"  && (

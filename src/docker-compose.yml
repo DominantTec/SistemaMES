@@ -66,6 +66,7 @@ services:
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=${DB_NAME}
       - TZ=America/Sao_Paulo
+      - MODULES=${MODULES:-base,op,os,alertas}
     depends_on:
       mssql:
         condition: service_healthy

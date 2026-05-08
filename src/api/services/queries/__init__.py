@@ -22,6 +22,7 @@ from api.services.queries._core import (  # noqa: F401
     get_machine_detail,
     get_machine_config_data,
     update_machine_config,
+    set_meta_manual_ihm,
     get_possible_pieces,
     get_meta,
     get_historico_turnos,

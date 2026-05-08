@@ -145,6 +145,14 @@ def _ensure_schema():
             )
                 ALTER TABLE dbo.tb_ihm ADD nu_meta_ativo INT NOT NULL DEFAULT 0
         """)
+        # nu_meta_manual em tb_ihm — meta configurada manualmente (usada no módulo base, sem OPs)
+        run_query_update("""
+            IF NOT EXISTS (
+                SELECT * FROM sys.columns
+                WHERE object_id = OBJECT_ID('dbo.tb_ihm') AND name = 'nu_meta_manual'
+            )
+                ALTER TABLE dbo.tb_ihm ADD nu_meta_manual INT NOT NULL DEFAULT 0
+        """)
         # tb_op_distribuicao – split de produção entre máquinas do mesmo tipo
         run_query_update("""
             IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.tb_op_distribuicao') AND type = 'U')
@@ -310,7 +318,8 @@ def _ensure_schema():
 def get_machines_by_line_df(line_id: int):
     _ensure_schema()
     df = run_query("""
-        SELECT id_ihm, tx_name, COALESCE(tx_tipo_maquina, '') AS tx_tipo_maquina
+        SELECT id_ihm, tx_name, COALESCE(tx_tipo_maquina, '') AS tx_tipo_maquina,
+               COALESCE(nu_meta_manual, 0) AS nu_meta_manual
         FROM dbo.tb_ihm
         WHERE id_linha_producao = :line_id
         ORDER BY id_ihm
@@ -1600,10 +1609,19 @@ def _abrir_turno(id_ocorrencia: int, linha_id: int) -> None:
     """, {"agora": agora, "meta": nu_meta, "id": id_ocorrencia})
 
     # Reseta meta das máquinas ao iniciar novo turno
-    run_query_update("""
-        UPDATE dbo.tb_ihm SET nu_meta_turno = 0, nu_meta_ativo = 0
-        WHERE id_linha_producao = :lid
-    """, {"lid": linha_id})
+    from api.services.settings import is_enabled as _is_enabled
+    if _is_enabled("op"):
+        run_query_update("""
+            UPDATE dbo.tb_ihm SET nu_meta_turno = 0, nu_meta_ativo = 0
+            WHERE id_linha_producao = :lid
+        """, {"lid": linha_id})
+    else:
+        # Módulo base: restaura meta manual para que o painel reflita o alvo configurado
+        run_query_update("""
+            UPDATE dbo.tb_ihm
+            SET nu_meta_turno = COALESCE(nu_meta_manual, 0), nu_meta_ativo = 0
+            WHERE id_linha_producao = :lid
+        """, {"lid": linha_id})
 
 
 def _fechar_turno(id_ocorrencia: int, linha_id: int) -> None:
@@ -1867,6 +1885,16 @@ def get_machine_config_data(machine_id: int) -> dict:
         "pecas":             pecas,
         "producao_teorica":  get_producao_teorica(int(ihm["id_ihm"])),
     }
+
+
+def set_meta_manual_ihm(machine_id: int, meta: int) -> dict:
+    """Persiste meta manual na máquina e reflete imediatamente em nu_meta_turno."""
+    run_query_update("""
+        UPDATE dbo.tb_ihm
+        SET nu_meta_manual = :meta, nu_meta_turno = :meta
+        WHERE id_ihm = :id
+    """, {"meta": meta, "id": machine_id})
+    return {"ok": True}
 
 
 def update_machine_config(machine_id: int, meta: int, peca_nome: str) -> dict:
