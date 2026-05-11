@@ -40,6 +40,7 @@ from api.services.queries._core import (  # noqa: F401
     delete_peca,
     get_rota_peca,
     update_rota_peca,
+    update_peca_meta,
     # ── OPs ───────────────────────────────────────────────────────────────
     get_all_ordens,
     proximo_numero_op,

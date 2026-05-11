@@ -9,7 +9,7 @@ from api.services.queries import (
     get_overview_turno, get_line_shifts, update_line_shifts, get_lines_df,
     update_producao_teorica, calcular_metas_op,
     get_pecas_by_linha, create_peca, delete_peca,
-    get_rota_peca, update_rota_peca,
+    get_rota_peca, update_rota_peca, update_peca_meta,
     get_machines_by_line_df, update_machine_tipo,
     get_historico_turnos, get_proximos_turnos,
     abrir_turno_manual, fechar_turno_manual,
@@ -219,4 +219,14 @@ def get_peca_rota(peca_id: int):
 @router.put("/pecas/{peca_id}/rota")
 def save_peca_rota(peca_id: int, body: RotaUpdate):
     update_rota_peca(peca_id, [s.model_dump() for s in body.steps])
+    return {"ok": True}
+
+
+class PecaMetaUpdate(BaseModel):
+    meta: int
+
+
+@router.put("/pecas/{peca_id}/meta")
+def save_peca_meta(peca_id: int, body: PecaMetaUpdate):
+    update_peca_meta(peca_id, body.meta)
     return {"ok": True}

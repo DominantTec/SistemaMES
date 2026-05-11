@@ -92,6 +92,13 @@ def _ensure_schema():
             )
                 ALTER TABLE dbo.tb_peca ADD id_linha_producao INT NULL
         """)
+        run_query_update("""
+            IF NOT EXISTS (
+                SELECT * FROM sys.columns
+                WHERE object_id = OBJECT_ID('dbo.tb_peca') AND name = 'nu_meta'
+            )
+                ALTER TABLE dbo.tb_peca ADD nu_meta INT NOT NULL DEFAULT 0
+        """)
         # tb_peca_rota
         run_query_update("""
             IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.tb_peca_rota') AND type = 'U')
@@ -450,6 +457,33 @@ def get_machine_shifts(machine_id: int, data_inicio: Optional[Any] = None, data_
     df_ihms = run_query("SELECT id_ihm, tx_name, id_linha_producao FROM tb_ihm")
     df_funcionamento = df_funcionamento.merge(df_ihms, how="left", on="id_linha_producao")
     return df_funcionamento
+
+
+def _get_peca_from_config(line_id: int, produced: int) -> Optional[str]:
+    """Retorna o nome da peça atual para uma linha com base nas peças configuradas e na produção do turno."""
+    _ensure_schema()
+    df = run_query("""
+        SELECT tx_name, COALESCE(nu_meta, 0) AS nu_meta
+        FROM dbo.tb_peca
+        WHERE id_linha_producao = :lid
+        ORDER BY id_peca
+    """, {"lid": line_id})
+    if df.empty:
+        return None
+    pecas = df.to_dict("records")
+    # Se nenhuma peça tem meta definida, retorna a primeira
+    if all(int(p["nu_meta"]) == 0 for p in pecas):
+        return pecas[0]["tx_name"]
+    # Percorre as peças acumulando metas até encontrar em qual a produção se enquadra
+    cumulative = 0
+    for p in pecas:
+        meta = int(p["nu_meta"])
+        if meta <= 0:
+            continue
+        cumulative += meta
+        if produced < cumulative:
+            return p["tx_name"]
+    return pecas[-1]["tx_name"]
 
 
 def get_possible_pieces(machine_id: int) -> list:
@@ -876,7 +910,7 @@ def get_historico_turnos_machine(machine_id: int, n: int = 7) -> list:
 def get_machine_detail(machine_id: int) -> dict:
     """Payload completo da tela de detalhe de uma máquina específica."""
     df_ihm = run_query("""
-        SELECT i.id_ihm, i.tx_name, l.tx_name AS linha_nome,
+        SELECT i.id_ihm, i.tx_name, i.id_linha_producao, l.tx_name AS linha_nome,
                COALESCE(i.tx_tipo_maquina, '') AS tipo_maquina
         FROM dbo.tb_ihm i
         JOIN dbo.tb_linha_producao l ON l.id_linha_producao = i.id_linha_producao
@@ -888,7 +922,7 @@ def get_machine_detail(machine_id: int) -> dict:
 
     ihm     = df_ihm.iloc[0]
     metrics = get_metrics_machine(machine_id)
-    peca    = get_selected_piece(machine_id)
+    line_id = int(ihm["id_linha_producao"])
 
     # Janela do turno — usada em toda a função
     agora_dt = datetime.now()
@@ -1108,6 +1142,14 @@ def get_machine_detail(machine_id: int) -> dict:
     except Exception:
         pass
 
+    # ── Peça atual ────────────────────────────────────────────────────────────
+    from api.services.settings import is_enabled as _is_enabled
+    peca: Optional[str] = None
+    if _is_enabled("op") and op_ativa and op_ativa.get("peca"):
+        peca = op_ativa["peca"]
+    else:
+        peca = _get_peca_from_config(line_id, prod_int)
+
     # ── Histórico de turnos (OEE/disponibilidade últimos 7) ───────────────────
     historico_turnos: list = []
     try:
@@ -1174,7 +1216,7 @@ def get_machine_detail(machine_id: int) -> dict:
         "linha":           ihm["linha_nome"],
         "tipo_maquina":    ihm["tipo_maquina"] or None,
         "status":          metrics["status_maquina"],
-        "peca_atual":      peca if peca != "PEÇA TEMP" else None,
+        "peca_atual":      peca or None,
         "operador":        op_nome,
         "operador_avatar": _avatar(op_nome),
         "manutentor":      man_nome,
@@ -1870,7 +1912,22 @@ def get_machine_config_data(machine_id: int) -> dict:
         status_txt, status_desde = "-", "-"
 
     meta = get_meta(machine_id)
-    peca_atual = get_selected_piece(machine_id)
+    cfg_line_id = int(ihm["id_linha_producao"])
+    from api.services.settings import is_enabled as _is_enabled
+    peca_atual: Optional[str] = None
+    if _is_enabled("op"):
+        try:
+            df_op_cfg = run_query("""
+                SELECT TOP 1 tx_peca FROM dbo.tb_ordem_producao
+                WHERE id_linha_producao = :lid AND tx_status = 'em_producao'
+                ORDER BY nu_prioridade DESC, dt_criacao
+            """, {"lid": cfg_line_id})
+            if not df_op_cfg.empty:
+                peca_atual = str(df_op_cfg.iloc[0]["tx_peca"]) or None
+        except Exception:
+            pass
+    if peca_atual is None:
+        peca_atual = _get_peca_from_config(cfg_line_id, 0)
     pecas = get_possible_pieces(machine_id)
 
     return {
@@ -2630,6 +2687,21 @@ def get_line_detail(line_id: int) -> dict:
     nome_linha  = df_linha.iloc[0]["tx_name"]
     df_machines = get_machines_by_line_df(line_id)
 
+    # ── Peça atual da linha ──────────────────────────────────────────────────
+    from api.services.settings import is_enabled as _is_enabled
+    _line_peca_op: Optional[str] = None
+    if _is_enabled("op"):
+        try:
+            df_op_peca = run_query("""
+                SELECT TOP 1 tx_peca FROM dbo.tb_ordem_producao
+                WHERE id_linha_producao = :lid AND tx_status = 'em_producao'
+                ORDER BY nu_prioridade DESC, dt_criacao
+            """, {"lid": line_id})
+            if not df_op_peca.empty:
+                _line_peca_op = str(df_op_peca.iloc[0]["tx_peca"]) or None
+        except Exception:
+            pass
+
     maquinas         = []
     total_produzido  = 0
     total_meta       = 0
@@ -2655,8 +2727,10 @@ def get_line_detail(line_id: int) -> dict:
             maquinas_ativas += 1
 
         # Peça atual
-        peca = get_selected_piece(machine_id)
-        peca = peca if peca != "PEÇA TEMP" else None
+        if _line_peca_op:
+            peca: Optional[str] = _line_peca_op
+        else:
+            peca = _get_peca_from_config(line_id, int(produzido))
 
         # Operador, manutentor, engenheiro (resolve código → nome)
         op_nome  = _resolve_nome(metrics.get("operador"),   machine_id, "tb_depara_operador",  "nu_cod_operador",   "tx_operador")
@@ -3781,14 +3855,28 @@ def get_pecas_by_linha(linha_id: int) -> list:
     """Lista as peças configuradas para uma linha, com seus roteiros."""
     _ensure_schema()
     df = run_query("""
-        SELECT id_peca, tx_name FROM dbo.tb_peca
-        WHERE id_linha_producao = :lid ORDER BY tx_name
+        SELECT id_peca, tx_name, COALESCE(nu_meta, 0) AS nu_meta
+        FROM dbo.tb_peca
+        WHERE id_linha_producao = :lid ORDER BY id_peca
     """, {"lid": linha_id})
     result = []
     for _, r in df.iterrows():
         peca_id = int(r["id_peca"])
-        result.append({"id": peca_id, "nome": r["tx_name"], "rota": get_rota_peca(peca_id)})
+        result.append({
+            "id":   peca_id,
+            "nome": r["tx_name"],
+            "meta": int(r["nu_meta"]),
+            "rota": get_rota_peca(peca_id),
+        })
     return result
+
+
+def update_peca_meta(peca_id: int, meta: int) -> None:
+    _ensure_schema()
+    run_query_update(
+        "UPDATE dbo.tb_peca SET nu_meta = :meta WHERE id_peca = :id",
+        {"meta": max(0, meta), "id": peca_id},
+    )
 
 
 def create_peca(linha_id: int, nome: str) -> int:

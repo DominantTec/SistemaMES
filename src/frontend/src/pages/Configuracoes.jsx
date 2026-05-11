@@ -414,6 +414,8 @@ function GestaoPecas() {
   const [addMsg, setAddMsg]             = useState("");
   const [saving, setSaving]             = useState(false);
   const [savedMsg, setSavedMsg]         = useState("");
+  // mapa id_peca -> meta (qtd alvo por peça no turno, módulo base)
+  const [metasPecas, setMetasPecas]     = useState({});
   const [loading, setLoading]           = useState(false);
   // mapa id_ihm -> tipo_maquina local (para edição inline)
   const [tiposMaquinas, setTiposMaquinas] = useState({});
@@ -438,7 +440,7 @@ function GestaoPecas() {
       .then(([p, m]) => {
         setPecas(p);
         setMaquinas(m);
-        // inicializa o mapa de tipos com o que veio do servidor
+        // inicializa o mapa de tipos e metas de máquinas
         const map = {};
         const metaMap = {};
         m.forEach(maq => {
@@ -447,6 +449,10 @@ function GestaoPecas() {
         });
         setTiposMaquinas(map);
         setMetasManuais(metaMap);
+        // inicializa mapa de metas por peça
+        const pecaMetaMap = {};
+        p.forEach(peca => { pecaMetaMap[peca.id] = peca.meta ?? 0; });
+        setMetasPecas(pecaMetaMap);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -483,6 +489,17 @@ function GestaoPecas() {
     } catch { /* silencia */ }
   }
 
+  async function handleMetaPecaBlur(peca_id, valor) {
+    try {
+      await fetch(`${API_BASE}/api/config/pecas/${peca_id}/meta`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ meta: Number(valor) || 0 }),
+      });
+      setPecas(prev => prev.map(p => p.id === peca_id ? { ...p, meta: Number(valor) || 0 } : p));
+    } catch { /* silencia */ }
+  }
+
   useEffect(() => {
     if (!selectedPeca) { setRota([]); return; }
     const found = pecas.find(p => p.id === selectedPeca);
@@ -500,7 +517,8 @@ function GestaoPecas() {
       });
       if (res.ok) {
         const nova = await res.json();
-        setPecas(prev => [...prev, nova]);
+        setPecas(prev => [...prev, { ...nova, meta: 0 }]);
+        setMetasPecas(prev => ({ ...prev, [nova.id]: 0 }));
         setSelectedPeca(nova.id);
         setNovaNome("");
       } else {
@@ -618,6 +636,26 @@ function GestaoPecas() {
               >
                 <span className="cfg-peca-nome">{p.nome}</span>
                 <div className="cfg-peca-meta">
+                  {!hasOp && (
+                    <label
+                      className="cfg-peca-meta-label"
+                      onPointerDown={e => e.stopPropagation()}
+                      onClick={e => e.stopPropagation()}
+                      title="Meta (qtd. a produzir desta peça no turno)"
+                    >
+                      Meta:
+                      <input
+                        type="number"
+                        min="0"
+                        className="cfg-peca-meta-input"
+                        value={metasPecas[p.id] ?? p.meta ?? 0}
+                        onChange={e => setMetasPecas(prev => ({ ...prev, [p.id]: Number(e.target.value) || 0 }))}
+                        onBlur={e => handleMetaPecaBlur(p.id, e.target.value)}
+                        onPointerDown={e => e.stopPropagation()}
+                        onClick={e => e.stopPropagation()}
+                      />
+                    </label>
+                  )}
                   <span className="cfg-peca-rota-count">{p.rota.length} máq.</span>
                   <button
                     type="button"
