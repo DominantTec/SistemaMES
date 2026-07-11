@@ -160,6 +160,15 @@ def _ensure_schema():
             )
                 ALTER TABLE dbo.tb_ihm ADD nu_meta_manual INT NOT NULL DEFAULT 0
         """)
+        # nu_qtd_words em tb_registrador — nº de words Modbus por registrador
+        # (1 = WORD 16 bits; 2 = REAL/DWORD 32 bits, ex.: telemetria da Tração e Flexão)
+        run_query_update("""
+            IF NOT EXISTS (
+                SELECT * FROM sys.columns
+                WHERE object_id = OBJECT_ID('dbo.tb_registrador') AND name = 'nu_qtd_words'
+            )
+                ALTER TABLE dbo.tb_registrador ADD nu_qtd_words INT NOT NULL DEFAULT 1
+        """)
         # tb_op_distribuicao – split de produção entre máquinas do mesmo tipo
         run_query_update("""
             IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.tb_op_distribuicao') AND type = 'U')

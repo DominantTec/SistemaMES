@@ -1,4 +1,28 @@
+import struct
+
 from logger import logger
+
+_schema_checked = False
+
+
+def _ensure_registrador_schema(conn_db):
+    """Garante a coluna nu_qtd_words em tb_registrador (1=WORD 16bit, 2=REAL 32bit). Idempotente."""
+    global _schema_checked
+    if _schema_checked:
+        return
+    try:
+        cursor = conn_db.cursor()
+        cursor.execute("""
+            IF NOT EXISTS (
+                SELECT * FROM sys.columns
+                WHERE object_id = OBJECT_ID('dbo.tb_registrador') AND name = 'nu_qtd_words'
+            )
+                ALTER TABLE dbo.tb_registrador ADD nu_qtd_words INT NOT NULL DEFAULT 1
+        """)
+        conn_db.commit()
+        _schema_checked = True
+    except Exception as e:
+        logger.warning(f"Falha ao garantir coluna nu_qtd_words: {e}")
 
 
 def sync_meta_to_ihm(id_ihm, conn_ihm, conn_db):
@@ -49,20 +73,29 @@ def sync_meta_to_ihm(id_ihm, conn_ihm, conn_db):
 
 def read_registers(id_ihm, conn_ihm, conn_db):
     try:
+        _ensure_registrador_schema(conn_db)
         insert_values = ""
         values = []
         cursor = conn_db.cursor()
-        select_registers = f"SELECT id_registrador, nu_endereco, tx_descricao FROM tb_registrador WHERE id_ihm = {id_ihm} ORDER BY id_registrador ASC"
+        select_registers = f"SELECT id_registrador, nu_endereco, tx_descricao, nu_qtd_words FROM tb_registrador WHERE id_ihm = {id_ihm} ORDER BY id_registrador ASC"
         cursor.execute(select_registers)
         registers = cursor.fetchall()
 
         # logger.info("------------------------------REGISTERS VALUE------------------------------")
         for register in registers:
             try:
-                valor_registrador = conn_ihm.read_holding_registers(
+                qtd_words = int(register.nu_qtd_words or 1)
+                regs = conn_ihm.read_holding_registers(
                     address=register.nu_endereco,
-                    count=1
-                ).registers[0]
+                    count=qtd_words
+                ).registers
+
+                if qtd_words == 2:
+                    # REAL (float 32 bits) = 2 registradores, word baixa primeiro (Delta/DVP)
+                    valor_registrador = round(
+                        struct.unpack("<f", struct.pack("<HH", regs[0], regs[1]))[0], 4)
+                else:
+                    valor_registrador = regs[0]
 
                 insert_values += f"({id_ihm}, {register.id_registrador}, {valor_registrador}),"
                 values.append(valor_registrador)
@@ -139,10 +172,10 @@ def insert_registers_values(id_ihm, conn_db, values, insert_values):
             ORDER BY id_log_registrador ASC
         """
         cursor.execute(select_last_values)
-        last_values = [int(row[0]) for row in cursor.fetchall()]
+        last_values = [float(row[0]) for row in cursor.fetchall()]
 
-        # Se valores iguais → não insere
-        if values == last_values:
+        # Se valores iguais → não insere (compara como float por causa dos registradores REAL)
+        if [None if v is None else float(v) for v in values] == last_values:
             logger.info("Nenhuma alteração detectada. Registro não inserido.")
             return
 

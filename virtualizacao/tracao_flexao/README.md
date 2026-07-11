@@ -16,14 +16,21 @@
    em Python, com o mapa real e ensaio plausível) — **testado e funcionando**. A validação da
    *ladder real* fica no monitoramento online do ISPSoft (separado, não precisa de Modbus).
 
-### Como usar o mock (para desenvolver o MES/twin)
+### Como usar o mock + rodar no MES
 ```
-python clp/mock_clp.py            # sobe o Modbus TCP em 127.0.0.1:502
+python clp/mock_clp.py                 # sobe o Modbus TCP em 127.0.0.1:502
 python clp/ler_resultados.py iniciar   # manda M9 e lê os resultados (outro terminal)
 ```
+Para o MES coletar de verdade:
+1. Rodar **`cadastro_mes.sql`** no banco `MES_Core` (cria linha + máquina apontando pro mock +
+   registradores). Ele devolve o `id_ihm` cadastrado.
+2. Setar a env `IHMS` do `monitoramento` incluindo esse `id_ihm`, subir o mock e rodar o coletor.
 
-> Pendente / próximo: renomeação padronizada dos POUs/FBs no ISPSoft, e rascunhar os `INSERT`
-> de `tb_ihm`/`tb_registrador` a partir do mapa (endereço = `4096 + D`).
+O coletor já lê **REAL (float 32 bits)**: `tb_registrador.nu_qtd_words = 2` → lê 2 words e
+decodifica float (suporte adicionado em `data_processor.py` / `_core.py` / `init.sql`).
+
+> Pendente / próximo: aplicar a **renomeação dos POUs/FBs** no ISPSoft ([`renomear_pous.md`](renomear_pous.md))
+> e validar a ladder real no monitoramento online do ISPSoft.
 
 ---
 

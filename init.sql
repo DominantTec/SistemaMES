@@ -39,6 +39,7 @@ CREATE TABLE dbo.tb_registrador (
     nu_endereco    INT               NOT NULL,
     tx_descricao   NVARCHAR(255)     NULL,
     id_ihm         INT               NOT NULL,
+    nu_qtd_words   INT               NOT NULL DEFAULT 1,  -- 1=WORD 16bit, 2=REAL/DWORD 32bit
     CONSTRAINT PK_tb_registrador PRIMARY KEY CLUSTERED (id_registrador),
     CONSTRAINT FK_tb_registrador_ihm FOREIGN KEY (id_ihm)
         REFERENCES dbo.tb_ihm (id_ihm)
