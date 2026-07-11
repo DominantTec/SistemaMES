@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Twin 3D — Tração e Flexão</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22cc; --line:#30363d; --txt:#e6edf3; --mut:#8b949e;
+          --grn:#2ea043; --red:#da3633; --blu:#1f6feb; --amb:#d29922; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--txt);
+              font-family:"Segoe UI",system-ui,sans-serif; overflow:hidden; }
+  #c { position:fixed; inset:0; display:block; }
+  .panel { position:fixed; background:var(--panel); border:1px solid var(--line);
+           border-radius:12px; padding:14px 16px; backdrop-filter:blur(8px); }
+  #title { top:16px; left:16px; }
+  #title h1 { margin:0; font-size:15px; letter-spacing:.3px; }
+  #title .sub { color:var(--mut); font-size:12px; margin-top:2px; }
+  #status { display:inline-flex; align-items:center; gap:7px; margin-top:9px; font-size:12px; }
+  .dot { width:9px; height:9px; border-radius:50%; background:var(--mut); }
+  .dot.on { background:var(--grn); box-shadow:0 0 8px var(--grn); }
+  .dot.run { background:var(--blu); box-shadow:0 0 8px var(--blu); animation:pulse 1s infinite; }
+  .dot.rup { background:var(--red); box-shadow:0 0 8px var(--red); }
+  @keyframes pulse { 50% { opacity:.35; } }
+  #tele { top:16px; right:16px; width:210px; }
+  #tele .row { display:flex; justify-content:space-between; align-items:baseline;
+               padding:5px 0; border-bottom:1px solid #ffffff10; }
+  #tele .row:last-child { border-bottom:0; }
+  #tele .k { color:var(--mut); font-size:12px; }
+  #tele .v { font-variant-numeric:tabular-nums; font-size:15px; font-weight:600; }
+  #tele .u { color:var(--mut); font-size:11px; font-weight:400; margin-left:3px; }
+  #gauge { height:8px; background:#ffffff14; border-radius:4px; margin-top:10px; overflow:hidden; }
+  #gaugefill { height:100%; width:0%; background:linear-gradient(90deg,var(--grn),var(--amb),var(--red));
+               transition:width .1s linear; }
+  #ctrl { bottom:16px; left:50%; transform:translateX(-50%); display:flex; gap:8px; flex-wrap:wrap;
+          justify-content:center; max-width:92vw; }
+  button { font:inherit; font-size:13px; font-weight:600; color:var(--txt); cursor:pointer;
+           background:#21262d; border:1px solid var(--line); border-radius:9px; padding:10px 15px;
+           transition:transform .05s, background .15s; }
+  button:hover { background:#2d333b; }
+  button:active { transform:translateY(1px); }
+  button.go { background:var(--grn); border-color:transparent; }
+  button.stop { background:var(--red); border-color:transparent; }
+  button.ghost { background:#21262d; }
+  .hint { position:fixed; bottom:16px; right:16px; color:var(--mut); font-size:11px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="title" class="panel">
+  <h1>Tração e Flexão — Twin 3D</h1>
+  <div class="sub">geometria representativa · dados via Modbus (CLP AS)</div>
+  <div id="status"><span class="dot" id="dot"></span><span id="statustxt">conectando…</span></div>
+</div>
+
+<div id="tele" class="panel">
+  <div class="row"><span class="k">Força</span><span><span class="v" id="v_forca">–</span><span class="u">N</span></span></div>
+  <div class="row"><span class="k">Deslocamento</span><span><span class="v" id="v_desl">–</span><span class="u">mm</span></span></div>
+  <div class="row"><span class="k">Tensão</span><span><span class="v" id="v_tensao">–</span><span class="u">MPa</span></span></div>
+  <div class="row"><span class="k">Alongamento</span><span><span class="v" id="v_along">–</span><span class="u">%</span></span></div>
+  <div class="row"><span class="k">Módulo E</span><span><span class="v" id="v_mod">–</span><span class="u">MPa</span></span></div>
+  <div class="row"><span class="k">Pico de força</span><span><span class="v" id="v_pico">–</span><span class="u">N</span></span></div>
+  <div id="gauge"><div id="gaugefill"></div></div>
+</div>
+
+<div id="ctrl" class="panel">
+  <button class="go"    data-cmd="iniciar_tracao">▶ Tração</button>
+  <button class="go"    data-cmd="iniciar_flexao">▶ Flexão</button>
+  <button class="ghost" data-cmd="subir">▲ Subir</button>
+  <button class="ghost" data-cmd="descer">▼ Descer</button>
+  <button class="stop"  data-cmd="parar">■ Parar</button>
+  <button class="ghost" data-cmd="zerar">⟲ Zerar</button>
+</div>
+<div class="hint">arraste p/ girar · scroll p/ zoom</div>
+
+<script type="importmap">
+{ "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ---------- cena ----------
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias:true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0d1117);
+scene.fog = new THREE.Fog(0x0d1117, 22, 40);
+
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
+camera.position.set(8, 7.5, 11);
+const controls = new OrbitControls(camera, canvas);
+controls.target.set(0, 5, 0);
+controls.enableDamping = true;
+
+scene.add(new THREE.HemisphereLight(0xbcd3ff, 0x202830, 0.9));
+const dir = new THREE.DirectionalLight(0xffffff, 1.7);
+dir.position.set(6, 14, 8); scene.add(dir);
+const grid = new THREE.GridHelper(40, 40, 0x30363d, 0x1c2128);
+grid.position.y = 0; scene.add(grid);
+
+// ---------- materiais ----------
+const steel = new THREE.MeshStandardMaterial({ color:0x9aa4b2, metalness:0.85, roughness:0.35 });
+const dark  = new THREE.MeshStandardMaterial({ color:0x3a424e, metalness:0.7, roughness:0.5 });
+const gripM = new THREE.MeshStandardMaterial({ color:0x586274, metalness:0.6, roughness:0.4 });
+const specM = new THREE.MeshStandardMaterial({ color:0x2ea043, metalness:0.2, roughness:0.6 });
+
+function box(w,h,d,mat){ return new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat); }
+
+// ---------- máquina (fixa) ----------
+const machine = new THREE.Group(); scene.add(machine);
+const base = box(6,0.6,3,dark); base.position.y = 0.3; machine.add(base);
+for (const x of [-2.4, 2.4]) { const col = box(0.45,10,0.45,steel); col.position.set(x,5,0); machine.add(col); }
+const top = box(6,0.7,1.3,dark); top.position.y = 10.35; machine.add(top);
+const lowerGrip = box(0.7,0.8,0.7,gripM); lowerGrip.position.y = 1.6; machine.add(lowerGrip); // topo em 2.0
+
+// ---------- partes móveis (tração) ----------
+const SPEC_BOTTOM = 2.0, REST_LEN = 2.2, DSCALE = 0.5;
+const crosshead = box(4.6,0.5,1.5,steel); machine.add(crosshead);
+const upperGrip = box(0.7,0.8,0.7,gripM); machine.add(upperGrip);
+const specTop = box(0.26,1,0.26,specM.clone()); machine.add(specTop);
+const specBot = box(0.26,1,0.26,specM.clone()); machine.add(specBot);
+
+// ---------- partes móveis (flexão 3 pontos) ----------
+const FSPAN = 2.2, FYBEAM = 2.68, FDROP = 0.22, BEAM_T = 0.35, PUNCH_R = 0.32;
+const supportL = box(0.7,1.9,1.7,gripM); supportL.position.set(-FSPAN,1.55,0); machine.add(supportL);
+const supportR = box(0.7,1.9,1.7,gripM); supportR.position.set( FSPAN,1.55,0); machine.add(supportR);
+const beamGeo = new THREE.BoxGeometry(1, BEAM_T, 1.3);      // comprimento base 1 em x (escala depois)
+const beamL = new THREE.Mesh(beamGeo, specM.clone()); machine.add(beamL);
+const beamR = new THREE.Mesh(beamGeo, specM.clone()); machine.add(beamR);
+const punch = new THREE.Mesh(new THREE.CylinderGeometry(PUNCH_R,PUNCH_R,1.5,20), steel);
+punch.rotation.x = Math.PI/2; machine.add(punch);          // rolo puncionador (eixo em z)
+const flexArm = box(0.5,1.2,0.5,steel); machine.add(flexArm);
+const TENSILE = [upperGrip, specTop, specBot, lowerGrip];
+const FLEXAO  = [supportL, supportR, beamL, beamR, punch, flexArm];
+
+// ---------- estado ----------
+const tele = { modo:0, deslocamento:0, forca:0, tensao:0, alongamento:0, modulo:0, forca_max:0,
+               rodando:false, ruptura:false, conectado:false };
+const anim = { desl:0, brk:0, load:0 };
+
+function setColorByLoad(mat, load, ruptura){
+  const h = ruptura ? 0.0 : 0.33*(1-load);         // verde -> vermelho
+  const l = ruptura ? 0.32 : 0.48;
+  mat.color.setHSL(h, 0.75, l);
+}
+
+// orienta um box (geometria base de comprimento 1 em x) entre dois pontos no plano XY
+function orientBeam(mesh, x1,y1, x2,y2){
+  const dx=x2-x1, dy=y2-y1, len=Math.hypot(dx,dy);
+  mesh.position.set((x1+x2)/2, (y1+y2)/2, 0);
+  mesh.rotation.z = Math.atan2(dy,dx);
+  mesh.scale.x = len;
+}
+
+function updateGeom(){
+  const flex = (tele.modo === 2);
+  for (const m of TENSILE) m.visible = !flex;
+  for (const m of FLEXAO)  m.visible = flex;
+  if (flex) updateFlexao(); else updateTracao();
+}
+
+function updateTracao(){
+  // interpola deslocamento e quebra p/ suavidade
+  anim.desl += (tele.deslocamento - anim.desl) * 0.15;
+  anim.load += ((Math.min(tele.forca/500,1)||0) - anim.load) * 0.15;
+  anim.brk  += ((tele.ruptura ? 0.35 : 0) - anim.brk) * 0.12;
+
+  const gap = REST_LEN + anim.desl * DSCALE;
+  const upperBottom = SPEC_BOTTOM + gap;
+  upperGrip.position.set(0, upperBottom + 0.4, 0);
+  crosshead.position.set(0, upperBottom + 0.8 + 0.25, 0);
+
+  const mid = SPEC_BOTTOM + gap/2;
+  // metade de baixo: de SPEC_BOTTOM até mid-brk
+  const bTop = mid - anim.brk, bH = Math.max(bTop - SPEC_BOTTOM, 0.02);
+  specBot.scale.y = bH; specBot.position.y = SPEC_BOTTOM + bH/2;
+  // metade de cima: de mid+brk até upperBottom
+  const tBot = mid + anim.brk, tH = Math.max(upperBottom - tBot, 0.02);
+  specTop.scale.y = tH; specTop.position.y = tBot + tH/2;
+  // afinamento (Poisson) e cor
+  const thin = Math.max(1 - anim.desl*DSCALE*0.08, 0.6);
+  specTop.scale.x = specTop.scale.z = specBot.scale.x = specBot.scale.z = thin;
+  setColorByLoad(specTop.material, anim.load, tele.ruptura);
+  setColorByLoad(specBot.material, anim.load, tele.ruptura);
+}
+
+function updateFlexao(){
+  anim.desl += (tele.deslocamento - anim.desl) * 0.15;
+  anim.load += ((Math.min(tele.forca/300,1)||0) - anim.load) * 0.15;  // forças menores na flexão
+  anim.brk  += ((tele.ruptura ? 0.22 : 0) - anim.brk) * 0.12;
+
+  const drop = anim.desl * FDROP;
+  const cy = FYBEAM - drop;          // altura do centro da viga (deflexão)
+  const g  = anim.brk;               // abertura da trinca no centro (ruptura)
+  orientBeam(beamL, -FSPAN, FYBEAM, -g, cy);   // apoio esq. -> centro
+  orientBeam(beamR,   g, cy,  FSPAN, FYBEAM);  // centro -> apoio dir.
+
+  const pcY = cy + BEAM_T/2 + PUNCH_R;         // rolo tocando o topo da viga no centro
+  punch.position.set(0, pcY, 0);
+  flexArm.position.set(0, pcY + PUNCH_R + 0.9, 0);
+  crosshead.position.set(0, pcY + PUNCH_R + 1.75, 0);
+
+  setColorByLoad(beamL.material, anim.load, tele.ruptura);
+  setColorByLoad(beamR.material, anim.load, tele.ruptura);
+}
+
+// ---------- telemetria ----------
+const $ = id => document.getElementById(id);
+const fmt = (x,d=1) => (x==null ? '–' : Number(x).toFixed(d));
+async function poll(){
+  try {
+    const r = await fetch('/telemetria'); const d = await r.json();
+    Object.assign(tele, {
+      modo:d.modo||0,
+      deslocamento:d.deslocamento||0, forca:d.forca||0, tensao:d.tensao||0,
+      alongamento:d.alongamento||0, modulo:d.modulo||0, forca_max:d.forca_max||0,
+      rodando:!!d.rodando, ruptura:!!d.ruptura, conectado:!!d.conectado });
+    $('v_forca').textContent  = fmt(tele.forca);
+    $('v_desl').textContent   = fmt(tele.deslocamento,2);
+    $('v_tensao').textContent = fmt(tele.tensao);
+    $('v_along').textContent  = fmt(tele.alongamento,2);
+    $('v_mod').textContent    = fmt(tele.modulo,0);
+    $('v_pico').textContent   = fmt(tele.forca_max);
+    $('gaugefill').style.width = Math.min(tele.forca/500*100,100) + '%';
+    const dot=$('dot'), txt=$('statustxt');
+    if (!tele.conectado){ dot.className='dot'; txt.textContent='sem conexão (rode o bridge/CLP)'; }
+    else if (tele.ruptura){ dot.className='dot rup'; txt.textContent='ROMPIDO'; }
+    else if (tele.rodando){ dot.className='dot run'; txt.textContent='ensaio em andamento'; }
+    else { dot.className='dot on'; txt.textContent='pronto'; }
+  } catch(e){ $('statustxt').textContent='bridge offline'; $('dot').className='dot'; }
+}
+setInterval(poll, 100); poll();
+
+document.querySelectorAll('#ctrl button').forEach(b => {
+  b.onclick = () => fetch('/comando/' + b.dataset.cmd, { method:'POST' });
+});
+
+// ---------- loop ----------
+addEventListener('resize', onResize); onResize();
+function onResize(){
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
+}
+function tick(){
+  updateGeom(); controls.update(); renderer.render(scene, camera);
+  requestAnimationFrame(tick);
+}
+tick();
+</script>
+</body>
+</html>

@@ -1,0 +1,79 @@
+(* ================================================================
+   MAQUINA DE TRACAO E FLEXAO - logica generica de teste (ST)
+   AS300 / AS332T. Executa a cada scan.
+
+   ATENCAO: regra GENERICA, so para validar a cadeia
+   (ISPSoft -> AS300 Simulator -> Modbus TCP 10002 -> bridge_as.py -> twin).
+   NAO e a logica do parceiro. O parceiro migra o programa completo depois.
+
+   Mapa Modbus TCP  (D(n) -> holding register n, porta 10002):
+     ENTRADA (bridge escreve):
+       D50 = comando   1=tracao  2=flexao  3=parar  4=zerar
+     SAIDA (bridge le):
+       D0  = modo         0=idle 1=tracao 2=flexao
+       D1  = rodando      0/1
+       D2  = ruptura      0/1
+       D10 = deslocamento (x100 mm)   -> mm  = D10/100
+       D12 = forca        (N)
+       D14 = tensao       (x10 MPa)   -> MPa = D14/10
+       D16 = alongamento  (x100 %)    -> %   = D16/100
+       D18 = modulo E     (MPa)
+       D20 = forca max    (N)
+       D22 = R2           (x1000)     -> R2  = D22/1000
+   Convencoes do teste: area A=10 mm2, comprimento util L0=50 mm.
+   ================================================================ *)
+
+(* ---------- 1) COMANDOS ---------- *)
+IF D50 = 1 THEN
+    D0 := 1; D1 := 1; D2 := 0; D10 := 0; D20 := 0; D50 := 0;
+ELSIF D50 = 2 THEN
+    D0 := 2; D1 := 1; D2 := 0; D10 := 0; D20 := 0; D50 := 0;
+ELSIF D50 = 3 THEN
+    D1 := 0; D50 := 0;
+ELSIF D50 = 4 THEN
+    D0 := 0; D1 := 0; D2 := 0;
+    D10 := 0; D12 := 0; D14 := 0; D16 := 0; D18 := 0; D20 := 0; D22 := 0;
+    D50 := 0;
+END_IF;
+
+(* ---------- 2) AVANCO DO ENSAIO ---------- *)
+IF D1 = 1 THEN
+    D10 := D10 + 1;                 (* +0,01 mm por scan *)
+END_IF;
+
+(* ---------- 3) TRACAO ---------- *)
+IF D0 = 1 THEN
+    IF D10 <= 200 THEN              (* elastico ate 2,00 mm *)
+        D12 := D10 * 2;            (* F = 200 N/mm * x *)
+        D18 := 1000;               (* E ~ 1000 MPa *)
+        D22 := 999;
+    ELSIF D10 <= 400 THEN          (* plastico 2 a 4 mm *)
+        D12 := 400 + (D10 - 200) * 60 / 200;
+        D22 := 950;
+    ELSE                           (* ruptura em 4 mm *)
+        D12 := 0; D1 := 0; D2 := 1;
+    END_IF;
+    D14 := D12;                    (* sigma x10 = F  (A=10) *)
+    D16 := D10 * 2;                (* alongamento x100 *)
+END_IF;
+
+(* ---------- 4) FLEXAO (3 pontos) ---------- *)
+IF D0 = 2 THEN
+    IF D10 <= 400 THEN             (* elastico ate 4,00 mm *)
+        D12 := D10 / 2;           (* F = 50 N/mm * x *)
+        D18 := 700;                (* E ~ 700 MPa *)
+        D22 := 998;
+    ELSIF D10 <= 600 THEN          (* plastico 4 a 6 mm *)
+        D12 := 200 + (D10 - 400) * 30 / 200;
+        D22 := 940;
+    ELSE                           (* ruptura em 6 mm *)
+        D12 := 0; D1 := 0; D2 := 1;
+    END_IF;
+    D14 := D12 * 6;                (* sigma x10 = 6F  (b=10,d=4,L=64) *)
+    D16 := D10 * 3 / 5;            (* deformacao flexural x100 *)
+END_IF;
+
+(* ---------- 5) PICO DE FORCA ---------- *)
+IF D12 > D20 THEN
+    D20 := D12;
+END_IF;
