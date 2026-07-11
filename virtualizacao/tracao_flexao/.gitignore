@@ -1,0 +1,5 @@
+# Arquivos temporários / de backup do ISPSoft (gerados enquanto o projeto está aberto)
+*.~bak
+*.~isp
+# Locks temporários do Microsoft Office (Word/Excel)
+~$*
