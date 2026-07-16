@@ -21,6 +21,7 @@
   .dot.on { background:var(--grn); box-shadow:0 0 8px var(--grn); }
   .dot.run { background:var(--amb); box-shadow:0 0 8px var(--amb); animation:pulse 1s infinite; }
   .dot.pat { background:var(--red); box-shadow:0 0 8px var(--red); }
+  .dot.fim { background:var(--grn); box-shadow:0 0 8px var(--grn); }
   @keyframes pulse { 50% { opacity:.35; } }
   #right { position:fixed; top:16px; right:16px; width:262px;
            display:flex; flex-direction:column; gap:12px; }
@@ -74,10 +75,10 @@
   </div>
 
   <div class="panel">
-    <div class="ttl">Balança</div>
+    <div class="ttl">Balança — teor de betume</div>
     <div class="row"><span class="k">Peso inicial</span><span><span class="v" id="v_p0">–</span><span class="u">g</span></span></div>
     <div class="row"><span class="k">Peso atual</span><span><span class="v" id="v_p1">–</span><span class="u">g</span></span></div>
-    <div class="row"><span class="k">Perda de massa</span><span><span class="v" id="v_perda" style="color:var(--amb)">–</span><span class="u">%</span></span></div>
+    <div class="row"><span class="k">Betume queimado</span><span><span class="v" id="v_perda" style="color:var(--amb)">–</span><span class="u">%</span></span></div>
     <div id="massbar"><div id="massfill"></div></div>
   </div>
 
@@ -310,7 +311,7 @@ function updateSmoke(dt) {
 }
 
 // ---------- estado ----------
-const tele = { modo:0, tempo:0, temperatura:25, temp_amostra:25, setpoint:540, potencia:0,
+const tele = { modo:0, etapa:0, tempo:0, temperatura:25, temp_amostra:25, setpoint:540, potencia:0,
                duty:0, energia_kj:0, q_amostra_kj:0, taxa:0, fumaca:0,
                peso_inicial_g:0, peso_atual_g:0, perda_massa_pct:0,
                ventoinha:false, rodando:false, patamar:false, conectado:false };
@@ -387,6 +388,15 @@ function drawChart() {
 }
 
 // ---------- telemetria ----------
+// etapas publicadas pelo CLP em D4 (só avançam; o ensaio acaba quando o betume esgota)
+const ETAPAS = {
+  0: { txt:'pronto',                    dot:'on'  },
+  1: { txt:'aquecendo',                 dot:'run' },
+  2: { txt:'queimando o betume',        dot:'run' },
+  3: { txt:'patamar em 540 °C',         dot:'pat' },
+  4: { txt:'ENSAIO CONCLUÍDO',          dot:'fim' },
+  5: { txt:'resfriando',                dot:'on'  },
+};
 const $ = id => document.getElementById(id);
 const fmt = (x,d=1) => (x==null ? '–' : Number(x).toFixed(d));
 async function poll() {
@@ -414,11 +424,12 @@ async function poll() {
     drawChart();
 
     const dot = $('dot'), txt = $('statustxt');
-    if (!tele.conectado)   { dot.className='dot';     txt.textContent='sem conexão (rode o bridge)'; }
-    else if (tele.patamar) { dot.className='dot pat'; txt.textContent=`patamar em ${fmt(tele.setpoint,0)} °C`; }
-    else if (tele.rodando) { dot.className='dot run'; txt.textContent='aquecendo'; }
-    else if (tele.modo===3){ dot.className='dot on';  txt.textContent='resfriando'; }
-    else                   { dot.className='dot on';  txt.textContent='pronto'; }
+    if (!tele.conectado) { dot.className='dot'; txt.textContent='sem conexão (rode o bridge)'; }
+    else {
+      const e = ETAPAS[tele.etapa] || ETAPAS[0];
+      dot.className = 'dot ' + e.dot;
+      txt.textContent = e.txt;
+    }
   } catch(e) { $('statustxt').textContent='bridge offline'; $('dot').className='dot'; }
 }
 setInterval(poll, 100); poll();

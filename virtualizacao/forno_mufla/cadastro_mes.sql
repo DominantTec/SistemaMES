@@ -61,9 +61,12 @@ IF COL_LENGTH('dbo.tb_ihm', 'tx_tipo_maquina') IS NOT NULL
     UPDATE dbo.tb_ihm SET tx_tipo_maquina = N'Forno Mufla' WHERE id_ihm = @id_ihm;
 
 -- 3) Registradores — recria se o mapa não bater com o esperado.
+--    O marcador é 'etapa' (o registrador mais novo do mapa): cadastros anteriores,
+--    sem ele, são recriados. Pare o coletor antes de rodar — se ele inserir logs
+--    entre o DELETE dos logs e o dos registradores, a FK barra e o mapa fica misturado.
 IF NOT EXISTS (
     SELECT 1 FROM dbo.tb_registrador
-     WHERE id_ihm = @id_ihm AND tx_descricao = N'perda_massa_pct'
+     WHERE id_ihm = @id_ihm AND tx_descricao = N'etapa'
 )
 BEGIN
     DELETE FROM dbo.tb_log_registrador WHERE id_ihm = @id_ihm;
@@ -75,6 +78,8 @@ BEGIN
     (1,  N'rodando',         @id_ihm, 1, 1),      -- 0/1
     (2,  N'ventoinha',       @id_ihm, 1, 1),      -- 0/1 exaustão ligada
     (3,  N'patamar',         @id_ihm, 1, 1),      -- 0/1 dentro da tolerância do setpoint
+    -- etapa do ensaio: só avança, nunca volta -> é o que desenha a linha do tempo na tela
+    (4,  N'etapa',           @id_ihm, 1, 1),      -- 0 ocioso 1 aquec 2 queima 3 patamar 4 concluído 5 resfria
     -- ---- Térmico ----
     (10, N'temperatura_c',   @id_ihm, 1, 10),     -- x10  -> °C (câmara)
     (12, N'temp_amostra_c',  @id_ihm, 1, 10),     -- x10  -> °C (corpo de prova)
@@ -82,11 +87,11 @@ BEGIN
     (16, N'potencia_w',      @id_ihm, 1, 1),      --      -> W
     (18, N'duty',            @id_ihm, 1, 1000),   -- x1000 -> 0..1
     (20, N'energia_kj',      @id_ihm, 1, 1),      --      -> kJ acumulados
-    -- ---- Balança / perda ao fogo ----
+    -- ---- Balança / teor de betume (ensaio de ignição: a massa perdida É o betume) ----
     (30, N'peso_inicial_g',  @id_ihm, 1, 10),     -- x10  -> g
     (32, N'peso_atual_g',    @id_ihm, 1, 10),     -- x10  -> g
-    (34, N'perda_massa_pct', @id_ihm, 1, 100),    -- x100 -> %
-    (36, N'taxa_volateis',   @id_ihm, 1, 1000),   -- x1000 -> 0..1 (liberação de voláteis)
+    (34, N'perda_massa_pct', @id_ihm, 1, 100),    -- x100 -> % (= teor de betume queimado)
+    (36, N'taxa_betume',     @id_ihm, 1, 1000),   -- x1000 -> 0..1 (taxa de queima; 0 = betume esgotado)
     -- ---- Tempo de ensaio (zera a cada ensaio -> delimita a curva) ----
     (40, N'tempo_s',         @id_ihm, 1, 1);      --      -> s
 END

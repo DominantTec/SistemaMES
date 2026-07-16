@@ -193,6 +193,84 @@
   vertical-align: middle;
 }
 
+/* ── linha do tempo das etapas ────────────────────────────────────────────── */
+.fv-tl-head {
+  font-size: 12px;
+  color: #6b7280;
+  margin: -4px 0 12px;
+}
+.fv-tl {
+  padding: 4px 2px 2px;
+}
+.fv-tl-bar {
+  display: flex;
+  height: 26px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #f3f4f6;
+}
+.fv-tl-seg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 3px;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: width 0.4s ease;
+}
+/* a etapa em andamento pulsa: a barra "se formando" em tempo real */
+.fv-tl-seg-ativa {
+  animation: fv-tl-pulse 1.6s ease-in-out infinite;
+}
+@keyframes fv-tl-pulse {
+  0%, 100% { filter: brightness(1); }
+  50%      { filter: brightness(1.35); }
+}
+.fv-tl-seg-txt {
+  font-size: 10px;
+  font-weight: 700;
+  color: white;
+  letter-spacing: 0.3px;
+  padding: 0 8px;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+.fv-tl-eixo {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 5px;
+  font-size: 10px;
+  color: #9ca3af;
+  font-variant-numeric: tabular-nums;
+}
+.fv-tl-legenda {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-top: 12px;
+}
+.fv-tl-item {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  color: #374151;
+}
+.fv-tl-item i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  margin-right: 6px;
+}
+.fv-tl-item small {
+  margin-left: 6px;
+  color: #9ca3af;
+  font-variant-numeric: tabular-nums;
+}
+.fv-tl-item-futura {
+  color: #9ca3af;
+}
+
 /* ── gráficos ─────────────────────────────────────────────────────────────── */
 .fv-chart-empty {
   padding: 60px 20px;

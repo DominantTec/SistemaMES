@@ -38,6 +38,7 @@ TELE = {
     "rodando":         (1,  1),
     "ventoinha":       (2,  1),
     "patamar":         (3,  1),
+    "etapa":           (4,  1),
     "temperatura":     (10, 10),
     "temp_amostra":    (12, 10),
     "setpoint":        (14, 10),

@@ -1035,13 +1035,25 @@ def _is_forno(tipo: Optional[str]) -> bool:
     return any(k in t for k in _FORNO_KEYS)
 
 
+# Etapas do ensaio publicadas pelo CLP em D4. Só avançam, nunca voltam — é isso que
+# permite desenhar a linha do tempo como uma sequência de segmentos.
+_FORNO_ETAPAS = {
+    0: "Ocioso",
+    1: "Aquecimento",
+    2: "Queima do betume",
+    3: "Patamar 540 °C",
+    4: "Concluído",
+    5: "Resfriamento",
+}
+
+
 def get_forno_snapshot(machine_id: int) -> Optional[dict]:
     """Telemetria do forno mufla para a tela específica do tipo.
 
     Lê tb_log_registrador (gravado pelo coletor a partir do Modbus) e devolve:
       - atual: últimos valores (temperaturas, potência, energia, balança…)
-      - curva: temperatura da câmara/amostra × tempo do ensaio corrente
-      - tga: perda de massa (%) × temperatura da amostra — a curva de perda ao fogo
+      - curva: temperatura da câmara/amostra e peso × tempo do ensaio corrente
+      - etapas: segmentos (etapa, início, fim, duração) para a linha do tempo
       - taxa_c_min: derivada da temperatura (não é registrador: word Modbus é sem sinal)
     Retorna None se não houver dados.
     """
@@ -1072,11 +1084,15 @@ def get_forno_snapshot(machine_id: int) -> Optional[dict]:
         return float(v) if v is not None and not pd.isna(v) else default
 
     modo = int(val("modo"))
+    etapa = int(val("etapa"))
     peso_ini = round(val("peso_inicial_g"), 2)
     peso_at = round(val("peso_atual_g"), 2)
     atual = {
         "modo":            modo,
         "modo_label":      {0: "Ocioso", 1: "Aquecendo", 2: "Patamar", 3: "Resfriando"}.get(modo, "—"),
+        "etapa":           etapa,
+        "etapa_label":     _FORNO_ETAPAS.get(etapa, "—"),
+        "concluido":       etapa >= 4,
         "rodando":         bool(val("rodando")),
         "patamar":         bool(val("patamar")),
         "ventoinha":       bool(val("ventoinha")),
@@ -1089,8 +1105,8 @@ def get_forno_snapshot(machine_id: int) -> Optional[dict]:
         "peso_inicial_g":  peso_ini,
         "peso_atual_g":    peso_at,
         "peso_perdido_g":  round(peso_ini - peso_at, 2),
-        "perda_massa_pct": round(val("perda_massa_pct"), 2),
-        "taxa_volateis":   round(val("taxa_volateis"), 3),
+        "perda_massa_pct": round(val("perda_massa_pct"), 2),   # = teor de betume queimado
+        "taxa_betume":     round(val("taxa_betume"), 3),
         "tempo_s":         round(val("tempo_s"), 0),
     }
 
@@ -1119,8 +1135,8 @@ def get_forno_snapshot(machine_id: int) -> Optional[dict]:
     tcam = serie("temperatura_c")
     tam  = serie("temp_amostra_c")
     pot  = serie("potencia_w")
-    perda = serie("perda_massa_pct")
     peso = serie("peso_atual_g")
+    etapas_s = serie("etapa")
 
     def _f(s, i, dec=1):
         if i >= len(s):
@@ -1130,7 +1146,9 @@ def get_forno_snapshot(machine_id: int) -> Optional[dict]:
 
     n = len(piv.index)
     curva: List[Dict[str, Any]] = []
-    tga: List[Dict[str, Any]] = []
+    # Linha do tempo: agrupa amostras consecutivas de mesma etapa num segmento. Como a
+    # etapa só avança, os segmentos saem em ordem e o último é o que está em andamento.
+    etapas: List[Dict[str, Any]] = []
     t0 = None
     for i in range(idx_ini, n):
         ts = _f(tempo, i, 0)
@@ -1138,23 +1156,39 @@ def get_forno_snapshot(machine_id: int) -> Optional[dict]:
             continue
         if t0 is None:
             t0 = ts
+        t_rel = round(ts - t0)
         curva.append({
-            "t":       round(ts - t0),
-            "camara":  _f(tcam, i, 1),
-            "amostra": _f(tam, i, 1),
+            "t":        t_rel,
+            "camara":   _f(tcam, i, 1),
+            "amostra":  _f(tam, i, 1),
             "potencia": _f(pot, i, 0),
-            "peso":    _f(peso, i, 2),
+            "peso":     _f(peso, i, 2),
         })
-        ta, pm = _f(tam, i, 1), _f(perda, i, 3)
-        if ta is not None and pm is not None:
-            # TGA: massa retida (%) × temperatura da amostra
-            tga.append({"temp": ta, "massa_pct": round(100.0 - pm, 3), "perda_pct": pm})
+        ev = _f(etapas_s, i, 0)
+        if ev is None:
+            continue
+        ei = int(ev)
+        # A linha do tempo é só do ENSAIO: 0=Ocioso é antes de começar e 5=Resfriamento
+        # é depois do fim (o ensaio acaba quando o betume acaba). O resfriamento cresce
+        # indefinidamente enquanto o forno esfria e espremeria as etapas reais na barra.
+        # O estado atual continua aparecendo no badge da tela.
+        if ei == 0 or ei >= 5:
+            continue
+        if etapas and etapas[-1]["etapa"] == ei:
+            etapas[-1]["fim"] = t_rel
+        else:
+            etapas.append({"etapa": ei, "label": _FORNO_ETAPAS.get(ei, "—"),
+                           "inicio": t_rel, "fim": t_rel})
 
-    def _decimar(lst, alvo=400):
-        return lst[::(len(lst) // alvo + 1)] if len(lst) > alvo else lst
+    # Cola os segmentos: o fim de um é o início do próximo. Sem isso sobra o intervalo
+    # entre duas amostras entre os segmentos, e as larguras da barra não fecham 100%.
+    for i in range(len(etapas) - 1):
+        etapas[i]["fim"] = etapas[i + 1]["inicio"]
+    for e in etapas:
+        e["duracao"] = e["fim"] - e["inicio"]
 
-    curva = _decimar(curva)
-    tga = _decimar(tga)
+    if len(curva) > 400:
+        curva = curva[::(len(curva) // 400 + 1)]
 
     # Taxa de aquecimento (°C/min): derivada dos últimos ~60 s de ensaio.
     taxa = 0.0
@@ -1165,7 +1199,7 @@ def get_forno_snapshot(machine_id: int) -> Optional[dict]:
         if dt_s > 0 and fim["camara"] is not None and ref["camara"] is not None:
             taxa = round((fim["camara"] - ref["camara"]) / dt_s * 60.0, 2)
 
-    return {"atual": atual, "curva": curva, "tga": tga, "taxa_c_min": taxa}
+    return {"atual": atual, "curva": curva, "etapas": etapas, "taxa_c_min": taxa}
 
 
 def get_machine_detail(machine_id: int) -> dict:
