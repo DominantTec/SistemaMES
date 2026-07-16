@@ -6,6 +6,7 @@ import {
   ResponsiveContainer, ReferenceLine,
   AreaChart, Area, CartesianGrid,
 } from "recharts";
+import { getMachineView } from "./machineViews/registry";
 import "./MaquinaDetalhe.css";
 import "./Manutencao.css";
 
@@ -717,6 +718,9 @@ export default function MaquinaDetalhe() {
 
   const st = getStatus(data.status);
 
+  // Corpo dirigido pelo tipo de máquina (schema-driven). Null → visão de produção.
+  const TypedView = getMachineView(data.tipo_maquina);
+
   const horas    = data.producao_horaria?.length || 0;
   const metaHora = horas > 0 && data.meta > 0 ? data.meta / horas : 0;
 
@@ -742,11 +746,13 @@ export default function MaquinaDetalhe() {
         <div className="md-header-left">
           <div className="md-header-title-row">
             <h1 className="md-machine-name">{data.nome}</h1>
-            <span className="md-status-badge" style={{ color: st.color, background: st.bg }}>
-              <span className={`md-status-dot${isRunning ? " md-status-dot-pulse" : ""}`}
-                    style={{ background: st.color }} />
-              {st.label}
-            </span>
+            {!TypedView && (
+              <span className="md-status-badge" style={{ color: st.color, background: st.bg }}>
+                <span className={`md-status-dot${isRunning ? " md-status-dot-pulse" : ""}`}
+                      style={{ background: st.color }} />
+                {st.label}
+              </span>
+            )}
             <span className="md-linha-tag">{data.linha}</span>
           </div>
           {data.parada_ha && (
@@ -770,6 +776,12 @@ export default function MaquinaDetalhe() {
         uptimeS={isRunning ? data.uptime_s : null}
       />
 
+      {/* ── Corpo específico do tipo de máquina (ex.: Ensaio) ───────── */}
+      {TypedView && <TypedView data={data} machineId={machineId} />}
+
+      {/* ── Corpo de produção padrão (OEE, paradas, Pareto…) ────────── */}
+      {!TypedView && (
+      <>
       {/* ── KPI strip ──────────────────────────────────────────────── */}
       <div className="md-kpis">
         <KpiCard
@@ -919,6 +931,8 @@ export default function MaquinaDetalhe() {
 
       {/* ── Ordens de Serviço desta máquina ───────────────────────── */}
       <OSHistoricoMaquina machineId={machineId} />
+      </>
+      )}
 
     </div>
   );

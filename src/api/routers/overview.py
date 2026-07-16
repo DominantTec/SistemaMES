@@ -18,7 +18,8 @@ async def ws_overview(websocket: WebSocket):
     await websocket.accept()
     try:
         while True:
-            await websocket.send_json(get_overview_data())
+            payload = await asyncio.to_thread(get_overview_data)
+            await websocket.send_json(payload)
             await asyncio.sleep(2)
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, RuntimeError, ConnectionError):
         pass

@@ -40,6 +40,7 @@ CREATE TABLE dbo.tb_registrador (
     tx_descricao   NVARCHAR(255)     NULL,
     id_ihm         INT               NOT NULL,
     nu_qtd_words   INT               NOT NULL DEFAULT 1,  -- 1=WORD 16bit, 2=REAL/DWORD 32bit
+    nu_divisor     DECIMAL(18,4)     NOT NULL DEFAULT 1,  -- divisor de escala (1=sem escala; AS300: desloc x100 etc.)
     CONSTRAINT PK_tb_registrador PRIMARY KEY CLUSTERED (id_registrador),
     CONSTRAINT FK_tb_registrador_ihm FOREIGN KEY (id_ihm)
         REFERENCES dbo.tb_ihm (id_ihm)

@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Twin 3D — Forno Mufla</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22cc; --line:#30363d; --txt:#e6edf3; --mut:#8b949e;
+          --grn:#2ea043; --red:#da3633; --blu:#1f6feb; --amb:#d29922; --cyn:#39c5cf; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--txt);
+              font-family:"Segoe UI",system-ui,sans-serif; overflow:hidden; }
+  #c { position:fixed; inset:0; display:block; }
+  .panel { background:var(--panel); border:1px solid var(--line);
+           border-radius:12px; padding:14px 16px; backdrop-filter:blur(8px); }
+  #title { position:fixed; top:16px; left:16px; }
+  #title h1 { margin:0; font-size:15px; letter-spacing:.3px; }
+  #title .sub { color:var(--mut); font-size:12px; margin-top:2px; }
+  #status { display:inline-flex; align-items:center; gap:7px; margin-top:9px; font-size:12px; }
+  .dot { width:9px; height:9px; border-radius:50%; background:var(--mut); }
+  .dot.on { background:var(--grn); box-shadow:0 0 8px var(--grn); }
+  .dot.run { background:var(--amb); box-shadow:0 0 8px var(--amb); animation:pulse 1s infinite; }
+  .dot.pat { background:var(--red); box-shadow:0 0 8px var(--red); }
+  @keyframes pulse { 50% { opacity:.35; } }
+  #right { position:fixed; top:16px; right:16px; width:262px;
+           display:flex; flex-direction:column; gap:12px; }
+  .row { display:flex; justify-content:space-between; align-items:baseline;
+         padding:5px 0; border-bottom:1px solid #ffffff10; }
+  .row:last-child { border-bottom:0; }
+  .k { color:var(--mut); font-size:12px; }
+  .v { font-variant-numeric:tabular-nums; font-size:15px; font-weight:600; }
+  .u { color:var(--mut); font-size:11px; font-weight:400; margin-left:3px; }
+  #gauge { height:8px; background:#ffffff14; border-radius:4px; margin-top:10px; overflow:hidden; }
+  #gaugefill { height:100%; width:0%; background:linear-gradient(90deg,#6e7681,var(--red),var(--amb));
+               transition:width .1s linear; }
+  /* barra da balança: massa restante (verde) + massa perdida (âmbar) */
+  #massbar { height:8px; background:var(--amb); border-radius:4px; margin-top:10px; overflow:hidden; }
+  #massfill { height:100%; width:100%; background:var(--grn); transition:width .2s linear; }
+  .ttl { font-size:12px; font-weight:700; letter-spacing:.4px; color:var(--mut);
+         text-transform:uppercase; margin-bottom:8px; }
+  #chart { width:100%; height:150px; display:block; }
+  .leg { display:flex; gap:12px; margin-top:8px; font-size:11px; color:var(--mut); }
+  .leg i { display:inline-block; width:9px; height:2px; vertical-align:middle; margin-right:5px; }
+  #ctrl { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); display:flex; gap:8px;
+          flex-wrap:wrap; justify-content:center; max-width:92vw; }
+  button { font:inherit; font-size:13px; font-weight:600; color:var(--txt); cursor:pointer;
+           background:#21262d; border:1px solid var(--line); border-radius:9px; padding:10px 15px;
+           transition:transform .05s, background .15s; }
+  button:hover { background:#2d333b; }
+  button:active { transform:translateY(1px); }
+  button.go { background:var(--red); border-color:transparent; }
+  button.stop { background:#21262d; }
+  .hint { position:fixed; bottom:16px; left:16px; color:var(--mut); font-size:11px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="title" class="panel">
+  <h1>Forno Mufla — Twin 3D</h1>
+  <div class="sub">geometria representativa · dados mockados (sem CLP)</div>
+  <div id="status"><span class="dot" id="dot"></span><span id="statustxt">conectando…</span></div>
+</div>
+
+<div id="right">
+  <div class="panel">
+    <div class="ttl">Telemetria</div>
+    <div class="row"><span class="k">Câmara</span><span><span class="v" id="v_temp">–</span><span class="u">°C</span></span></div>
+    <div class="row"><span class="k">Corpo de prova</span><span><span class="v" id="v_am">–</span><span class="u">°C</span></span></div>
+    <div class="row"><span class="k">Setpoint</span><span><span class="v" id="v_sp">–</span><span class="u">°C</span></span></div>
+    <div class="row"><span class="k">Potência</span><span><span class="v" id="v_pot">–</span><span class="u">W</span></span></div>
+    <div class="row"><span class="k">Taxa</span><span><span class="v" id="v_taxa">–</span><span class="u">°C/min</span></span></div>
+    <div id="gauge"><div id="gaugefill"></div></div>
+  </div>
+
+  <div class="panel">
+    <div class="ttl">Balança</div>
+    <div class="row"><span class="k">Peso inicial</span><span><span class="v" id="v_p0">–</span><span class="u">g</span></span></div>
+    <div class="row"><span class="k">Peso atual</span><span><span class="v" id="v_p1">–</span><span class="u">g</span></span></div>
+    <div class="row"><span class="k">Perda de massa</span><span><span class="v" id="v_perda" style="color:var(--amb)">–</span><span class="u">%</span></span></div>
+    <div id="massbar"><div id="massfill"></div></div>
+  </div>
+
+  <div class="panel">
+    <div class="ttl">Calorimetria</div>
+    <canvas id="chart"></canvas>
+    <div class="leg">
+      <span><i style="background:#d29922"></i>câmara</span>
+      <span><i style="background:#39c5cf"></i>amostra</span>
+      <span><i style="background:#da3633"></i>setpoint</span>
+      <span><i style="background:#2ea04366;height:7px"></i>potência</span>
+    </div>
+    <div class="row" style="margin-top:8px"><span class="k">Energia fornecida</span><span><span class="v" id="v_en">–</span><span class="u">kJ</span></span></div>
+    <div class="row"><span class="k">Q absorvido (amostra)</span><span><span class="v" id="v_q">–</span><span class="u">kJ</span></span></div>
+  </div>
+</div>
+
+<div id="ctrl" class="panel">
+  <button class="go"    data-cmd="iniciar">▶ Aquecer até 540 °C</button>
+  <button class="stop"  data-cmd="parar">■ Parar</button>
+  <button class="stop"  data-cmd="ventoinha">❋ Ventoinha</button>
+  <button class="stop"  data-cmd="zerar">⟲ Zerar</button>
+</div>
+<div class="hint">arraste p/ girar · scroll p/ zoom</div>
+
+<script>
+// Sem isto, qualquer erro no módulo abaixo deixa a tela parada em "conectando…" sem dizer o motivo.
+addEventListener('error', e => {
+  const t = document.getElementById('statustxt');
+  if (t) { t.textContent = 'ERRO JS: ' + (e.message || e.error); t.style.color = '#da3633'; }
+});
+</script>
+<script type="importmap">
+{ "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ---------- cena ----------
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias:true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0d1117);
+scene.fog = new THREE.Fog(0x0d1117, 24, 55);
+
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
+camera.position.set(8, 6, 10);
+const controls = new OrbitControls(camera, canvas);
+controls.target.set(0, 3, 0);
+controls.enableDamping = true;
+
+scene.add(new THREE.HemisphereLight(0xbcd3ff, 0x202830, 0.75));
+const dir = new THREE.DirectionalLight(0xffffff, 1.4);
+dir.position.set(6, 12, 8); scene.add(dir);
+scene.add(new THREE.GridHelper(40, 40, 0x30363d, 0x1c2128));
+
+// ---------- materiais ----------
+const steel = new THREE.MeshStandardMaterial({ color:0x9aa4b2, metalness:0.85, roughness:0.35 });
+const dark  = new THREE.MeshStandardMaterial({ color:0x3a424e, metalness:0.7,  roughness:0.5 });
+const refra = new THREE.MeshStandardMaterial({ color:0xb9b2a4, metalness:0.05, roughness:0.95 });
+const glass = new THREE.MeshStandardMaterial({ color:0x8fa3bd, metalness:0.1, roughness:0.15,
+                                               transparent:true, opacity:0.14, side:THREE.DoubleSide });
+const box = (w,h,d,mat) => new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat);
+// obj.position é somente-leitura no three.js (defineProperties sem setter): use .set(), nunca atribua
+const at = (mesh,x,y,z) => { mesh.position.set(x,y,z); return mesh; };
+
+// ---------- gaiola (estrutura) ----------
+const CW = 4.0, CH = 2.8, CD = 3.0;          // câmara interna
+// Y0 alto de propósito: abre o vão onde mora a balança (carregamento inferior, tipo TGA).
+const Y0 = 1.7, YC = Y0 + CH/2;              // piso e centro da câmara
+const forno = new THREE.Group(); scene.add(forno);
+
+forno.add(at(box(CW+0.9, 0.35, CD+0.9, dark), 0, 0.175, 0));
+for (const sx of [-1,1]) for (const sz of [-1,1]) {           // montantes da gaiola
+  const p = box(0.16, Y0+CH+0.5, 0.16, steel);
+  p.position.set(sx*(CW/2+0.25), (Y0+CH+0.5)/2, sz*(CD/2+0.25));
+  forno.add(p);
+}
+for (const y of [Y0-0.15, Y0+CH+0.35]) for (const sz of [-1,1]) {   // travessas em x
+  const b = box(CW+0.66, 0.12, 0.12, steel); b.position.set(0, y, sz*(CD/2+0.25)); forno.add(b);
+}
+for (const y of [Y0-0.15, Y0+CH+0.35]) for (const sx of [-1,1]) {   // travessas em z
+  const b = box(0.12, 0.12, CD+0.66, steel); b.position.set(sx*(CW/2+0.25), y, 0); forno.add(b);
+}
+
+// ---------- câmara (refratário + paredes translúcidas) ----------
+forno.add(at(box(CW, 0.25, CD, refra), 0, Y0-0.12, 0));
+forno.add(at(box(CW, 0.25, CD, refra), 0, Y0+CH+0.12, 0));
+for (const sx of [-1,1]) forno.add(at(box(0.08, CH, CD, glass), sx*CW/2, YC, 0));
+for (const sz of [-1,1]) forno.add(at(box(CW, CH, 0.08, glass), 0, YC, sz*CD/2));
+
+// chaminé (saída de fumaça) no teto
+const VENT_Y = Y0 + CH + 0.25;
+const chamine = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.5, 20, 1, true), dark);
+chamine.position.set(0, VENT_Y + 0.15, 0); forno.add(chamine);
+
+// ---------- resistências (serpentinas) ----------
+function serpentina(eixoX, largura, voltas, raio) {
+  const pts = [];
+  for (let i = 0; i <= 240; i++) {
+    const t = i/240, th = t*voltas*Math.PI*2;
+    pts.push(new THREE.Vector3(eixoX + Math.cos(th)*0.09, Math.sin(th)*raio, -largura/2 + largura*t));
+  }
+  const geo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 260, 0.05, 8, false);
+  const mat = new THREE.MeshStandardMaterial({ color:0x6c6257, metalness:0.4, roughness:0.6,
+                                               emissive:0x000000, emissiveIntensity:0 });
+  return new THREE.Mesh(geo, mat);
+}
+const resist = [];
+for (const sx of [-1,1]) for (const dy of [-0.75, 0, 0.75]) {
+  const s = serpentina(sx*(CW/2 - 0.22), CD-0.5, 7, 0.16);
+  s.position.y = YC + dy; forno.add(s); resist.push(s);
+}
+
+// ---------- balança (carregamento inferior, tipo TGA) ----------
+// O corpo fica no vão sob a câmara e uma haste sobe pelo piso refratário até o prato.
+// É assim que uma termobalança real pesa a amostra sem tirá-la do forno.
+const BAL_TOPO = 1.1, PRATO_Y = Y0 + 0.05;
+forno.add(at(box(1.7, 0.75, 1.3, dark), 0, 0.725, 0));                    // corpo da balança
+forno.add(at(box(1.75, 0.06, 1.35, steel), 0, BAL_TOPO + 0.03, 0));       // tampa
+const haste = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, PRATO_Y - BAL_TOPO, 12), steel);
+haste.position.set(0, (BAL_TOPO + PRATO_Y)/2, 0); forno.add(haste);       // atravessa o refratário
+const prato = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.44, 0.07, 28), steel);
+prato.position.set(0, PRATO_Y, 0); forno.add(prato);
+
+// display da balança: textura de canvas redesenhada quando o peso muda
+const balCv = document.createElement('canvas'); balCv.width = 256; balCv.height = 96;
+const balCx = balCv.getContext('2d');
+const balTex = new THREE.CanvasTexture(balCv);
+let balUltimo = null;
+function desenhaDisplay(peso) {
+  const txt = (peso == null) ? '---.- g' : peso.toFixed(1) + ' g';
+  if (txt === balUltimo) return;                 // só redesenha quando muda
+  balUltimo = txt;
+  balCx.fillStyle = '#0a1a12'; balCx.fillRect(0,0,256,96);
+  balCx.fillStyle = '#3fe08a'; balCx.font = 'bold 46px Consolas,monospace';
+  balCx.textAlign = 'right'; balCx.textBaseline = 'middle';
+  balCx.fillText(txt, 240, 52);
+  balCx.font = '13px system-ui'; balCx.textAlign = 'left'; balCx.fillStyle = '#3fe08a99';
+  balCx.fillText('BALANÇA', 14, 18);
+  balTex.needsUpdate = true;
+}
+desenhaDisplay(null);
+const display = box(1.0, 0.36, 0.02, new THREE.MeshBasicMaterial({ map: balTex }));
+display.position.set(0, 0.82, 1.3/2 + 0.01); forno.add(display);
+
+// ---------- corpo de prova ----------
+const amostraMat = new THREE.MeshStandardMaterial({ color:0x7d8590, metalness:0.3, roughness:0.7,
+                                                    emissive:0x000000, emissiveIntensity:0 });
+const amostra = box(0.75, 0.75, 0.75, amostraMat);
+amostra.position.set(0, PRATO_Y + 0.035 + 0.375, 0); forno.add(amostra);
+
+const brilho = new THREE.PointLight(0xff5a1e, 0, 9, 2);   // luz do calor dentro da câmara
+brilho.position.set(0, YC - 0.3, 0); forno.add(brilho);
+
+// ---------- ventoinha (exaustão) ----------
+const FAN_Y = VENT_Y + 1.5;
+const fan = new THREE.Group(); fan.position.set(0, FAN_Y, 0); forno.add(fan);
+fan.add(new THREE.Mesh(new THREE.CylinderGeometry(0.95, 0.95, 0.55, 28, 1, true), dark));
+const rotor = new THREE.Group(); fan.add(rotor);
+rotor.add(new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.3, 16), steel));
+for (let i = 0; i < 5; i++) {
+  const pa = box(0.72, 0.04, 0.3, steel);
+  pa.position.set(Math.cos(i/5*Math.PI*2)*0.44, 0, Math.sin(i/5*Math.PI*2)*0.44);
+  pa.rotation.y = -i/5*Math.PI*2; pa.rotation.x = 0.5;
+  rotor.add(pa);
+}
+for (const sx of [-1,1]) {                                   // suportes da ventoinha
+  const h = box(0.1, FAN_Y - VENT_Y, 0.1, steel);
+  h.position.set(sx*1.02, VENT_Y + (FAN_Y-VENT_Y)/2 - FAN_Y, 0); fan.add(h);
+}
+
+// ---------- fumaça ----------
+const NP = 420;
+const smokeTex = (() => {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 64;
+  const g = cv.getContext('2d').createRadialGradient(32,32,0,32,32,32);
+  g.addColorStop(0,'rgba(255,255,255,1)'); g.addColorStop(1,'rgba(255,255,255,0)');
+  const ctx = cv.getContext('2d'); ctx.fillStyle = g; ctx.fillRect(0,0,64,64);
+  return new THREE.CanvasTexture(cv);
+})();
+const pPos = new Float32Array(NP*3), pCol = new Float32Array(NP*3);
+const pVel = new Float32Array(NP*3), pAge = new Float32Array(NP), pLife = new Float32Array(NP);
+const pGeo = new THREE.BufferGeometry();
+pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+pGeo.setAttribute('color',    new THREE.BufferAttribute(pCol, 3));
+const smoke = new THREE.Points(pGeo, new THREE.PointsMaterial({
+  size:0.42, map:smokeTex, vertexColors:true, transparent:true, depthWrite:false,
+  blending:THREE.AdditiveBlending, sizeAttenuation:true }));
+forno.add(smoke);
+for (let i = 0; i < NP; i++) pAge[i] = pLife[i] = 1;   // todas mortas no início
+
+function spawn(i) {
+  const r = Math.random()*0.22, a = Math.random()*Math.PI*2;
+  pPos[i*3] = Math.cos(a)*r; pPos[i*3+1] = VENT_Y + 0.1; pPos[i*3+2] = Math.sin(a)*r;
+  pVel[i*3] = (Math.random()-0.5)*0.15; pVel[i*3+1] = 0.5 + Math.random()*0.5;
+  pVel[i*3+2] = (Math.random()-0.5)*0.15;
+  pAge[i] = 0; pLife[i] = 2.6 + Math.random()*1.8;
+}
+
+function updateSmoke(dt) {
+  let orcamento = tele.fumaca * 6;                       // partículas novas por frame
+  for (let i = 0; i < NP; i++) {
+    if (pAge[i] >= pLife[i]) {
+      if (orcamento > 0 && Math.random() < tele.fumaca) { spawn(i); orcamento--; }
+      else { pCol[i*3] = pCol[i*3+1] = pCol[i*3+2] = 0; continue; }
+    }
+    pAge[i] += dt;
+    const y = pPos[i*3+1];
+    if (anim.fan > 0.05 && y > FAN_Y - 1.2) {            // sugada e dispersada pela ventoinha
+      const x = pPos[i*3], z = pPos[i*3+2], d = Math.hypot(x,z) || 1e-3;
+      const pull = y < FAN_Y ? 1 : -1;                   // abaixo do rotor puxa, acima joga pra fora
+      pVel[i*3]   += (x/d) * -pull * anim.fan * 2.2 * dt;
+      pVel[i*3+2] += (z/d) * -pull * anim.fan * 2.2 * dt;
+      pVel[i*3+1] += anim.fan * (y < FAN_Y ? 1.6 : -0.4) * dt;
+      pAge[i] += dt * anim.fan * 1.6;                    // dispersa mais rápido
+    }
+    pVel[i*3+1] += 0.25*dt; pVel[i*3] *= 0.995; pVel[i*3+2] *= 0.995;
+    pPos[i*3]   += pVel[i*3]*dt; pPos[i*3+1] += pVel[i*3+1]*dt; pPos[i*3+2] += pVel[i*3+2]*dt;
+    const k = Math.max(1 - pAge[i]/pLife[i], 0) * 0.5;   // fade
+    pCol[i*3] = k*0.85; pCol[i*3+1] = k*0.8; pCol[i*3+2] = k*0.78;
+  }
+  pGeo.attributes.position.needsUpdate = true;
+  pGeo.attributes.color.needsUpdate = true;
+}
+
+// ---------- estado ----------
+const tele = { modo:0, tempo:0, temperatura:25, temp_amostra:25, setpoint:540, potencia:0,
+               duty:0, energia_kj:0, q_amostra_kj:0, taxa:0, fumaca:0,
+               peso_inicial_g:0, peso_atual_g:0, perda_massa_pct:0,
+               ventoinha:false, rodando:false, patamar:false, conectado:false };
+const anim = { tc:25, ta:25, fan:0, spin:0 };
+const hist = [];   // {t, tc, ta, p}
+
+// incandescência: começa a brilhar por volta de 400 °C (vermelho cereja em 540)
+function incand(t) {
+  const u = Math.max(0, Math.min((t - 380) / 620, 1));
+  return { u, cor: new THREE.Color().setHSL(0.02 + 0.11*u, 1.0, 0.15 + 0.4*u) };
+}
+
+function updateGeom(dt) {
+  anim.tc += (tele.temperatura - anim.tc) * 0.12;
+  anim.ta += (tele.temp_amostra - anim.ta) * 0.12;
+  anim.fan += ((tele.ventoinha ? 1 : 0) - anim.fan) * 0.05;
+
+  const res = incand(anim.tc * (0.55 + 0.45*tele.duty) + tele.duty*180);  // resistência > câmara
+  for (const s of resist) { s.material.emissive.copy(res.cor); s.material.emissiveIntensity = res.u*1.6; }
+  const am = incand(anim.ta);
+  amostraMat.emissive.copy(am.cor); amostraMat.emissiveIntensity = am.u*1.5;
+
+  // a amostra encolhe conforme perde massa (volume ~ massa), continuando apoiada no prato
+  const frac = tele.peso_inicial_g > 0 ? tele.peso_atual_g / tele.peso_inicial_g : 1;
+  const e = Math.cbrt(Math.max(frac, 0.5));
+  amostra.scale.setScalar(e);
+  amostra.position.y = PRATO_Y + 0.035 + 0.375*e;
+  desenhaDisplay(tele.conectado ? tele.peso_atual_g : null);
+
+  brilho.color.copy(res.cor);
+  brilho.intensity = res.u * 14 + am.u * 6;
+
+  anim.spin += (0.6 + anim.fan*22) * dt;
+  rotor.rotation.y = anim.spin;
+  updateSmoke(dt);
+}
+
+// ---------- gráfico de calorimetria ----------
+const ch = document.getElementById('chart'), cx = ch.getContext('2d');
+const JAN_MIN = 600;   // eixo X arranca em 600 s de simulação e cresce com o ensaio
+function drawChart() {
+  const w = ch.clientWidth, h = ch.clientHeight, dpr = Math.min(devicePixelRatio, 2);
+  if (ch.width !== w*dpr) { ch.width = w*dpr; ch.height = h*dpr; }
+  cx.setTransform(dpr,0,0,dpr,0,0);
+  cx.clearRect(0,0,w,h);
+
+  const TMAX = 700, t1 = Math.max(tele.tempo, JAN_MIN);
+  const X = t => t/t1 * (w-4) + 2;
+  const Y = v => h - 14 - (v/TMAX) * (h-20);
+
+  cx.strokeStyle = '#ffffff10'; cx.lineWidth = 1;               // grade
+  for (let v = 0; v <= TMAX; v += 175) {
+    cx.beginPath(); cx.moveTo(0, Y(v)); cx.lineTo(w, Y(v)); cx.stroke();
+  }
+  cx.fillStyle = '#8b949e'; cx.font = '9px system-ui';
+  cx.fillText('700 °C', 2, Y(700)+9); cx.fillText('0', 2, Y(0)-2);
+
+  if (hist.length > 1) {
+    cx.beginPath(); cx.moveTo(X(hist[0].t), h-14);              // potência (área)
+    for (const p of hist) cx.lineTo(X(p.t), h - 14 - (p.p/3000)*(h*0.22));
+    cx.lineTo(X(hist[hist.length-1].t), h-14); cx.closePath();
+    cx.fillStyle = '#2ea04333'; cx.fill();
+  }
+  cx.setLineDash([4,3]); cx.strokeStyle = '#da3633aa'; cx.beginPath();   // setpoint
+  cx.moveTo(0, Y(tele.setpoint)); cx.lineTo(w, Y(tele.setpoint)); cx.stroke(); cx.setLineDash([]);
+
+  const curva = (key, cor) => {
+    if (hist.length < 2) return;
+    cx.beginPath(); cx.strokeStyle = cor; cx.lineWidth = 1.8;
+    hist.forEach((p,i) => i ? cx.lineTo(X(p.t), Y(p[key])) : cx.moveTo(X(p.t), Y(p[key])));
+    cx.stroke();
+  };
+  curva('tc', '#d29922'); curva('ta', '#39c5cf');
+}
+
+// ---------- telemetria ----------
+const $ = id => document.getElementById(id);
+const fmt = (x,d=1) => (x==null ? '–' : Number(x).toFixed(d));
+async function poll() {
+  try {
+    const d = await (await fetch('/telemetria')).json();
+    Object.assign(tele, d);
+    $('v_temp').textContent = fmt(tele.temperatura);
+    $('v_am').textContent   = fmt(tele.temp_amostra);
+    $('v_sp').textContent   = fmt(tele.setpoint, 0);
+    $('v_pot').textContent  = fmt(tele.potencia, 0);
+    $('v_taxa').textContent = fmt(tele.taxa);
+    $('v_en').textContent   = fmt(tele.energia_kj, 0);
+    $('v_q').textContent    = fmt(tele.q_amostra_kj, 1);
+    $('v_p0').textContent   = fmt(tele.peso_inicial_g, 1);
+    $('v_p1').textContent   = fmt(tele.peso_atual_g, 1);
+    $('v_perda').textContent = fmt(tele.perda_massa_pct, 2);
+    $('gaugefill').style.width = Math.min(tele.temperatura/700*100, 100) + '%';
+    $('massfill').style.width = (tele.peso_inicial_g > 0
+      ? Math.max(0, Math.min(tele.peso_atual_g/tele.peso_inicial_g*100, 100)) : 100) + '%';
+
+    if (hist.length && tele.tempo < hist[hist.length-1].t) hist.length = 0;   // zerou => tempo voltou
+    const ultimo = hist[hist.length-1];
+    if (!ultimo || tele.tempo - ultimo.t >= 2)               // 1 ponto a cada 2 s de simulação
+      hist.push({ t:tele.tempo, tc:tele.temperatura, ta:tele.temp_amostra, p:tele.potencia });
+    drawChart();
+
+    const dot = $('dot'), txt = $('statustxt');
+    if (!tele.conectado)   { dot.className='dot';     txt.textContent='sem conexão (rode o bridge)'; }
+    else if (tele.patamar) { dot.className='dot pat'; txt.textContent=`patamar em ${fmt(tele.setpoint,0)} °C`; }
+    else if (tele.rodando) { dot.className='dot run'; txt.textContent='aquecendo'; }
+    else if (tele.modo===3){ dot.className='dot on';  txt.textContent='resfriando'; }
+    else                   { dot.className='dot on';  txt.textContent='pronto'; }
+  } catch(e) { $('statustxt').textContent='bridge offline'; $('dot').className='dot'; }
+}
+setInterval(poll, 100); poll();
+
+document.querySelectorAll('#ctrl button').forEach(b => {
+  b.onclick = () => fetch('/comando/' + b.dataset.cmd, { method:'POST' });
+});
+
+// ---------- loop ----------
+addEventListener('resize', onResize); onResize();
+function onResize() {
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
+}
+const clock = new THREE.Clock();
+function tick() {
+  updateGeom(Math.min(clock.getDelta(), 0.05));
+  controls.update(); renderer.render(scene, camera);
+  requestAnimationFrame(tick);
+}
+tick();
+</script>
+</body>
+</html>

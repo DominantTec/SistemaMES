@@ -1,0 +1,12 @@
+# .env.local existe para rodar o coletor FORA do Docker (Windows: localhost:14330 +
+# driver ODBC 18). Dentro do container isso é veneno: o database.py carrega esse arquivo
+# com override=True, ele vence o env do compose e o coletor tenta um driver que não existe
+# na imagem Linux -> "Can't open lib 'ODBC Driver 18 for SQL Server'".
+# .gitignore NÃO vale para o build do Docker; sem este .dockerignore o COPY . . o assa na imagem.
+.env.local
+
+# lixo que não precisa ir pra imagem
+__pycache__/
+*.pyc
+logs/
+.env

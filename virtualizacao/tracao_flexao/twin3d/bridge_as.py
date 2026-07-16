@@ -22,7 +22,8 @@ from urllib.parse import urlparse
 from pymodbus.client import ModbusTcpClient
 
 CLP_HOST, CLP_PORT = "127.0.0.1", 10002   # AS300 Simulator (Fase 7 fisico: trocar IP:porta)
-SERVE_HOST, SERVE_PORT = "127.0.0.1", 8000
+SERVE_HOST = os.environ.get("SERVE_HOST", "127.0.0.1")
+SERVE_PORT = int(os.environ.get("SERVE_PORT", "8000"))  # 8000 default; use 8010 p/ nao colidir com a API do MES
 SLAVE = 1
 
 # nome do campo -> (endereco D, divisor de escala)

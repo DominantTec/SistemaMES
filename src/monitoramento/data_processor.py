@@ -6,7 +6,10 @@ _schema_checked = False
 
 
 def _ensure_registrador_schema(conn_db):
-    """Garante a coluna nu_qtd_words em tb_registrador (1=WORD 16bit, 2=REAL 32bit). Idempotente."""
+    """Garante as colunas de escala em tb_registrador. Idempotente.
+    nu_qtd_words: 1=WORD 16bit, 2=REAL 32bit.
+    nu_divisor: divisor de escala aplicado ao valor lido (default 1 = sem escala).
+    Ex.: o AS300 guarda deslocamento x100 (int) -> nu_divisor=100 grava 4,00 mm."""
     global _schema_checked
     if _schema_checked:
         return
@@ -19,10 +22,17 @@ def _ensure_registrador_schema(conn_db):
             )
                 ALTER TABLE dbo.tb_registrador ADD nu_qtd_words INT NOT NULL DEFAULT 1
         """)
+        cursor.execute("""
+            IF NOT EXISTS (
+                SELECT * FROM sys.columns
+                WHERE object_id = OBJECT_ID('dbo.tb_registrador') AND name = 'nu_divisor'
+            )
+                ALTER TABLE dbo.tb_registrador ADD nu_divisor DECIMAL(18,4) NOT NULL DEFAULT 1
+        """)
         conn_db.commit()
         _schema_checked = True
     except Exception as e:
-        logger.warning(f"Falha ao garantir coluna nu_qtd_words: {e}")
+        logger.warning(f"Falha ao garantir colunas de escala em tb_registrador: {e}")
 
 
 def sync_meta_to_ihm(id_ihm, conn_ihm, conn_db):
@@ -77,7 +87,7 @@ def read_registers(id_ihm, conn_ihm, conn_db):
         insert_values = ""
         values = []
         cursor = conn_db.cursor()
-        select_registers = f"SELECT id_registrador, nu_endereco, tx_descricao, nu_qtd_words FROM tb_registrador WHERE id_ihm = {id_ihm} ORDER BY id_registrador ASC"
+        select_registers = f"SELECT id_registrador, nu_endereco, tx_descricao, nu_qtd_words, nu_divisor FROM tb_registrador WHERE id_ihm = {id_ihm} ORDER BY id_registrador ASC"
         cursor.execute(select_registers)
         registers = cursor.fetchall()
 
@@ -85,6 +95,7 @@ def read_registers(id_ihm, conn_ihm, conn_db):
         for register in registers:
             try:
                 qtd_words = int(register.nu_qtd_words or 1)
+                divisor = float(register.nu_divisor or 1) or 1.0
                 regs = conn_ihm.read_holding_registers(
                     address=register.nu_endereco,
                     count=qtd_words
@@ -92,10 +103,12 @@ def read_registers(id_ihm, conn_ihm, conn_db):
 
                 if qtd_words == 2:
                     # REAL (float 32 bits) = 2 registradores, word baixa primeiro (Delta/DVP)
-                    valor_registrador = round(
-                        struct.unpack("<f", struct.pack("<HH", regs[0], regs[1]))[0], 4)
+                    valor_registrador = struct.unpack("<f", struct.pack("<HH", regs[0], regs[1]))[0]
                 else:
                     valor_registrador = regs[0]
+
+                # Escala: o AS300 guarda inteiros escalados (ex.: desloc x100). Divisor=1 não altera.
+                valor_registrador = round(valor_registrador / divisor, 4)
 
                 insert_values += f"({id_ihm}, {register.id_registrador}, {valor_registrador}),"
                 values.append(valor_registrador)

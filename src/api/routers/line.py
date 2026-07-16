@@ -25,7 +25,8 @@ async def ws_line_detail(websocket: WebSocket, line_id: int):
     await websocket.accept()
     try:
         while True:
-            await websocket.send_json(get_line_detail(line_id))
+            payload = await asyncio.to_thread(get_line_detail, line_id)
+            await websocket.send_json(payload)
             await asyncio.sleep(2)
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, RuntimeError, ConnectionError):
         pass

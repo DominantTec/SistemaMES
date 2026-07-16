@@ -22,11 +22,12 @@ async def ws_machine_timeline(websocket: WebSocket, machine_id: int):
     await websocket.accept()
     try:
         while True:
-            df = get_machine_timeline(machine_id)
+            # Query síncrona/pesada roda em thread separada para não travar o event loop.
+            df = await asyncio.to_thread(get_machine_timeline, machine_id)
             data = df.to_dict(orient="records") if hasattr(df, "to_dict") else df
             await websocket.send_json({"type": "machine_timeline", "machineId": machine_id, "data": data})
             await asyncio.sleep(1)
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, RuntimeError, ConnectionError):
         pass
 
 
@@ -42,7 +43,8 @@ async def ws_machine_detail(websocket: WebSocket, machine_id: int):
     await websocket.accept()
     try:
         while True:
-            await websocket.send_json(get_machine_detail(machine_id))
+            payload = await asyncio.to_thread(get_machine_detail, machine_id)
+            await websocket.send_json(payload)
             await asyncio.sleep(2)
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, RuntimeError, ConnectionError):
         pass

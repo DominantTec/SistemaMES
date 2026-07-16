@@ -169,6 +169,15 @@ def _ensure_schema():
             )
                 ALTER TABLE dbo.tb_registrador ADD nu_qtd_words INT NOT NULL DEFAULT 1
         """)
+        # nu_divisor em tb_registrador — divisor de escala aplicado ao valor lido
+        # (default 1 = sem escala; ex.: AS300 guarda desloc x100 -> nu_divisor=100 grava 4,00 mm)
+        run_query_update("""
+            IF NOT EXISTS (
+                SELECT * FROM sys.columns
+                WHERE object_id = OBJECT_ID('dbo.tb_registrador') AND name = 'nu_divisor'
+            )
+                ALTER TABLE dbo.tb_registrador ADD nu_divisor DECIMAL(18,4) NOT NULL DEFAULT 1
+        """)
         # tb_op_distribuicao – split de produção entre máquinas do mesmo tipo
         run_query_update("""
             IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.tb_op_distribuicao') AND type = 'U')
@@ -916,6 +925,249 @@ def get_historico_turnos_machine(machine_id: int, n: int = 7) -> list:
         return []
 
 
+_ENSAIO_KEYS = ("trac", "flex", "ensaio")  # match em tx_tipo_maquina (sem acento/caixa)
+
+
+def _is_ensaio(tipo: Optional[str]) -> bool:
+    """True se o tipo de máquina for de ensaio mecânico (tração/flexão)."""
+    if not tipo:
+        return False
+    t = str(tipo).lower()
+    return any(k in t for k in _ENSAIO_KEYS)
+
+
+def get_ensaio_snapshot(machine_id: int) -> Optional[dict]:
+    """Telemetria do ensaio mecânico (tração/flexão) para a tela específica do tipo.
+
+    Lê tb_log_registrador (gravado pelo coletor) e devolve:
+      - atual: últimos valores (força, tensão, deslocamento, módulo, R², modo, ruptura…)
+      - curva: pontos do ensaio corrente (força/tensão × deslocamento)
+      - ensaios_janela: nº de rupturas na janela recente (macro)
+    Retorna None se não houver dados.
+    """
+    df = run_query("""
+        SELECT lr.dt_created_at, lr.nu_valor_bruto, r.tx_descricao
+        FROM dbo.tb_log_registrador lr
+        JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
+        WHERE lr.id_ihm = :id
+          AND lr.dt_created_at >= DATEADD(HOUR, -6, GETDATE())
+        ORDER BY lr.dt_created_at
+    """, {"id": machine_id})
+    if df.empty:
+        return None
+
+    piv = (
+        df.pivot_table(index="dt_created_at", columns="tx_descricao",
+                       values="nu_valor_bruto", aggfunc="last")
+        .sort_index()
+    )
+
+    def serie(name):
+        return piv[name].ffill() if name in piv.columns else pd.Series(dtype=float)
+
+    ult = piv.iloc[-1]
+
+    def val(name, default=0.0):
+        v = ult.get(name)
+        return float(v) if v is not None and not pd.isna(v) else default
+
+    modo = int(val("modo"))
+    atual = {
+        "modo":            modo,
+        "modo_label":      {0: "Ocioso", 1: "Tração", 2: "Flexão"}.get(modo, "—"),
+        "rodando":         bool(val("rodando")),
+        "ruptura":         bool(val("ruptura")),
+        "deslocamento_mm": round(val("deslocamento_mm"), 3),
+        "forca_n":         round(val("forca_n"), 1),
+        "tensao_mpa":      round(val("tensao_mpa"), 2),
+        "alongamento_pct": round(val("alongamento_pct"), 2),
+        "modulo_mpa":      round(val("modulo_mpa"), 1),
+        "forca_max_n":     round(val("forca_max_n"), 1),
+        "r2":              round(val("r2_correlacao"), 4),
+    }
+
+    # Curva do ensaio corrente: a partir do último ponto em que o deslocamento zerou.
+    desloc = serie("deslocamento_mm")
+    forca  = serie("forca_n")
+    tensao = serie("tensao_mpa")
+    curva: List[Dict[str, Any]] = []
+    if not desloc.empty:
+        vals = list(desloc.values)
+        idx_reset = 0
+        for i in range(len(vals) - 1, -1, -1):
+            if vals[i] is not None and not pd.isna(vals[i]) and float(vals[i]) <= 0.02:
+                idx_reset = i
+                break
+        n = len(piv.index)
+        for i in range(idx_reset, n):
+            d = desloc.iloc[i] if i < len(desloc) else None
+            if d is None or pd.isna(d):
+                continue
+            f = forca.iloc[i] if i < len(forca) else None
+            t = tensao.iloc[i] if i < len(tensao) else None
+            curva.append({
+                "desloc": round(float(d), 3),
+                "forca":  round(float(f), 1) if f is not None and not pd.isna(f) else 0.0,
+                "tensao": round(float(t), 2) if t is not None and not pd.isna(t) else 0.0,
+            })
+    if len(curva) > 400:
+        step = len(curva) // 400 + 1
+        curva = curva[::step]
+
+    # Macro: nº de ensaios (transições 0→1 na ruptura) na janela.
+    rup = serie("ruptura")
+    ensaios = 0
+    if not rup.empty:
+        r = rup.fillna(0).astype(float)
+        ensaios = int(((r.shift(1).fillna(0) == 0) & (r == 1)).sum())
+
+    return {"atual": atual, "curva": curva, "ensaios_janela": ensaios}
+
+
+_FORNO_KEYS = ("forno", "mufla")  # match em tx_tipo_maquina (sem acento/caixa)
+
+
+def _is_forno(tipo: Optional[str]) -> bool:
+    """True se o tipo de máquina for forno mufla (tratamento térmico / perda ao fogo)."""
+    if not tipo:
+        return False
+    t = str(tipo).lower()
+    return any(k in t for k in _FORNO_KEYS)
+
+
+def get_forno_snapshot(machine_id: int) -> Optional[dict]:
+    """Telemetria do forno mufla para a tela específica do tipo.
+
+    Lê tb_log_registrador (gravado pelo coletor a partir do Modbus) e devolve:
+      - atual: últimos valores (temperaturas, potência, energia, balança…)
+      - curva: temperatura da câmara/amostra × tempo do ensaio corrente
+      - tga: perda de massa (%) × temperatura da amostra — a curva de perda ao fogo
+      - taxa_c_min: derivada da temperatura (não é registrador: word Modbus é sem sinal)
+    Retorna None se não houver dados.
+    """
+    df = run_query("""
+        SELECT lr.dt_created_at, lr.nu_valor_bruto, r.tx_descricao
+        FROM dbo.tb_log_registrador lr
+        JOIN dbo.tb_registrador r ON r.id_registrador = lr.id_registrador
+        WHERE lr.id_ihm = :id
+          AND lr.dt_created_at >= DATEADD(HOUR, -6, GETDATE())
+        ORDER BY lr.dt_created_at
+    """, {"id": machine_id})
+    if df.empty:
+        return None
+
+    piv = (
+        df.pivot_table(index="dt_created_at", columns="tx_descricao",
+                       values="nu_valor_bruto", aggfunc="last")
+        .sort_index()
+    )
+
+    def serie(name):
+        return piv[name].ffill() if name in piv.columns else pd.Series(dtype=float)
+
+    ult = piv.iloc[-1]
+
+    def val(name, default=0.0):
+        v = ult.get(name)
+        return float(v) if v is not None and not pd.isna(v) else default
+
+    modo = int(val("modo"))
+    peso_ini = round(val("peso_inicial_g"), 2)
+    peso_at = round(val("peso_atual_g"), 2)
+    atual = {
+        "modo":            modo,
+        "modo_label":      {0: "Ocioso", 1: "Aquecendo", 2: "Patamar", 3: "Resfriando"}.get(modo, "—"),
+        "rodando":         bool(val("rodando")),
+        "patamar":         bool(val("patamar")),
+        "ventoinha":       bool(val("ventoinha")),
+        "temperatura_c":   round(val("temperatura_c"), 1),
+        "temp_amostra_c":  round(val("temp_amostra_c"), 1),
+        "setpoint_c":      round(val("setpoint_c"), 1),
+        "potencia_w":      round(val("potencia_w"), 0),
+        "duty":            round(val("duty"), 3),
+        "energia_kj":      round(val("energia_kj"), 0),
+        "peso_inicial_g":  peso_ini,
+        "peso_atual_g":    peso_at,
+        "peso_perdido_g":  round(peso_ini - peso_at, 2),
+        "perda_massa_pct": round(val("perda_massa_pct"), 2),
+        "taxa_volateis":   round(val("taxa_volateis"), 3),
+        "tempo_s":         round(val("tempo_s"), 0),
+    }
+
+    # Ensaio corrente: tempo_s zera a cada novo ensaio, então a curva começa no
+    # último ponto em que ele caiu (mesma ideia do reset de deslocamento na Tração).
+    #
+    # O +1 descarta uma LEITURA RASGADA: o coletor lê os 15 registradores em 15
+    # requisições Modbus separadas (data_processor.read_registers), então um "zerar"
+    # que caia no meio da sequência grava uma linha com tempo_s já zerado e o resto
+    # ainda do ensaio anterior (ex.: tempo_s=1 com temperatura_c=540 e peso=460).
+    # Sem isso, a curva/TGA começa num ponto impossível (540 °C com 100% de massa).
+    # Só a linha da virada pode rasgar — a leitura seguinte é inteira pós-reset.
+    tempo = serie("tempo_s")
+    idx_ini = 0
+    n_tempo = len(tempo)
+    if not tempo.empty:
+        vals = list(tempo.values)
+        for i in range(len(vals) - 1, 0, -1):
+            a, b = vals[i - 1], vals[i]
+            if a is None or b is None or pd.isna(a) or pd.isna(b):
+                continue
+            if float(b) < float(a):          # tempo voltou pra trás => começou outro ensaio
+                idx_ini = min(i + 1, n_tempo - 1)
+                break
+
+    tcam = serie("temperatura_c")
+    tam  = serie("temp_amostra_c")
+    pot  = serie("potencia_w")
+    perda = serie("perda_massa_pct")
+    peso = serie("peso_atual_g")
+
+    def _f(s, i, dec=1):
+        if i >= len(s):
+            return None
+        v = s.iloc[i]
+        return round(float(v), dec) if v is not None and not pd.isna(v) else None
+
+    n = len(piv.index)
+    curva: List[Dict[str, Any]] = []
+    tga: List[Dict[str, Any]] = []
+    t0 = None
+    for i in range(idx_ini, n):
+        ts = _f(tempo, i, 0)
+        if ts is None:
+            continue
+        if t0 is None:
+            t0 = ts
+        curva.append({
+            "t":       round(ts - t0),
+            "camara":  _f(tcam, i, 1),
+            "amostra": _f(tam, i, 1),
+            "potencia": _f(pot, i, 0),
+            "peso":    _f(peso, i, 2),
+        })
+        ta, pm = _f(tam, i, 1), _f(perda, i, 3)
+        if ta is not None and pm is not None:
+            # TGA: massa retida (%) × temperatura da amostra
+            tga.append({"temp": ta, "massa_pct": round(100.0 - pm, 3), "perda_pct": pm})
+
+    def _decimar(lst, alvo=400):
+        return lst[::(len(lst) // alvo + 1)] if len(lst) > alvo else lst
+
+    curva = _decimar(curva)
+    tga = _decimar(tga)
+
+    # Taxa de aquecimento (°C/min): derivada dos últimos ~60 s de ensaio.
+    taxa = 0.0
+    if len(curva) >= 2:
+        fim = curva[-1]
+        ref = next((p for p in reversed(curva) if fim["t"] - p["t"] >= 60), curva[0])
+        dt_s = fim["t"] - ref["t"]
+        if dt_s > 0 and fim["camara"] is not None and ref["camara"] is not None:
+            taxa = round((fim["camara"] - ref["camara"]) / dt_s * 60.0, 2)
+
+    return {"atual": atual, "curva": curva, "tga": tga, "taxa_c_min": taxa}
+
+
 def get_machine_detail(machine_id: int) -> dict:
     """Payload completo da tela de detalhe de uma máquina específica."""
     df_ihm = run_query("""
@@ -1257,6 +1509,11 @@ def get_machine_detail(machine_id: int) -> dict:
             "mttr_s": round(mttr_s),
         },
         "registros_parada": paradas,
+        # Bloco específico do tipo de máquina (telas dirigidas por esquema).
+        # Ensaio mecânico (tração/flexão): telemetria + curva. None p/ os demais tipos.
+        "ensaio": get_ensaio_snapshot(machine_id) if _is_ensaio(ihm["tipo_maquina"]) else None,
+        # Forno mufla: térmico + balança (perda ao fogo). None p/ os demais tipos.
+        "forno": get_forno_snapshot(machine_id) if _is_forno(ihm["tipo_maquina"]) else None,
     }
 
 # =========================

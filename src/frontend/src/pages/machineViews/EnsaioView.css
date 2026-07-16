@@ -1,0 +1,137 @@
+/* Tela específica do tipo de máquina "Ensaio" (Tração e Flexão) */
+
+.ev-root {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ── faixa de estado + macros ─────────────────────────────────────────────── */
+.ev-status-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  background: white;
+  border-radius: 10px;
+  padding: 16px 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.ev-status-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.ev-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  padding: 7px 14px;
+  border-radius: 20px;
+}
+.ev-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.ev-status-dot-pulse {
+  animation: ev-pulse 1.4s ease-in-out infinite;
+}
+@keyframes ev-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.4; transform: scale(1.25); }
+}
+.ev-modo-tag {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border: 1.5px solid;
+  border-radius: 20px;
+}
+
+.ev-macros {
+  display: flex;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.ev-macro {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ev-macro-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #9ca3af;
+  text-transform: uppercase;
+}
+.ev-macro-value {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+  color: #111827;
+}
+.ev-macro-value small {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+}
+
+/* ── cards de resultado ───────────────────────────────────────────────────── */
+.ev-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 14px;
+}
+.ev-card {
+  background: white;
+  border-radius: 10px;
+  padding: 18px 18px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.ev-card-destaque {
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.15);
+}
+.ev-card-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  color: #9ca3af;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+.ev-card-value {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+}
+.ev-card-unit {
+  font-size: 15px;
+  font-weight: 600;
+  margin-left: 2px;
+}
+
+/* ── gráfico da curva ─────────────────────────────────────────────────────── */
+.ev-chart-empty {
+  padding: 60px 20px;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 14px;
+}
+.ev-chart-tooltip {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 8px 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  font-size: 12px;
+}
+.ev-tt-x     { font-weight: 700; color: #111827; margin-bottom: 2px; }
+.ev-tt-forca { color: #2563eb; font-weight: 600; }
+.ev-tt-tensao { color: #0891b2; }

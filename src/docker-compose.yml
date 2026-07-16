@@ -41,6 +41,10 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    # Os mocks de CLP (virtualizacao/*) rodam no HOST, não em container. Sem isto,
+    # host.docker.internal não resolve fora do Docker Desktop (ex.: Linux/CI).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       mssql:
         condition: service_healthy

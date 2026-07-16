@@ -1,0 +1,215 @@
+/* Tela específica do tipo de máquina "Forno Mufla" (térmico + balança/perda ao fogo) */
+
+.fv-root {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ── faixa de estado + macros ─────────────────────────────────────────────── */
+.fv-status-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  background: white;
+  border-radius: 10px;
+  padding: 16px 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.fv-status-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.fv-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  padding: 7px 14px;
+  border-radius: 20px;
+}
+.fv-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.fv-status-dot-pulse {
+  animation: fv-pulse 1.4s ease-in-out infinite;
+}
+@keyframes fv-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.4; transform: scale(1.25); }
+}
+.fv-tag-vent {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border: 1.5px solid #0891b2;
+  color: #0891b2;
+  border-radius: 20px;
+}
+
+.fv-macros {
+  display: flex;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.fv-macro {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.fv-macro-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #9ca3af;
+  text-transform: uppercase;
+}
+.fv-macro-value {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+  color: #111827;
+}
+.fv-macro-value small {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+}
+
+/* ── cards de resultado ───────────────────────────────────────────────────── */
+.fv-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 14px;
+}
+.fv-card {
+  background: white;
+  border-radius: 10px;
+  padding: 18px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.fv-card-destaque {
+  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.18);
+}
+.fv-card-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  color: #9ca3af;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+.fv-card-value {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+}
+.fv-card-unit {
+  font-size: 15px;
+  font-weight: 600;
+  margin-left: 2px;
+}
+
+/* ── balança ──────────────────────────────────────────────────────────────── */
+.fv-bal {
+  padding: 4px 2px 2px;
+}
+.fv-bal-nums {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.fv-bal-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.fv-bal-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #9ca3af;
+  text-transform: uppercase;
+}
+.fv-bal-value {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  color: #111827;
+  font-variant-numeric: tabular-nums;
+}
+.fv-bal-value small {
+  font-size: 13px;
+  font-weight: 600;
+  color: #6b7280;
+}
+.fv-bal-atual {
+  color: #16a34a;
+}
+.fv-bal-arrow {
+  font-size: 22px;
+  color: #d1d5db;
+  margin-top: 12px;
+}
+.fv-bal-delta {
+  margin-left: 4px;
+}
+
+.fv-bal-bar {
+  height: 12px;
+  background: #f59e0b;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.fv-bal-bar-fill {
+  height: 100%;
+  background: #16a34a;
+  border-radius: 6px 0 0 6px;
+  transition: width 0.3s ease;
+}
+.fv-bal-legend {
+  display: flex;
+  gap: 18px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: #6b7280;
+}
+.fv-bal-legend i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+
+/* ── gráficos ─────────────────────────────────────────────────────────────── */
+.fv-chart-empty {
+  padding: 60px 20px;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 14px;
+}
+.fv-chart-tooltip {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 8px 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  font-size: 12px;
+}
+.fv-tt-x       { font-weight: 700; color: #111827; margin-bottom: 2px; }
+.fv-tt-camara  { color: #ea580c; font-weight: 600; }
+.fv-tt-amostra { color: #0891b2; }
+.fv-tt-massa   { color: #16a34a; font-weight: 600; }
+.fv-tt-pot     { color: #6b7280; }
