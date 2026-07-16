@@ -89,7 +89,11 @@
       "Bash(grep -E \"={10,} [0-9]+ ={10,}\")",
       "Bash(SERVE_PORT=8011 python bridge.py)",
       "Bash(grep -E \"Dados inseridos|={10,}\")",
-      "Bash(git commit -m '@ *)"
+      "Bash(git commit -m '@ *)",
+      "Bash(git commit *)",
+      "Bash(git checkout *)",
+      "Bash(git merge *)",
+      "Bash(git branch *)"
     ]
   }
 }

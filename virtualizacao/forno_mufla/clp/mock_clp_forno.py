@@ -48,12 +48,19 @@ KI = 6e-4            # termo integral — zera o droop no patamar
 I_MAX = 1 / KI       # anti-windup: mantém KI*integral dentro de [0,1]
 TOL_PATAMAR = 5.0    # °C
 
-# ---------- parâmetros da balança / perda ao fogo ----------
+# ---------- parâmetros da balança / teor de betume ----------
+# Ensaio de teor de ligante por ignição: queima o betume da amostra asfáltica; a
+# massa perdida É o teor de betume.
 M_INICIAL = 500.0    # g — massa inicial do corpo de prova
-FRAC_VOLATIL = 0.08  # 8% da massa é volátil (umidade + ligante) e queima no ensaio
-EA = 100_000.0       # J/mol — energia de ativação da calcinação
+FRAC_BETUME = 0.07   # 7% da massa é betume e queima no ensaio
+EA = 100_000.0       # J/mol — energia de ativação da queima
 R_GAS = 8.314        # J/(mol·K)
-A_ARR = 11_400.0     # 1/s — fator pré-exponencial (calibra p/ reagir entre ~400 e 540 °C)
+A_ARR = 11_400.0     # 1/s — fator pré-exponencial (calibra p/ queimar entre ~400 e 540 °C)
+DM_EPS = 0.001       # g/s — abaixo disso o Δpeso é "aproximadamente 0" (betume esgotado)
+DM_QUEIMA = 0.005    # g/s — acima disso considera-se que a queima começou
+
+# ---------- etapas do ensaio (progressão monotônica -> vira a linha do tempo) ----------
+ETAPA_OCIOSO, ETAPA_AQUEC, ETAPA_QUEIMA, ETAPA_PATAMAR, ETAPA_CONCLUIDO, ETAPA_RESFRIA = 0, 1, 2, 3, 4, 5
 
 # ---- datastore (zero_mode: endereço == índice) ----
 slave = ModbusSlaveContext(
@@ -79,20 +86,21 @@ class Sim:
     temperatura = T_AMB
     temp_amostra = T_AMB
     massa = M_INICIAL       # g — massa atual na balança
-    alpha = 0.0             # 0..1 — avanço da calcinação (fração do volátil já liberada)
-    dmdt = 0.0              # g/s — taxa de perda de massa (vira "fumaça" no 3D)
+    alpha = 0.0             # 0..1 — avanço da queima (fração do betume já liberada)
+    dmdt = 0.0              # g/s — taxa de perda de massa (é a "fumaça" no 3D)
     integ = 0.0
     duty = 0.0
     potencia = 0.0
     energia_kj = 0.0
     rodando = False
     ventoinha = False
+    etapa = ETAPA_OCIOSO
 
 
 sim = Sim()
 
-# Massa volátil total (g) — o que pode ser perdido no ensaio inteiro.
-M_VOLATIL = M_INICIAL * FRAC_VOLATIL
+# Massa de betume total (g) — o que pode ser perdido no ensaio inteiro.
+M_BETUME = M_INICIAL * FRAC_BETUME
 
 
 def _zerar():
@@ -108,6 +116,7 @@ def _zerar():
     sim.energia_kj = 0.0
     sim.rodando = False
     sim.ventoinha = False
+    sim.etapa = ETAPA_OCIOSO
 
 
 def _tratar_comando():
@@ -117,6 +126,8 @@ def _tratar_comando():
         return
     if cmd == 1:
         sim.rodando = True
+        if sim.etapa == ETAPA_OCIOSO:
+            sim.etapa = ETAPA_AQUEC
     elif cmd == 2:
         sim.rodando = False
     elif cmd == 3:
@@ -146,17 +157,34 @@ def _passo(dt):
     sim.temp_amostra += q_am * dt / (massa_kg * C_ESP)
     sim.energia_kj += sim.potencia * dt / 1000.0
 
-    # ---- calcinação (Arrhenius): perda de massa do corpo de prova ----
-    # d(alpha)/dt = A·exp(-Ea/RT)·(1-alpha)  -> sigmoide de perda ao fogo
+    # ---- queima do betume (Arrhenius) ----
+    # d(alpha)/dt = A·exp(-Ea/RT)·(1-alpha)  -> sigmoide de perda de massa
     tk = sim.temp_amostra + 273.15
     kt = A_ARR * math.exp(-EA / (R_GAS * tk))
     dalpha = kt * (1.0 - sim.alpha) * dt
-    dalpha = min(dalpha, 1.0 - sim.alpha)          # nunca passa de 100% do volátil
+    dalpha = min(dalpha, 1.0 - sim.alpha)          # nunca passa de 100% do betume
     sim.alpha += dalpha
-    sim.dmdt = (M_VOLATIL * dalpha) / dt if dt > 0 else 0.0
-    sim.massa = M_INICIAL - M_VOLATIL * sim.alpha
+    sim.dmdt = (M_BETUME * dalpha) / dt if dt > 0 else 0.0
+    sim.massa = M_INICIAL - M_BETUME * sim.alpha
 
     sim.tempo += dt
+
+    # ---- etapas do ensaio (só avançam, nunca voltam -> linha do tempo limpa) ----
+    if sim.rodando:
+        patamar = abs(SETPOINT - sim.temperatura) <= TOL_PATAMAR
+        if sim.etapa == ETAPA_AQUEC and sim.dmdt > DM_QUEIMA:
+            sim.etapa = ETAPA_QUEIMA               # o betume começou a sair (~400 °C)
+        if sim.etapa in (ETAPA_AQUEC, ETAPA_QUEIMA) and patamar:
+            sim.etapa = ETAPA_PATAMAR              # chegou nos 540 °C (ainda queimando)
+
+        # FIM DO ENSAIO: o betume acabou. "Δpeso ≈ 0" só vale se a queima realmente
+        # aconteceu — no início dm/dt também é ~0 (amostra fria), por isso o alpha.
+        if sim.alpha > 0.9 and sim.dmdt < DM_EPS:
+            sim.etapa = ETAPA_CONCLUIDO
+            sim.rodando = False                    # desliga as resistências
+            sim.integ = 0.0
+    elif sim.etapa == ETAPA_CONCLUIDO and sim.temperatura < SETPOINT - 20:
+        sim.etapa = ETAPA_RESFRIA
 
 
 def _publicar():
@@ -174,6 +202,7 @@ def _publicar():
     set_word(1,  1 if sim.rodando else 0)
     set_word(2,  1 if sim.ventoinha else 0)
     set_word(3,  1 if patamar else 0)
+    set_word(4,  sim.etapa)                  # 0 ocioso 1 aquec 2 queima 3 patamar 4 concluido 5 resfria
     set_word(10, sim.temperatura * 10)       # x10  -> °C
     set_word(12, sim.temp_amostra * 10)      # x10  -> °C
     set_word(14, SETPOINT * 10)              # x10  -> °C
