@@ -23,11 +23,19 @@ BEGIN
 END
 
 -- 2) Máquina (IHM) apontando para o mock Modbus TCP
+--    host.docker.internal (e não 127.0.0.1) porque o coletor roda DENTRO de um
+--    container, onde 127.0.0.1 é o próprio container. O mock escuta em 0.0.0.0,
+--    então aceita a conexão vinda do container. Se você rodar o coletor NO HOST
+--    (python -m main, usando o .env.local), troque para 127.0.0.1.
+--
+--    Só insere se a máquina não existir: re-rodar com a máquina já no cadastro do
+--    AS (cadastro_mes_as.sql) não pode re-apontar o IP para :502, senão o coletor
+--    leria o mock com o mapa de endereços do AS e traria lixo.
 SELECT @id_ihm = id_ihm FROM dbo.tb_ihm WHERE tx_name = N'Tração e Flexão';
 IF @id_ihm IS NULL
 BEGIN
     INSERT INTO dbo.tb_ihm (tx_ip_address, tx_port_number, id_linha_producao, tx_name)
-    VALUES ('127.0.0.1', '502', @id_linha, N'Tração e Flexão');
+    VALUES ('host.docker.internal', '502', @id_linha, N'Tração e Flexão');
     SET @id_ihm = SCOPE_IDENTITY();
 END
 

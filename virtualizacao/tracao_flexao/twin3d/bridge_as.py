@@ -23,7 +23,8 @@ from pymodbus.client import ModbusTcpClient
 
 CLP_HOST, CLP_PORT = "127.0.0.1", 10002   # AS300 Simulator (Fase 7 fisico: trocar IP:porta)
 SERVE_HOST = os.environ.get("SERVE_HOST", "127.0.0.1")
-SERVE_PORT = int(os.environ.get("SERVE_PORT", "8000"))  # 8000 default; use 8010 p/ nao colidir com a API do MES
+# 8000 colide com a API do MES e 8010 é o twin do Forno Mufla: use 8011 para rodar tudo junto.
+SERVE_PORT = int(os.environ.get("SERVE_PORT", "8000"))
 SLAVE = 1
 
 # nome do campo -> (endereco D, divisor de escala)

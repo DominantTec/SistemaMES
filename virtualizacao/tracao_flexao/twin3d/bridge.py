@@ -20,8 +20,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 from pymodbus.client import ModbusTcpClient
 
-MOCK_HOST, MOCK_PORT = "127.0.0.1", 502
-SERVE_HOST, SERVE_PORT = "127.0.0.1", 8000
+MOCK_HOST = os.environ.get("CLP_HOST", "127.0.0.1")
+MOCK_PORT = int(os.environ.get("CLP_PORT", "502"))
+SERVE_HOST = os.environ.get("SERVE_HOST", "127.0.0.1")
+# CUIDADO: 8000 é a porta da API do MES. No Windows, subir aqui em 127.0.0.1:8000 NÃO
+# dá "porta em uso" — o binding mais específico ganha do 0.0.0.0:8000 do Docker e este
+# bridge passa a responder no lugar da API (o MES quebra em silêncio). Rodando junto
+# com o MES, use SERVE_PORT=8011 (8010 é o twin do Forno Mufla).
+SERVE_PORT = int(os.environ.get("SERVE_PORT", "8000"))
 DBASE, MBASE = 0x1000, 0x0800  # D(n)->4096+n ; M(n)->2048+n
 
 # Telemetria: nome -> endereço do holding register (todos REAL = 2 words)

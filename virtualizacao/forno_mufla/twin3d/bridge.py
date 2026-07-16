@@ -22,8 +22,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 from pymodbus.client import ModbusTcpClient
 
-CLP_HOST, CLP_PORT = "127.0.0.1", 5030
-SERVE_HOST, SERVE_PORT = "127.0.0.1", 8010
+CLP_HOST = os.environ.get("CLP_HOST", "127.0.0.1")
+CLP_PORT = int(os.environ.get("CLP_PORT", "5030"))
+SERVE_HOST = os.environ.get("SERVE_HOST", "127.0.0.1")
+# 8010 = forno. A API do MES ocupa a 8000 e o twin da Tração usa 8011 (ver
+# ../../tracao_flexao/twin3d/bridge_as.py) — os três rodam juntos sem colidir.
+SERVE_PORT = int(os.environ.get("SERVE_PORT", "8010"))
 
 T_AMB = 25.0
 C_ESP = 900.0        # J/(kg·K) — mesmo calor específico do mock, p/ derivar Q absorvido
