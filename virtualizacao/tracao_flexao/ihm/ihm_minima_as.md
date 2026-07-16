@@ -94,7 +94,7 @@ Fonte da verdade: `twin3d/bridge_as.py`. `D(n) → holding register n`. Escala =
 ## Como subir a demo das 3 telas
 1. **COMMGR**: Add → "AS300 Simulator" → **Start**.
 2. **ISPSoft**: Download + **Run** do POU ST (`clp/programa_as_st.txt`).
-3. **Twin**: `SERVE_PORT=8010 python twin3d/bridge_as.py` → http://127.0.0.1:8010
+3. **Twin** (PowerShell): `$env:SERVE_PORT = "8010"; python twin3d/bridge_as.py` → http://127.0.0.1:8010
 4. **MES**: coletor (`IHMS=8 python src/monitoramento/main.py`) + API (:8000) + frontend (:5173).
 5. **IHM**: DOPSoft → Online Simulation (Rota B, Modbus TCP 127.0.0.1:10002).
 
