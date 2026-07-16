@@ -1054,6 +1054,7 @@ def get_forno_snapshot(machine_id: int) -> Optional[dict]:
       - atual: últimos valores (temperaturas, potência, energia, balança…)
       - curva: temperatura da câmara/amostra e peso × tempo do ensaio corrente
       - etapas: segmentos (etapa, início, fim, duração) para a linha do tempo
+      - ventoinha_on: instantes (s) em que a exaustão foi ligada, p/ anotar no gráfico
       - taxa_c_min: derivada da temperatura (não é registrador: word Modbus é sem sinal)
     Retorna None se não houver dados.
     """
@@ -1137,6 +1138,7 @@ def get_forno_snapshot(machine_id: int) -> Optional[dict]:
     pot  = serie("potencia_w")
     peso = serie("peso_atual_g")
     etapas_s = serie("etapa")
+    vent_s = serie("ventoinha")
 
     def _f(s, i, dec=1):
         if i >= len(s):
@@ -1149,6 +1151,12 @@ def get_forno_snapshot(machine_id: int) -> Optional[dict]:
     # Linha do tempo: agrupa amostras consecutivas de mesma etapa num segmento. Como a
     # etapa só avança, os segmentos saem em ordem e o último é o que está em andamento.
     etapas: List[Dict[str, Any]] = []
+    # Instantes em que a exaustão foi LIGADA (transição 0->1). Detectado aqui, na série
+    # inteira: o downsample lá embaixo pode descartar justamente a amostra da virada, e a
+    # marca sumiria do gráfico. A ventoinha já ligada na primeira amostra não é evento —
+    # não houve transição dentro da janela do ensaio.
+    ventoinha_on: List[int] = []
+    vent_ant: Optional[bool] = None
     t0 = None
     for i in range(idx_ini, n):
         ts = _f(tempo, i, 0)
@@ -1164,6 +1172,12 @@ def get_forno_snapshot(machine_id: int) -> Optional[dict]:
             "potencia": _f(pot, i, 0),
             "peso":     _f(peso, i, 2),
         })
+        vv = _f(vent_s, i, 0)
+        if vv is not None:
+            v_on = bool(int(vv))
+            if v_on and vent_ant is False:
+                ventoinha_on.append(t_rel)
+            vent_ant = v_on
         ev = _f(etapas_s, i, 0)
         if ev is None:
             continue
@@ -1199,7 +1213,8 @@ def get_forno_snapshot(machine_id: int) -> Optional[dict]:
         if dt_s > 0 and fim["camara"] is not None and ref["camara"] is not None:
             taxa = round((fim["camara"] - ref["camara"]) / dt_s * 60.0, 2)
 
-    return {"atual": atual, "curva": curva, "etapas": etapas, "taxa_c_min": taxa}
+    return {"atual": atual, "curva": curva, "etapas": etapas,
+            "ventoinha_on": ventoinha_on, "taxa_c_min": taxa}
 
 
 def get_machine_detail(machine_id: int) -> dict:

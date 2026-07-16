@@ -1,6 +1,6 @@
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ReferenceLine, Legend,
+  ComposedChart, Bar, Scatter, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, ReferenceLine, ReferenceArea, Legend,
 } from "recharts";
 import "./FornoView.css";
 
@@ -193,89 +193,181 @@ function Balanca({ atual }) {
 
 // ── curva de aquecimento ──────────────────────────────────────────────────────
 
-// Três eixos: tempo embaixo, temperatura à esquerda, peso à direita. As duas
-// grandezas do ensaio no mesmo tempo — dá pra ver o peso despencar exatamente
-// quando a temperatura cruza a faixa de queima do betume.
-function CurvaEnsaio({ curva, setpoint, etapas }) {
+// Pontos desenhados à mão: o <Scatter> do recharts tira o raio do ZAxis, não de uma prop,
+// então dois Scatter num mesmo gráfico saem do mesmo tamanho e o de cima apaga o de baixo.
+// A câmara é o disco maior; a amostra é o disco menor por cima, com anel da cor do fundo
+// para se destacar onde as duas coincidem (que é quase o ensaio inteiro).
+const PontoCamara = ({ cx, cy }) =>
+  cx == null || cy == null ? null : <circle cx={cx} cy={cy} r={4.5} fill="#ea580c" />;
+
+const PontoAmostra = ({ cx, cy }) =>
+  cx == null || cy == null ? null : (
+    <circle cx={cx} cy={cy} r={2.2} fill="#0891b2" stroke="#ffffff" strokeWidth={1} />
+  );
+
+// Anotações sobre o eixo do tempo. Repetidas nos dois painéis (só um deles rotula, para o
+// texto não sair duplicado) — é o que costura os dois plots num gráfico só.
+const Faixa = ({ combustao, yAxisId, comLabel }) =>
+  combustao && combustao.fim > combustao.inicio ? (
+    <ReferenceArea
+      yAxisId={yAxisId} x1={combustao.inicio} x2={combustao.fim}
+      fill={ETAPAS[2].cor} fillOpacity={0.08} stroke="none"
+      label={comLabel ? {
+        value: `◀ Combustão · ${mmss(combustao.fim - combustao.inicio)} ▶`,
+        position: "insideTop", fontSize: 10, fill: ETAPAS[2].cor,
+      } : undefined}
+    />
+  ) : null;
+
+const Ventoinhas = ({ ventos, yAxisId, comLabel }) => (
+  <>
+    {ventos.map((t, i) => (
+      <ReferenceLine
+        key={`v${i}`} yAxisId={yAxisId} x={t}
+        stroke="#6b7280" strokeDasharray="3 3" strokeOpacity={0.8}
+        label={comLabel ? {
+          value: "❋ ventoinha", position: "insideBottomLeft",
+          fontSize: 10, fill: "#6b7280",
+        } : undefined}
+      />
+    ))}
+  </>
+);
+
+const TooltipPeso = ({ active, payload }) => {
+  if (!active || !payload?.length) return null;
+  const d = payload[0].payload;
+  return (
+    <div className="fv-chart-tooltip">
+      <div className="fv-tt-x">{mmss(d.t)} de ensaio</div>
+      <div className="fv-tt-massa">{fmt(d.queimado, 2)} g queimados</div>
+      <div className="fv-tt-pot">restam {fmt(d.peso, 2)} g na balança</div>
+    </div>
+  );
+};
+
+const TooltipTemp = ({ active, payload }) => {
+  if (!active || !payload?.length) return null;
+  const d = payload[0].payload;
+  return (
+    <div className="fv-chart-tooltip">
+      <div className="fv-tt-x">{mmss(d.t)} de ensaio</div>
+      <div className="fv-tt-camara">câmara {fmt(d.camara, 1)} °C</div>
+      <div className="fv-tt-amostra">amostra {fmt(d.amostra, 1)} °C</div>
+      <div className="fv-tt-pot">{fmt(d.potencia, 0)} W</div>
+    </div>
+  );
+};
+
+// Reamostra a curva para ~48 instantes. A API entrega até 400 pontos: cabem numa linha,
+// mas não em barras (a ~700px sairiam barras de 1,7px, um bloco chapado) nem em pontos
+// legíveis. Barra e ponto saem da MESMA amostra — cada instante tem uma barra e um ponto.
+const MAX_AMOSTRAS = 48;
+
+function reamostrar(curva, alvo = MAX_AMOSTRAS) {
+  if (curva.length <= alvo) return curva;
+  const passo = (curva.length - 1) / (alvo - 1);
+  return Array.from({ length: alvo }, (_, i) => curva[Math.round(i * passo)]);
+}
+
+// Dois painéis empilhados sobre o MESMO eixo de tempo, em vez de um plot com dois eixos Y.
+// Peso (g) e temperatura (°C) não têm escala comum: sobrepostos, o alinhamento entre as
+// duas escalas seria arbitrário e o gráfico inventaria uma correlação que não está no dado.
+// Empilhados, cada grandeza tem seu eixo honesto e o tempo continua compartilhado — a
+// queima ainda se lê na vertical, e as anotações atravessam os dois painéis.
+function CurvaEnsaio({ curva, setpoint, etapas, ventoinhaOn, pesoInicial }) {
   if (!curva?.length) {
     return <div className="fv-chart-empty">Inicie o ensaio no twin 3D para ver a curva.</div>;
   }
 
-  // eixo do peso "colado" na faixa útil: sem isso a queda de 7% vira uma linha reta
   const pesos = curva.map((p) => p.peso).filter((v) => v != null);
-  const pMin = pesos.length ? Math.min(...pesos) : 0;
-  const pMax = pesos.length ? Math.max(...pesos) : 1;
-  const folga = Math.max((pMax - pMin) * 0.25, 0.5);
-  const dominioPeso = [
-    Math.floor((pMin - folga) * 10) / 10,
-    Math.ceil((pMax + folga) * 10) / 10,
-  ];
+  const p0 = pesoInicial ?? (pesos.length ? Math.max(...pesos) : null);
 
-  const ChartTooltip = ({ active, payload }) => {
-    if (!active || !payload?.length) return null;
-    const d = payload[0].payload;
-    return (
-      <div className="fv-chart-tooltip">
-        <div className="fv-tt-x">{mmss(d.t)} de ensaio</div>
-        <div className="fv-tt-camara">câmara {fmt(d.camara, 1)} °C</div>
-        <div className="fv-tt-amostra">amostra {fmt(d.amostra, 1)} °C</div>
-        <div className="fv-tt-massa">peso {fmt(d.peso, 2)} g</div>
-        <div className="fv-tt-pot">{fmt(d.potencia, 0)} W</div>
-      </div>
-    );
-  };
+  // A barra mede o betume JÁ QUEIMADO (0 -> ~35 g), não o peso restante. Comprimento de
+  // barra só é honesto a partir do zero, e o peso restante não tem zero útil: numa base
+  // truncada em 465 g uma perda de 7% pareceria perda total, e numa base 0..500 g a queima
+  // sumiria. Invertida, a medida ganha zero real — e é o próprio resultado do ensaio.
+  const amostras = reamostrar(curva).map((p) => ({
+    ...p,
+    queimado: p0 != null && p.peso != null ? Math.max(0, Number((p0 - p.peso).toFixed(2))) : null,
+  }));
 
-  // marca onde cada etapa começou, para casar o gráfico com a linha do tempo
-  const marcos = (etapas || []).filter((e) => e.etapa >= 2 && e.inicio > 0);
+  const tMax = amostras[amostras.length - 1]?.t ?? 0;
+  const dominioT = [0, tMax || "dataMax"];
+  const eixoY = { width: 46 };
+  const margem = { top: 8, right: 16, left: 4 };
+
+  // Anotações. A combustão NÃO é a etapa 2 sozinha: o mock passa para o patamar ainda
+  // queimando e só declara a etapa 4 quando o betume esgota (mock_clp_forno.py, "FIM DO
+  // ENSAIO"). A faixa vai então do início da queima até o ensaio concluir — enquanto não
+  // concluiu, ainda está queimando e a faixa segue até o fim dos dados. As marcas da
+  // ventoinha vêm da API (detectadas antes do downsample). Tudo em tinta neutra ou na cor
+  // da própria etapa: são eventos, não séries.
+  const eQueima = (etapas || []).find((e) => e.etapa === 2);
+  const eConcl  = (etapas || []).find((e) => e.etapa === 4);
+  const combustao = eQueima
+    ? { inicio: eQueima.inicio, fim: eConcl ? eConcl.inicio : tMax }
+    : null;
+  const ventos = (ventoinhaOn || []).filter((t) => t >= 0 && t <= tMax);
 
   return (
-    <ResponsiveContainer width="100%" height={340}>
-      <LineChart data={curva} margin={{ top: 10, right: 12, left: 0, bottom: 22 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-        <XAxis
-          dataKey="t" type="number" domain={[0, "dataMax"]}
-          tick={{ fontSize: 11, fill: "#9ca3af" }}
-          axisLine={false} tickLine={false}
-          tickFormatter={mmss}
-          label={{ value: "Tempo de ensaio (mm:ss)", position: "insideBottom", offset: -10, fontSize: 11, fill: "#6b7280" }}
-        />
-        <YAxis
-          yAxisId="temp" orientation="left"
-          tick={{ fontSize: 11, fill: "#ea580c" }}
-          axisLine={false} tickLine={false}
-          label={{ value: "Temperatura (°C)", angle: -90, position: "insideLeft", fontSize: 11, fill: "#ea580c" }}
-        />
-        <YAxis
-          yAxisId="peso" orientation="right" domain={dominioPeso}
-          tick={{ fontSize: 11, fill: "#16a34a" }}
-          axisLine={false} tickLine={false}
-          tickFormatter={(v) => fmt(v, 1)}
-          label={{ value: "Peso (g)", angle: 90, position: "insideRight", fontSize: 11, fill: "#16a34a" }}
-        />
-        <Tooltip content={<ChartTooltip />} />
-        <Legend wrapperStyle={{ fontSize: 11, paddingTop: 6 }} />
+    <div className="fv-chart-stack">
+      {/* Painel 1 — peso: só barras, saindo do zero */}
+      <div className="fv-chart-panel">
+        <div className="fv-chart-cap" style={{ color: "#16a34a" }}>Betume queimado (g)</div>
+        <ResponsiveContainer width="100%" height={148}>
+          <ComposedChart data={amostras} syncId="fv-ensaio" margin={{ ...margem, bottom: 0 }}>
+            <CartesianGrid stroke="#f3f4f6" vertical={false} />
+            <XAxis dataKey="t" type="number" domain={dominioT} tick={false}
+                   axisLine={false} tickLine={false} height={0} />
+            <YAxis yAxisId="peso" {...eixoY} domain={[0, "auto"]}
+                   tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false}
+                   tickFormatter={(v) => fmt(v, 0)} />
+            <Tooltip content={<TooltipPeso />} cursor={{ fill: "#11182708" }} />
+            <Faixa combustao={combustao} yAxisId="peso" comLabel />
+            <Ventoinhas ventos={ventos} yAxisId="peso" />
+            <Bar yAxisId="peso" dataKey="queimado" name="betume queimado (g)"
+                 fill="#16a34a" radius={[4, 4, 0, 0]} maxBarSize={11} isAnimationActive={false} />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
 
-        {setpoint > 0 && (
-          <ReferenceLine
-            yAxisId="temp" y={setpoint} stroke="#dc2626" strokeDasharray="5 4"
-            label={{ value: `setpoint ${fmt(setpoint, 0)} °C`, position: "insideTopRight", fontSize: 10, fill: "#dc2626" }}
-          />
-        )}
-        {marcos.map((m, i) => (
-          <ReferenceLine
-            key={i} yAxisId="temp" x={m.inicio}
-            stroke={(ETAPAS[m.etapa] || ETAPAS[0]).cor} strokeDasharray="2 3" strokeOpacity={0.6}
-          />
-        ))}
-
-        <Line yAxisId="temp" type="monotone" dataKey="camara"  name="câmara (°C)"
-              stroke="#ea580c" strokeWidth={2.5} dot={false} isAnimationActive={false} />
-        <Line yAxisId="temp" type="monotone" dataKey="amostra" name="amostra (°C)"
-              stroke="#0891b2" strokeWidth={1.8} dot={false} isAnimationActive={false} strokeDasharray="4 3" />
-        <Line yAxisId="peso" type="monotone" dataKey="peso"    name="peso (g)"
-              stroke="#16a34a" strokeWidth={2.5} dot={false} isAnimationActive={false} />
-      </LineChart>
-    </ResponsiveContainer>
+      {/* Painel 2 — temperatura: só pontos, sem nenhuma linha ligando.
+          Câmara com ponto maior e amostra menor por cima: as duas curvas quase coincidem
+          (a amostra segue a câmara com ~15 s de atraso num ensaio de ~55 min), então com
+          pontos do mesmo tamanho a de cima apagaria a de baixo. */}
+      <div className="fv-chart-panel">
+        <div className="fv-chart-cap" style={{ color: "#ea580c" }}>Temperatura (°C)</div>
+        <ResponsiveContainer width="100%" height={214}>
+          <ComposedChart data={amostras} syncId="fv-ensaio" margin={{ ...margem, bottom: 24 }}>
+            <CartesianGrid stroke="#f3f4f6" vertical={false} />
+            <XAxis dataKey="t" type="number" domain={dominioT}
+                   tick={{ fontSize: 11, fill: "#9ca3af" }}
+                   axisLine={false} tickLine={false} tickFormatter={mmss}
+                   label={{ value: "Tempo de ensaio (mm:ss)", position: "insideBottom",
+                            offset: -14, fontSize: 11, fill: "#6b7280" }} />
+            <YAxis yAxisId="temp" {...eixoY} domain={[0, "auto"]}
+                   tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+            <Tooltip content={<TooltipTemp />} cursor={{ stroke: "#d1d5db", strokeWidth: 1 }} />
+            <Legend verticalAlign="top" align="right" height={22}
+                    wrapperStyle={{ fontSize: 11 }} />
+            <Faixa combustao={combustao} yAxisId="temp" />
+            <Ventoinhas ventos={ventos} yAxisId="temp" comLabel />
+            {setpoint > 0 && (
+              <ReferenceLine
+                yAxisId="temp" y={setpoint} stroke="#dc2626" strokeDasharray="5 4"
+                label={{ value: `setpoint ${fmt(setpoint, 0)} °C`, position: "insideBottomRight",
+                         fontSize: 10, fill: "#dc2626" }}
+              />
+            )}
+            <Scatter yAxisId="temp" dataKey="camara" name="câmara (°C)"
+                     fill="#ea580c" shape={<PontoCamara />} isAnimationActive={false} />
+            <Scatter yAxisId="temp" dataKey="amostra" name="amostra (°C)"
+                     fill="#0891b2" shape={<PontoAmostra />} isAnimationActive={false} />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
   );
 }
 
@@ -335,16 +427,22 @@ export default function FornoView({ data }) {
       {/* Linha do tempo das etapas */}
       <LinhaDoTempo etapas={forno?.etapas} atual={atual} />
 
-      {/* Curva do ensaio: temperatura e peso no mesmo tempo */}
+      {/* Curva do ensaio: peso e temperatura no mesmo tempo */}
       <div className="md-card">
         <div className="md-card-title">
-          Temperatura e peso × tempo
+          Betume queimado e temperatura × tempo
           <span className="md-card-title-sub">
             {atual?.concluido ? "ensaio concluído — betume esgotado"
               : atual?.rodando ? "ao vivo" : "último ensaio"}
           </span>
         </div>
-        <CurvaEnsaio curva={forno?.curva} setpoint={atual?.setpoint_c} etapas={forno?.etapas} />
+        <CurvaEnsaio
+          curva={forno?.curva}
+          setpoint={atual?.setpoint_c}
+          etapas={forno?.etapas}
+          ventoinhaOn={forno?.ventoinha_on}
+          pesoInicial={atual?.peso_inicial_g}
+        />
       </div>
 
       {/* Balança */}

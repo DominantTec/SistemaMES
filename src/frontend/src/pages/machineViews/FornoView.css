@@ -278,6 +278,22 @@
   color: #9ca3af;
   font-size: 14px;
 }
+/* Os dois painéis do ensaio: encostados um no outro para lerem como um gráfico só
+   sobre o mesmo eixo de tempo (o de cima não desenha eixo X — quem rotula é o de baixo). */
+.fv-chart-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* Nome da grandeza fora do SVG: rótulo de eixo rotacionado do recharts é cortado quando
+   o painel é baixo, e legenda horizontal se lê melhor. Alinhado à largura do eixo Y. */
+.fv-chart-cap {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding-left: 8px;
+}
 .fv-chart-tooltip {
   background: white;
   border: 1px solid #e5e7eb;
