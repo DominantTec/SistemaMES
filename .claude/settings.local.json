@@ -95,7 +95,24 @@
       "Bash(git merge *)",
       "Bash(git branch *)",
       "Bash(git fetch *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(grep *)",
+      "Skill(dataviz)",
+      "Bash(npx playwright *)",
+      "Read(//c/Program Files \\\\\\(x86\\\\\\)/Microsoft/Edge/Application/**)",
+      "Read(//c/Program Files \\\\\\(x86\\\\\\)/Google/Chrome/Application/**)",
+      "Bash(\"/c/Program Files \\(x86\\)/Microsoft/Edge/Application/msedge.exe\" --headless=new --disable-gpu --hide-scrollbars --virtual-time-budget=6000 --window-size=1100,1500 --screenshot=\"C:\\\\\\\\Users\\\\\\\\bruno\\\\\\\\AppData\\\\\\\\Local\\\\\\\\Temp\\\\\\\\claude\\\\\\\\C--Projetos-PCP\\\\\\\\6a8fbf78-e5da-4224-bf2b-ad312806a68e\\\\\\\\scratchpad\\\\\\\\forno.png\" \"http://localhost:5199/harness.html\")",
+      "Bash(\"/c/Program Files \\(x86\\)/Microsoft/Edge/Application/msedge.exe\" --headless=new --disable-gpu --virtual-time-budget=6000 --dump-dom \"http://localhost:5199/harness.html\")",
+      "Bash(\"/c/Program Files \\(x86\\)/Microsoft/Edge/Application/msedge.exe\" --headless=new --disable-gpu --virtual-time-budget=8000 --dump-dom \"http://localhost:5199/harness.html\")",
+      "Bash(\"/c/Program Files \\(x86\\)/Microsoft/Edge/Application/msedge.exe\" --headless=new --disable-gpu --virtual-time-budget=8000 --enable-logging=stderr --log-level=0 --dump-dom \"http://localhost:5199/harness.html\")",
+      "Bash('/c/Program Files \\(x86\\)/Microsoft/Edge/Application/msedge.exe' --headless=new --disable-gpu --hide-scrollbars --virtual-time-budget=8000 --window-size=1100,1600 '--screenshot=C:\\\\Users\\\\bruno\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Projetos-PCP\\\\6a8fbf78-e5da-4224-bf2b-ad312806a68e\\\\scratchpad\\\\forno2.png' http://localhost:5199/harness.html)",
+      "Bash('/c/Program Files \\(x86\\)/Microsoft/Edge/Application/msedge.exe' --headless=new --disable-gpu --hide-scrollbars --virtual-time-budget=8000 --window-size=1100,1000 '--screenshot=C:\\\\Users\\\\bruno\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Projetos-PCP\\\\6a8fbf78-e5da-4224-bf2b-ad312806a68e\\\\scratchpad\\\\forno3.png' http://localhost:5199/harness.html)",
+      "Bash('/c/Program Files \\(x86\\)/Microsoft/Edge/Application/msedge.exe' --headless=new --disable-gpu --hide-scrollbars --virtual-time-budget=8000 --window-size=1100,1000 '--screenshot=C:\\\\Users\\\\bruno\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Projetos-PCP\\\\6a8fbf78-e5da-4224-bf2b-ad312806a68e\\\\scratchpad\\\\forno4.png' http://localhost:5199/harness.html)",
+      "Bash(npx eslint *)",
+      "Bash(echo \"=== EXIT: $? ===\")",
+      "Bash(git stash *)",
+      "Bash('/c/Program Files \\(x86\\)/Microsoft/Edge/Application/msedge.exe' --headless=new --disable-gpu --hide-scrollbars --virtual-time-budget=8000 --window-size=1100,880 '--screenshot=C:\\\\Users\\\\bruno\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Projetos-PCP\\\\6a8fbf78-e5da-4224-bf2b-ad312806a68e\\\\scratchpad\\\\forno5.png' http://localhost:5199/harness.html)",
+      "Bash(kill %1)"
     ]
   }
 }
